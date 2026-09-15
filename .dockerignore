@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.production.example
+**/node_modules
+**/dist
+**/vendor
+**/.phpunit.cache
+quality-results
