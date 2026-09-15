@@ -1,0 +1,45 @@
+FROM node:24-bookworm-slim AS frontend
+
+WORKDIR /build/FrontEnd
+COPY FrontEnd/package.json FrontEnd/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
+COPY FrontEnd/ ./
+
+# The Render image serves the SPA and API from one origin. An explicitly empty
+# value prevents a build-environment setting from restoring the old API host.
+RUN VITE_API_BASE_URL= npm run build
+
+FROM php:8.5-fpm-bookworm@sha256:81b9c405b013ebda0c9b8cd7a1a61424cf3627ca96348d93752a9b0539ce9a25
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends $PHPIZE_DEPS libpq-dev libsqlite3-dev unzip \
+    && docker-php-ext-install -j"$(nproc)" bcmath pdo_pgsql pdo_sqlite \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+COPY BackEnd/composer.json BackEnd/composer.lock ./
+RUN --mount=type=cache,target=/tmp/composer-cache,sharing=locked \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache \
+    COMPOSER_MAX_PARALLEL_HTTP=4 \
+    COMPOSER_PROCESS_TIMEOUT=900 \
+    composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-progress
+
+COPY BackEnd/ ./
+COPY --from=frontend /build/FrontEnd/dist/ ./public/
+
+RUN mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs \
+    && APP_ENV=build composer dump-autoload --no-dev --no-interaction --classmap-authoritative --no-scripts \
+    && APP_ENV=build php artisan package:discover --ansi \
+    && chown -R www-data:www-data bootstrap/cache storage
+
+USER www-data
+
+EXPOSE 10000
+
+CMD ["sh", "-c", "php artisan migrate --force && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
