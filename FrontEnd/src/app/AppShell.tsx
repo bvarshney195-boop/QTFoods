@@ -4,6 +4,7 @@ import type { ErpSession } from '../types/session';
 import { ErpSessionContext } from './ErpSessionContext';
 import { pageMap } from './pageMap';
 import { AccountSecurityPanel } from '../components/AccountSecurityPanel';
+import { useEditorActionReveal } from './useEditorActionReveal';
 import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
 import { roleLabel, screenLabel } from '../utils/displayText';
 
@@ -45,6 +46,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   const mainContentRef = useRef<HTMLElement>(null);
 
   useKeyboardScrollableRegions(mainContentRef);
+  useEditorActionReveal(mainContentRef);
 
   const closeSidebar = useCallback(() => {
     setSidebarOpen(false);
