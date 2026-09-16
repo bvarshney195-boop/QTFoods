@@ -53,6 +53,27 @@ describe('inbound procure-to-pay workspaces', () => {
     expect(await screen.findByText('Vehicle arrival recorded.')).toBeInTheDocument();
   });
 
+  it('brings the gate-entry editor into view on compact screens', async () => {
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+
+    try {
+      renderPage(<GateEntryWorkspace />);
+      await user.click(await screen.findByRole('button', { name: '+ New' }));
+
+      expect(screen.getByLabelText('Gate-entry number')).toBeVisible();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+      if (originalScroll) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+  });
+
   it('creates and posts a partial GRN into Quality Hold', async () => {
     const user = userEvent.setup();
     const draft = receipt();
