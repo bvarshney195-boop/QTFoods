@@ -19,6 +19,7 @@ final class ReportingAndHelpEndpointTest extends TestCase
     private const OPERATIONS = '00000000-0000-4000-8000-000000000202';
     private const FINANCE = '00000000-0000-4000-8000-000000000203';
     private const ADMIN = '00000000-0000-4000-8000-000000000204';
+    private const BI = '00000000-0000-4000-8000-000000000206';
     private const PERIOD = '00000000-0000-4000-8000-000000002101';
     private const EXPENSE = '00000000-0000-4000-8000-000000002013';
     private const OVERHEAD = '00000000-0000-4000-8000-000000002014';
@@ -120,6 +121,40 @@ final class ReportingAndHelpEndpointTest extends TestCase
 
         $this->signIn(self::ADMIN, self::OTHER_PLANT);
         $this->getJson('/api/v1/reports/runs/'.$runId)->assertNotFound();
+    }
+
+    public function test_bi_analyst_role_is_read_only_and_can_run_export_and_profitability_reports(): void
+    {
+        $this->signIn(self::BI);
+
+        $session = $this->getJson('/api/v1/me')->assertOk();
+        $this->assertSame(['BI_ANALYST'], $session->json('data.roles'));
+        $this->assertSame(['BI-PROFIT', 'BI-REP'], $session->json('data.allowed_screens'));
+        $this->assertSame(
+            ['ACTION:BI-REP:EXPORT', 'ACTION:BI-REP:RUN'],
+            $session->json('data.allowed_actions'),
+        );
+
+        $workspace = $this->getJson('/api/v1/reports')->assertOk();
+        $this->assertContains('RUN', $workspace->json('allowed_actions'));
+        $this->assertContains('EXPORT', $workspace->json('allowed_actions'));
+
+        $run = $this->command()->postJson('/api/v1/reports/runs', [
+            'run_number' => 'REP-BI-ANALYST-001',
+            'report_code' => 'INVENTORY_AVAILABILITY',
+            'as_of_date' => now('Asia/Kolkata')->toDateString(),
+            'parameters' => ['include_zero' => false],
+        ])->assertCreated()->assertJsonPath('data.report_code', 'INVENTORY_AVAILABILITY');
+
+        $runId = (string) $run->json('data.id');
+        $this->command()->postJson('/api/v1/reports/runs/'.$runId.'/exports', ['format' => 'CSV'])
+            ->assertCreated()->assertJsonPath('data.format', 'CSV');
+
+        $this->getJson('/api/v1/reports/profitability')->assertOk();
+
+        $this->getJson('/api/v1/finance/journals')->assertForbidden();
+        $this->command()->postJson('/api/v1/sales/leads', [])->assertForbidden();
+        $this->command()->postJson('/api/v1/inventory/issues', [])->assertForbidden();
     }
 
     public function test_help_articles_are_role_filtered_and_support_cases_complete_the_handoff(): void
