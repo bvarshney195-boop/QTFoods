@@ -21,9 +21,12 @@ All local demo accounts use password `prototype`.
 | Operations Manager | `operations.user@qtfoods.local` | Training Plant |
 | Finance Manager | `finance.user@qtfoods.local` | Both plants |
 | ERP Administrator | `admin.user@qtfoods.local` | Both plants |
+| BI Analyst | `bi.user@qtfoods.local` | Both plants |
 | Partner User | `partner.user@qtfoods.local` | Training Plant / North Market tenant |
 
 These credentials are seeded development data and must not be used outside a local environment.
+
+The seeded `BI_ANALYST` role is intentionally read-only outside reporting. It can open `BI-REP` and `BI-PROFIT`, run controlled report snapshots, and export CSV/JSON, but it has no sales, inventory, production, finance-posting, or administration actions.
 
 ## Run
 
