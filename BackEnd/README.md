@@ -85,9 +85,12 @@ All accounts use password `prototype`.
 | Operations Manager | `operations.user@qtfoods.local` |
 | Finance Manager | `finance.user@qtfoods.local` |
 | ERP Administrator | `admin.user@qtfoods.local` |
+| BI Analyst | `bi.user@qtfoods.local` |
 | Partner User | `partner.user@qtfoods.local` |
 
 The container seeds these accounts at startup. They are development-only credentials.
+
+`BI_ANALYST` is a least-privilege system role with `BI-REP` and `BI-PROFIT` screen access plus only `ACTION:BI-REP:RUN` and `ACTION:BI-REP:EXPORT`. It is suitable for read-only management/BI users who must not post operational or finance transactions.
 
 ## Run with Docker
 
