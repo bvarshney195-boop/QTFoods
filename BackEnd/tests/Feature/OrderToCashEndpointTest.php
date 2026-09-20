@@ -16,6 +16,7 @@ final class OrderToCashEndpointTest extends TestCase
     private const PLANT_ID = '00000000-0000-4000-8000-000000000101';
     private const OTHER_PLANT_ID = '00000000-0000-4000-8000-000000000102';
     private const SALES_ID = '00000000-0000-4000-8000-000000000201';
+    private const OPERATIONS_ID = '00000000-0000-4000-8000-000000000202';
     private const FINANCE_ID = '00000000-0000-4000-8000-000000000203';
     private const ADMIN_ID = '00000000-0000-4000-8000-000000000204';
     private const CUSTOMER_ID = '00000000-0000-4000-8000-000000000501';
@@ -27,6 +28,31 @@ final class OrderToCashEndpointTest extends TestCase
         parent::setUp();
         $this->seed();
         $this->signIn(self::SALES_ID);
+    }
+
+    public function test_qualified_lead_can_create_and_link_a_new_customer_during_conversion(): void
+    {
+        $lead = $this->command()->postJson('/api/v1/sales/leads', [
+            'lead_number' => 'LEAD-NEW-CUSTOMER', 'customer_party_id' => null,
+            'company_name' => 'Fresh Retail Prospect', 'contact_name' => 'Buyer Desk',
+            'contact_email' => 'buyer@fresh-retail.example', 'contact_phone' => null,
+            'source' => 'DIRECT', 'enquiry_date' => now()->toDateString(),
+            'expected_close_date' => now()->addDays(7)->toDateString(), 'estimated_value' => '5000', 'notes' => null,
+        ])->assertCreated();
+        $leadId = (string) $lead->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/leads/'.$leadId.'/qualify')->assertOk();
+
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/leads/'.$leadId.'/convert', [
+            'conversion_path' => 'CREATE_CUSTOMER', 'customer_code' => 'CUST-FRESH-RETAIL',
+            'customer_name' => 'Fresh Retail Prospect', 'contact_name' => 'Buyer Desk',
+            'contact_email' => 'buyer@fresh-retail.example', 'contact_phone' => null,
+        ])->assertOk()->assertJsonPath('data.status', 'CONVERTED');
+
+        $customerId = DB::table('sales_leads')->where('id', $leadId)->value('customer_party_id');
+        $this->assertNotNull($customerId);
+        $this->assertDatabaseHas('parties', ['id' => $customerId, 'code' => 'CUST-FRESH-RETAIL', 'status' => 'ACTIVE']);
+        $this->assertDatabaseHas('party_roles', ['party_id' => $customerId, 'role_code' => 'CUSTOMER']);
+        $this->assertDatabaseHas('party_contacts', ['party_id' => $customerId, 'email' => 'buyer@fresh-retail.example', 'is_primary' => true]);
     }
 
     public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
@@ -67,6 +93,7 @@ final class OrderToCashEndpointTest extends TestCase
             ->assertJsonPath('data.allocated_quantity', '10.000000')->assertJsonPath('data.fefo_break_count', 1);
         $allocationId = (string) $allocation->json('data.id');
         $this->assertDatabaseHas('stock_reservations', ['status' => 'ACTIVE', 'quantity_base' => 10]);
+        $this->signIn(self::OPERATIONS_ID);
         $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
             ->assertOk()->assertJsonPath('data.status', 'PICKED')->assertJsonPath('data.record_version', 2);
 
@@ -92,12 +119,17 @@ final class OrderToCashEndpointTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.status', 'DELIVERED')->assertJsonPath('data.sales_order_status', 'COMPLETED');
         $shipmentLineId = (string) $this->getJson('/api/v1/dispatch/shipments/'.$shipmentId)->assertOk()->json('data.lines.0.id');
 
+        $this->signIn(self::SALES_ID);
         $claim = $this->command()->postJson('/api/v1/sales/customer-claims', [
             'claim_number' => 'CLM-P2-001', 'shipment_id' => $shipmentId, 'claim_type' => 'DAMAGE',
             'requested_resolution' => 'CREDIT', 'reason' => 'One outer case was damaged in transit.',
             'lines' => [['shipment_line_id' => $shipmentLineId, 'quantity' => '1']],
         ])->assertCreated()->assertJsonPath('data.status', 'OPEN');
         $claimId = (string) $claim->json('data.id');
+        $this->getJson('/api/v1/sales/customer-claims')->assertOk()
+            ->assertJsonPath('data.0.id', $claimId)->assertJsonPath('data.0.status', 'OPEN');
+        $this->getJson('/api/v1/sales/customer-claims/'.$claimId)->assertOk()
+            ->assertJsonPath('data.id', $claimId)->assertJsonPath('data.lines.0.shipment_line_id', $shipmentLineId);
         $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/customer-claims/'.$claimId.'/resolve', [
             'resolution_type' => 'CREDIT', 'credit_amount' => '118', 'notes' => 'Commercial credit approved for damaged pack.',
         ])->assertOk()->assertJsonPath('data.status', 'RESOLVED')->assertJsonPath('data.credit_amount', '118.0000');

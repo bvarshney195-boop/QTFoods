@@ -69,7 +69,18 @@ final class OrderToCashController
 
     public function convertLead(string $leadId, Request $request): JsonResponse
     {
-        $validated = $request->validate(['customer_party_id' => ['required', 'uuid']]);
+        if (! $request->filled('conversion_path') && $request->filled('customer_party_id')) {
+            $request->merge(['conversion_path' => 'EXISTING_CUSTOMER']);
+        }
+        $this->normalise($request, ['conversion_path', 'customer_code']);
+        $validated = $request->validate([
+            'conversion_path' => ['required', Rule::in(['EXISTING_CUSTOMER', 'CREATE_CUSTOMER'])],
+            'customer_party_id' => ['nullable', 'uuid', 'required_if:conversion_path,EXISTING_CUSTOMER'],
+            'customer_code' => ['nullable', 'string', 'max:64', 'regex:/^[A-Z0-9][A-Z0-9_-]*$/', 'required_if:conversion_path,CREATE_CUSTOMER'],
+            'customer_name' => ['nullable', 'string', 'max:255', 'required_if:conversion_path,CREATE_CUSTOMER'],
+            'contact_name' => ['nullable', 'string', 'max:160', 'required_if:conversion_path,CREATE_CUSTOMER'],
+            'contact_email' => ['nullable', 'email', 'max:255'], 'contact_phone' => ['nullable', 'string', 'max:40'],
+        ]);
         return response()->json(['data' => $this->service->convertLead($leadId, $validated + $this->commandContext($request, true))]);
     }
 

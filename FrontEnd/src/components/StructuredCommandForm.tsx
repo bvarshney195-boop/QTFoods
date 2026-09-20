@@ -337,7 +337,10 @@ function suitableReferenceRows(fieldKey: string, rows: LookupRow[]): LookupRow[]
 function primitiveOptions(fieldKey: string, currentValue: unknown, catalog: LookupCatalog): string[] {
   if (!primitiveChoiceField(fieldKey)) return [];
   const current = currentValue === null || currentValue === undefined ? '' : String(currentValue);
-  const semantic = catalog.primitives.filter((collection) => lookupScore(fieldKey, collection.key) > 0);
+  const exactLookup = CHOICE_LOOKUPS[fieldKey];
+  const semantic = catalog.primitives.filter((collection) => exactLookup
+    ? collection.key.split('.').at(-1) === exactLookup
+    : lookupScore(fieldKey, collection.key) > 0);
   const collection = semantic.sort((left, right) => {
     const leftContains = current && left.values.map(String).includes(current) ? 10 : 0;
     const rightContains = current && right.values.map(String).includes(current) ? 10 : 0;
@@ -487,7 +490,10 @@ function emailField(fieldKey: string): boolean { return fieldKey.includes('email
 function phoneField(fieldKey: string): boolean { return fieldKey.includes('phone'); }
 function dateTimeField(fieldKey: string, value: unknown): boolean { return fieldKey.endsWith('_at') || /^\d{4}-\d{2}-\d{2}T/.test(stringValue(value)); }
 function dateField(fieldKey: string, value: unknown): boolean { return /(^|_)(date|from|to|start|end)$/.test(fieldKey) || /^\d{4}-\d{2}-\d{2}$/.test(stringValue(value)); }
-function numericField(fieldKey: string): boolean { return tokens(fieldKey).some((token) => ['amount', 'cost', 'price', 'value', 'rate', 'percent', 'quantity', 'day', 'month', 'count', 'gross', 'deduction', 'proceed', 'debit', 'credit'].includes(token)); }
+function numericField(fieldKey: string): boolean {
+  if (referenceField(fieldKey)) return false;
+  return tokens(fieldKey).some((token) => ['amount', 'cost', 'price', 'value', 'rate', 'percent', 'quantity', 'day', 'month', 'count', 'gross', 'deduction', 'proceed', 'debit', 'credit'].includes(token));
+}
 function integerField(fieldKey: string): boolean { return /(days|months|count|line_number)$/i.test(fieldKey); }
 function nonNegativeField(fieldKey: string): boolean { return /(amount|cost|price|value|rate|percent|quantity|days|months|count|gross|deductions|proceeds|debit|credit)$/i.test(fieldKey); }
 function longTextField(fieldKey: string): boolean { return /(description|notes|reason|instructions|terms|assumption|resolution|corrective_action)$/i.test(fieldKey); }
@@ -505,4 +511,13 @@ const KNOWN_CHOICES: Record<string, string[]> = {
   payment_method: ['BANK', 'CASH', 'CHEQUE', 'UPI'],
   export_type: ['AP_BANK', 'GST_INPUT', 'GST_OUTPUT'],
   severity: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
+  conversion_path: ['EXISTING_CUSTOMER', 'CREATE_CUSTOMER'],
+};
+
+const CHOICE_LOOKUPS: Record<string, string> = {
+  outcome: 'outcomes',
+  claim_type: 'claim_types',
+  requested_resolution: 'resolutions',
+  resolution_type: 'resolutions',
+  payment_method: 'payment_methods',
 };

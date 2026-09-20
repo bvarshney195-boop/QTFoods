@@ -58,6 +58,29 @@ describe('P2 commercial and finance workspaces', () => {
     await waitFor(() => expect(api.commandP2).toHaveBeenCalledWith('/api/v1/dispatch/orders/order-1/allocations', expect.objectContaining({ allocation_number: expect.stringMatching(/^ALLOC-/) }), 7));
   });
 
+  it('opens the credit form from the Credit control tab header action', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { customers: [{ id: 'customer-1', name: 'Retail customer' }], items: [{ id: 'item-1', code: 'SKU-1', name: 'Item', base_uom: 'EA' }] }, allowed_actions: ['CREATE_PRICE_LIST', 'CREATE_CONTRACT', 'MANAGE_CREDIT'] });
+    renderPage(<CommercialP2Workspace screen="CRM-PRICE" />);
+    await user.click(await screen.findByRole('button', { name: 'Credit control' }));
+    await user.click(screen.getByRole('button', { name: '+ New' }));
+    expect(screen.getByRole('heading', { level: 2, name: 'Manage credit' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Credit Limit')).toBeInTheDocument();
+  });
+
+  it('refreshes receipt allocation and total when the selected invoice changes', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { open_invoices: [
+      { id: 'invoice-1', invoice_number: 'INV-1', customer_party_id: 'customer-1', customer_name: 'Customer A', outstanding_amount: '2242' },
+      { id: 'invoice-2', invoice_number: 'INV-2', customer_party_id: 'customer-2', customer_name: 'Customer B', outstanding_amount: '950' },
+    ], customers: [{ id: 'customer-1', name: 'Customer A' }, { id: 'customer-2', name: 'Customer B' }], payment_methods: ['BANK', 'CASH'] }, allowed_actions: ['COLLECT'] });
+    renderPage(<CommercialP2Workspace screen="FIN-AR" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.selectOptions(screen.getByLabelText('Invoice'), 'invoice-2');
+    expect(screen.getByLabelText('Amount')).toHaveValue(950);
+    expect(screen.getByLabelText('Total Amount')).toHaveValue(950);
+  });
+
   it('uses a labelled employee form and sends the same structured payroll payload', async () => {
     const user = userEvent.setup();
     api.listP2.mockResolvedValue({

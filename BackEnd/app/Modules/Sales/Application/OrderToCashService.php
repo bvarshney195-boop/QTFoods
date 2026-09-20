@@ -100,10 +100,30 @@ final class OrderToCashService
 
     public function convertLead(string $id, array $data): array
     {
-        $this->assertCustomer($data['customer_party_id'] ?? null, $data);
-        return $this->leadTransition($id, 'CONVERTED', 'CONVERTED', ['QUALIFIED'], $data, [
-            'customer_party_id' => $data['customer_party_id'],
-        ]);
+        return DB::transaction(function () use ($id, $data): array {
+            $lead = $this->find('sales_leads', $id, $data, 'Sales lead', true);
+            $this->assertVersion($lead, $data, 'sales lead');
+            $this->assertStatus($lead, ['QUALIFIED'], 'Only a qualified lead can be converted.');
+            $customerId = $data['customer_party_id'] ?? null;
+            if (($data['conversion_path'] ?? 'EXISTING_CUSTOMER') === 'CREATE_CUSTOMER') {
+                $duplicate = DB::table('parties')->where('company_id', $data['company_id'])
+                    ->where(fn ($query) => $query->where('code', $data['customer_code'])->orWhereRaw('LOWER(display_name) = ?', [Str::lower(trim($data['customer_name']))]))->first();
+                if ($duplicate) throw ValidationException::withMessages(['customer_name' => ['A customer with this code or name already exists. Select the existing customer instead.']]);
+                $customerId = (string) Str::uuid(); $now = CarbonImmutable::now();
+                DB::table('parties')->insert(['id' => $customerId, 'company_id' => $data['company_id'], 'code' => $data['customer_code'],
+                    'display_name' => trim($data['customer_name']), 'legal_name' => trim($data['customer_name']), 'party_kind' => 'ORGANISATION',
+                    'notes' => 'Created from sales lead '.$lead->lead_number, 'status' => 'ACTIVE', 'record_version' => 1,
+                    'status_reason' => 'Created during governed lead conversion.', 'status_changed_at' => $now, 'status_changed_by' => $data['actor_id'],
+                    'created_at' => $now, 'updated_at' => $now]);
+                DB::table('party_roles')->insert(['id' => (string) Str::uuid(), 'company_id' => $data['company_id'], 'party_id' => $customerId,
+                    'role_code' => 'CUSTOMER', 'created_at' => $now, 'updated_at' => $now]);
+                DB::table('party_contacts')->insert(['id' => (string) Str::uuid(), 'company_id' => $data['company_id'], 'party_id' => $customerId,
+                    'name' => trim($data['contact_name']), 'job_title' => null, 'department' => null, 'email' => $this->nullable($data['contact_email'] ?? null),
+                    'phone' => $this->nullable($data['contact_phone'] ?? null), 'mobile' => null, 'is_primary' => true, 'created_at' => $now, 'updated_at' => $now]);
+            }
+            $this->assertCustomer($customerId, $data);
+            return $this->leadTransition($id, 'CONVERTED', 'CONVERTED', ['QUALIFIED'], $data, ['customer_party_id' => $customerId]);
+        }, 3);
     }
 
     public function closeLead(string $id, string $outcome, ?string $reason, array $data): array
@@ -1265,7 +1285,10 @@ final class OrderToCashService
             $tax = $this->decimal(bcdiv(bcmul($net, $taxRate, 8), '100', 8));
             $cost = DB::table('batch_costs as cost')->join('production_orders as production', 'production.id', '=', 'cost.production_order_id')
                 ->where('cost.company_id', $data['company_id'])->where('cost.plant_id', $data['plant_id'])
-                ->where('production.output_sku_id', $input['item_id'])->orderByDesc('cost.calculated_at')->value('cost.cost_per_good_unit') ?? 0;
+                ->where('production.output_sku_id', $input['item_id'])->orderByDesc('cost.calculated_at')->value('cost.cost_per_good_unit');
+            // Preserve order capture when costing is not yet finalized. Profitability marks this
+            // snapshot as incomplete instead of presenting a false 100% margin.
+            $cost ??= 0;
             $priced[] = [
                 'line_number' => $index + 1, 'item_id' => $input['item_id'], 'description' => $item->name,
                 'uom_code' => $input['uom_code'], 'ordered_quantity' => $quantity, 'unit_price' => $this->decimal($source->unit_price),

@@ -538,7 +538,9 @@ final class DatabaseSeeder extends Seeder
             ];
             $reportActions = ['ACTION:BI-REP:RUN', 'ACTION:BI-REP:EXPORT'];
             $roleActions['SALES_MANAGER'] = array_values(array_unique([
-                ...$roleActions['SALES_MANAGER'], ...$p2SalesActions, ...$helpUserActions,
+                ...$roleActions['SALES_MANAGER'], ...array_values(array_filter($p2SalesActions, fn (string $action) => ! str_starts_with($action, 'ACTION:DSP-')
+                    && $action !== 'ACTION:RET-CASE:RECEIVE')),
+                'ACTION:DSP-PICK:ALLOCATE', ...$helpUserActions,
             ]));
             $roleActions['OPERATIONS_MANAGER'] = array_values(array_unique([
                 ...$roleActions['OPERATIONS_MANAGER'], ...$p2OperationsActions, ...$p3TransferActions,

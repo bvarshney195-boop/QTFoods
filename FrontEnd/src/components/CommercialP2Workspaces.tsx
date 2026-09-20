@@ -40,7 +40,7 @@ const noRequiredFields: StructuredCommandSchema = { required: [] };
 const commercialSchemas = {
   leadCreate: { required: ['lead_number', 'company_name', 'contact_name', 'source', 'enquiry_date', 'estimated_value'], atLeastOne: [{ paths: ['contact_email', 'contact_phone'], message: 'Enter a contact email or contact phone.' }] },
   leadUpdate: { required: ['company_name', 'contact_name', 'source', 'enquiry_date', 'estimated_value'], atLeastOne: [{ paths: ['contact_email', 'contact_phone'], message: 'Enter a contact email or contact phone.' }] },
-  leadConvert: { required: ['customer_party_id'] },
+  leadConvert: { required: ['conversion_path'], requiredWhen: [{ path: 'conversion_path', equals: 'EXISTING_CUSTOMER', required: ['customer_party_id'] }, { path: 'conversion_path', equals: 'CREATE_CUSTOMER', required: ['customer_code', 'customer_name', 'contact_name'] }] },
   leadClose: { required: ['outcome'] },
   priceCreate: { required: ['list_number', 'name', 'effective_from', 'lines[].item_id', 'lines[].uom_code', 'lines[].minimum_quantity', 'lines[].unit_price', 'lines[].maximum_discount_percent', 'lines[].tax_rate'], minItems: { lines: 1 } },
   priceUpdate: { required: ['name', 'effective_from', 'lines[].item_id', 'lines[].uom_code', 'lines[].minimum_quantity', 'lines[].unit_price', 'lines[].maximum_discount_percent', 'lines[].tax_rate'], minItems: { lines: 1 } },
@@ -141,7 +141,13 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
       const base = `/api/v1/sales/leads/${record.id}`;
       if (action === 'UPDATE') return edit('Update lead', 'Only editable enquiry facts are sent; identity and history remain immutable.', base, leadBody(record), record, commercialSchemas.leadUpdate);
       if (action === 'QUALIFY') return run(`${base}/qualify`, 'Lead qualified.', record);
-      if (action === 'CONVERT') return edit('Convert lead', 'Select the governed customer party that owns the converted opportunity.', `${base}/convert`, { customer_party_id: value(record, 'customer_party_id', id(first(workspace, 'customers'))) }, record, commercialSchemas.leadConvert);
+      if (action === 'CONVERT') return edit('Convert lead', 'Link an existing customer or create a governed customer directly from the qualified lead.', `${base}/convert`, {
+        conversion_path: value(record, 'customer_party_id') ? 'EXISTING_CUSTOMER' : 'CREATE_CUSTOMER',
+        customer_party_id: value(record, 'customer_party_id', id(first(workspace, 'customers'))) || null,
+        customer_code: `CUST-${String(value(record, 'lead_number', '')).replace(/^LEAD-?/i, '')}`,
+        customer_name: value(record, 'company_name', ''), contact_name: value(record, 'contact_name', ''),
+        contact_email: value(record, 'contact_email'), contact_phone: value(record, 'contact_phone'),
+      }, record, commercialSchemas.leadConvert);
       if (action === 'CLOSE_WON' || action === 'CLOSE_LOST') return edit(action === 'CLOSE_WON' ? 'Close lead as won' : 'Close lead as lost', 'Record the outcome and optional commercial reason.', `${base}/close`, { outcome: action === 'CLOSE_WON' ? 'WON' : 'LOST', reason: '' }, record, commercialSchemas.leadClose);
       return null;
     },
@@ -227,7 +233,7 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
   'BI-PROFIT': {
     code: 'BI-PROFIT', title: 'Order Profitability', description: 'Compare recognized order revenue with immutable item-cost snapshots.',
     notice: 'This read model is calculated from live sales lines and cost snapshots; it never posts or changes the ledger.', listPath: '/api/v1/reports/profitability', supportsStatus: false,
-    collections: [{ key: 'data', label: 'Order margins', kind: 'margin', showStatus: false, columns: [{ label: 'Order', key: 'order_number' }, { label: 'Customer', key: 'customer.name' }, { label: 'Date', key: 'order_date', format: 'date' }, { label: 'Revenue', key: 'revenue', format: 'money' }, { label: 'Cost', key: 'cost', format: 'money' }, { label: 'Gross margin', key: 'gross_margin', format: 'money' }, { label: 'Margin %', key: 'margin_percent', format: 'number' }] }],
+    collections: [{ key: 'data', label: 'Order margins', kind: 'margin', showStatus: false, columns: [{ label: 'Order', key: 'order_number' }, { label: 'Customer', key: 'customer.name' }, { label: 'Date', key: 'order_date', format: 'date' }, { label: 'Revenue', key: 'revenue', format: 'money' }, { label: 'Cost', key: 'cost', format: 'money' }, { label: 'Gross margin', key: 'gross_margin', format: 'money' }, { label: 'Margin %', key: 'margin_percent', format: 'number' }, { label: 'Cost status', key: 'cost_status' }] }],
   },
 };
 

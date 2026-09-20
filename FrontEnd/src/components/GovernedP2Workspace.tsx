@@ -74,6 +74,8 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
+  const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
+  const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
 
   async function open(record: P2Record) {
     setEditor(null); setFeedback(clear());
@@ -125,7 +127,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   }
 
   return <>
-    <PageHeader code={config.code} batch={config.batch ?? 'P2 operational'} title={config.title} description={config.description} onNew={availableCreators[0] ? () => startCreator(availableCreators[0]) : undefined} />
+    <PageHeader code={config.code} batch={config.batch ?? 'P2 operational'} title={config.title} description={config.description} onNew={contextualCreator ? () => startCreator(contextualCreator) : undefined} />
     <div className="live-notice p2-live-notice"><span />{config.notice}</div>
     {workspace?.summary ? <SummaryStrip summary={workspace.summary} /> : null}
     {config.collections.length > 1 || availableCreators.length > 1 ? <div className="workspace-tabs p2-command-tabs">
@@ -157,7 +159,25 @@ function Register({ records, columns, showStatus, selectedId, onOpen }: { record
 }
 
 function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string> }) {
-  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body })} /><div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit">Save</button></div></fieldset></form>;
+  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body: refreshCollectionAllocation(body, editor.body, workspace) })} /><div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit">Save</button></div></fieldset></form>;
+}
+
+function refreshCollectionAllocation(body: unknown, previous: unknown, workspace: P2Workspace | null): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || !previous || typeof previous !== 'object' || Array.isArray(previous)) return body;
+  const next = body as Record<string, unknown>;
+  const before = previous as Record<string, unknown>;
+  const allocations = Array.isArray(next.allocations) ? next.allocations : [];
+  const priorAllocations = Array.isArray(before.allocations) ? before.allocations : [];
+  if (allocations.length !== 1 || !allocations[0] || typeof allocations[0] !== 'object') return body;
+  const allocation = allocations[0] as Record<string, unknown>;
+  const prior = priorAllocations[0] && typeof priorAllocations[0] === 'object' ? priorAllocations[0] as Record<string, unknown> : {};
+  if (allocation.invoice_id === prior.invoice_id) return body;
+  const lookups = workspace?.lookups && typeof workspace.lookups === 'object' ? workspace.lookups as Record<string, unknown> : {};
+  const invoices = Array.isArray(lookups.open_invoices) ? lookups.open_invoices : [];
+  const invoice = invoices.find((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).id ?? '') === String(allocation.invoice_id ?? '')) as Record<string, unknown> | undefined;
+  if (!invoice) return body;
+  const amount = String(invoice.outstanding_amount ?? '0');
+  return { ...next, customer_party_id: invoice.customer_party_id, total_amount: amount, allocations: [{ ...allocation, amount }] };
 }
 
 function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {

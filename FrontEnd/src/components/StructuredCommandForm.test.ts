@@ -50,4 +50,8 @@ describe('structured command form schema validation', () => {
     expect(errors.contact_email).toContain('contact email or contact phone');
     expect(errors.contact_phone).toContain('contact email or contact phone');
   });
+
+  it('does not treat reference identifiers containing price as numeric values', () => {
+    expect(validateStructuredCommand({ sales_price_list_id: '00000000-0000-4000-8000-000000002401' }, { required: [] })).toEqual({});
+  });
 });

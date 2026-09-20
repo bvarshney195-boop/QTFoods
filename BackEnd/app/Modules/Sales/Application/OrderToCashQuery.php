@@ -63,7 +63,8 @@ final class OrderToCashQuery
             'summary' => ['price_lists' => count($prices), 'active_price_lists' => collect($prices)->where('status', 'ACTIVE')->count(),
                 'credit_holds' => collect($credits)->where('is_on_hold', true)->count(), 'active_contracts' => collect($contracts)->where('status', 'ACTIVE')->count()],
             'lookups' => ['price_statuses' => OrderToCashService::PRICE_STATUSES, 'contract_statuses' => OrderToCashService::CONTRACT_STATUSES,
-                'sorts' => self::SORTS, 'customers' => $this->customers($scope), 'items' => $this->items($scope)],
+                'sorts' => self::SORTS, 'customers' => $this->customers($scope), 'items' => $this->items($scope),
+                'price_lists' => $this->activePriceLists($scope)],
             'allowed_actions' => array_values(array_filter([
                 $this->can($permissions, 'ACTION:CRM-PRICE:CREATE') ? 'CREATE_PRICE_LIST' : null,
                 $this->can($permissions, 'ACTION:CRM-PRICE:CREATE') ? 'CREATE_CONTRACT' : null,
@@ -131,6 +132,8 @@ final class OrderToCashQuery
             'lookups' => ['statuses' => OrderToCashService::SHIPMENT_STATUSES, 'sorts' => self::SORTS,
                 'allocations' => DB::table('sales_allocations as allocation')->join('sales_orders as orders', 'orders.id', '=', 'allocation.sales_order_id')
                     ->where('allocation.company_id', $scope['company_id'])->where('allocation.plant_id', $scope['plant_id'])->where('allocation.status', 'PICKED')
+                    ->whereNotExists(function ($query): void { $query->selectRaw('1')->from('shipments as used_shipment')
+                        ->whereColumn('used_shipment.sales_allocation_id', 'allocation.id')->where('used_shipment.shipment_type', 'SALES')->whereNot('used_shipment.status', 'CANCELLED'); })
                     ->orderBy('allocation.allocation_number')->get(['allocation.id', 'allocation.allocation_number', 'allocation.record_version', 'orders.order_number'])->all()],
             'allowed_actions' => $this->can($permissions, 'ACTION:DSP-LOAD:CREATE') ? ['CREATE'] : []];
     }
@@ -165,8 +168,8 @@ final class OrderToCashQuery
                     ->where('shipment.shipment_type', 'SALES')->whereIn('shipment.status', ['DISPATCHED', 'DELIVERED'])
                     ->orderByDesc('shipment.dispatched_at')->get(['shipment.id', 'shipment.shipment_number', 'shipment.status', 'customer.display_name as customer_name'])
                     ->map(function (object $shipment): array {
-                        $line = DB::table('shipment_lines')->where('shipment_id', $shipment->id)->orderBy('created_at')->first(['id', 'quantity']);
-                        return $this->row($shipment) + ['first_line_id' => $line?->id, 'first_line_quantity' => $line?->quantity];
+                        $line = DB::table('shipment_lines')->where('shipment_id', $shipment->id)->orderBy('created_at')->first(['id', 'shipped_quantity']);
+                        return $this->row($shipment) + ['first_line_id' => $line?->id, 'first_line_quantity' => $line?->shipped_quantity];
                     })->all()],
             'allowed_actions' => $this->can($permissions, 'ACTION:RET-CASE:CREATE') ? ['CREATE'] : []];
     }
@@ -223,15 +226,18 @@ final class OrderToCashQuery
                 DB::raw('SUM(line.net_amount) as revenue'), DB::raw('SUM(line.ordered_quantity * line.unit_cost_snapshot) as cost'),
             ])->map(function ($row): array {
                 $revenue = $this->decimal($row->revenue); $cost = $this->decimal($row->cost); $margin = bcsub($revenue, $cost, 6);
+                $costAvailable = bccomp($cost, '0', 6) > 0;
                 return ['id' => (string) $row->id, 'order_number' => $row->order_number, 'order_date' => (string) $row->order_date,
                     'status' => $row->status, 'customer' => ['id' => (string) $row->customer_id, 'code' => $row->customer_code, 'name' => $row->customer_name],
-                    'revenue' => $revenue, 'cost' => $cost, 'gross_margin' => $margin,
-                    'margin_percent' => bccomp($revenue, '0', 6) > 0 ? bcmul(bcdiv($margin, $revenue, 8), '100', 4) : '0.0000'];
+                    'revenue' => $revenue, 'cost' => $costAvailable ? $cost : null, 'gross_margin' => $costAvailable ? $margin : null,
+                    'margin_percent' => $costAvailable && bccomp($revenue, '0', 6) > 0 ? bcmul(bcdiv($margin, $revenue, 8), '100', 4) : null,
+                    'cost_status' => $costAvailable ? 'AVAILABLE' : 'MISSING_COST_SNAPSHOT'];
             });
         return ['data' => $rows->all(), 'meta' => ['total' => $rows->count()],
             'summary' => ['revenue' => $this->decimal($rows->sum(fn ($row) => $row['revenue'])),
-                'cost' => $this->decimal($rows->sum(fn ($row) => $row['cost'])),
-                'gross_margin' => $this->decimal($rows->sum(fn ($row) => $row['gross_margin']))],
+                'cost' => $this->decimal($rows->sum(fn ($row) => $row['cost'] ?? 0)),
+                'gross_margin' => $this->decimal($rows->sum(fn ($row) => $row['gross_margin'] ?? 0)),
+                'missing_cost_snapshots' => $rows->where('cost_status', 'MISSING_COST_SNAPSHOT')->count()],
             'lookups' => ['customers' => $this->customers($scope)], 'allowed_actions' => []];
     }
 
@@ -476,7 +482,8 @@ final class OrderToCashQuery
 
     private function items(array $scope): array
     {
-        return DB::table('items')->where('company_id', $scope['company_id'])->where('status', 'ACTIVE')->orderBy('code')->get(['id', 'code', 'name', 'base_uom'])->all();
+        return DB::table('items')->where('company_id', $scope['company_id'])->where('status', 'ACTIVE')
+            ->whereIn('item_type', ['FINISHED_GOOD', 'SERVICE'])->orderBy('code')->get(['id', 'code', 'name', 'item_type', 'base_uom'])->all();
     }
 
     private function activePriceLists(array $scope): array
