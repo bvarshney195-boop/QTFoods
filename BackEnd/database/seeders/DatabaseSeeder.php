@@ -54,6 +54,7 @@ final class DatabaseSeeder extends Seeder
                 'finance' => ['00000000-0000-4000-8000-000000000203', 'finance.user@qtfoods.local', 'Demo Finance Manager'],
                 'admin' => ['00000000-0000-4000-8000-000000000204', 'admin.user@qtfoods.local', 'Demo ERP Administrator'],
                 'partner' => ['00000000-0000-4000-8000-000000000205', 'partner.user@qtfoods.local', 'North Market Portal User'],
+                'bi' => ['00000000-0000-4000-8000-000000000206', 'bi.user@qtfoods.local', 'Demo BI Analyst'],
             ];
 
             foreach ($users as [$id, $email, $name]) {
@@ -80,6 +81,7 @@ final class DatabaseSeeder extends Seeder
                 'FINANCE_REVIEWER' => ['00000000-0000-4000-8000-000000000303', 'Finance Manager', 'Approvals, supplier and customer accounts, accounting, payroll, reporting, and finance controls.'],
                 'ERP_ADMIN' => ['00000000-0000-4000-8000-000000000304', 'ERP Administrator', 'Organisation setup, users, roles, controls, support, and full-system administration.'],
                 'PARTNER_PORTAL' => ['00000000-0000-4000-8000-000000000305', 'Partner User', 'Access only to records and documents explicitly shared with the assigned customer.'],
+                'BI_ANALYST' => ['00000000-0000-4000-8000-000000000306', 'BI Analyst', 'Read-only business intelligence access to controlled reports and order profitability, with permissioned report generation and export.'],
             ];
 
             foreach ($roles as $code => [$id, $name, $description]) {
@@ -128,6 +130,7 @@ final class DatabaseSeeder extends Seeder
                 ],
                 'ERP_ADMIN' => $allScreens,
                 'PARTNER_PORTAL' => ['PORTAL-EXT'],
+                'BI_ANALYST' => ['BI-REP', 'BI-PROFIT'],
             ];
 
             $permissionIds = [];
@@ -302,6 +305,7 @@ final class DatabaseSeeder extends Seeder
                     'ACTION:RET-UNSOLD:FINANCE',
                     'ACTION:RET-UNSOLD:EVIDENCE',
                 ],
+                'BI_ANALYST' => [],
                 'PARTNER_PORTAL' => [
                     'ACTION:PORTAL-EXT:CLAIM-CREATE',
                     'ACTION:PORTAL-EXT:DOCUMENT-UPLOAD',
@@ -537,6 +541,7 @@ final class DatabaseSeeder extends Seeder
                 'ACTION:ADM-HELP:REOPEN', 'ACTION:ADM-HELP:CLOSE',
             ];
             $reportActions = ['ACTION:BI-REP:RUN', 'ACTION:BI-REP:EXPORT'];
+            $roleActions['BI_ANALYST'] = $reportActions;
             $roleActions['SALES_MANAGER'] = array_values(array_unique([
                 ...$roleActions['SALES_MANAGER'], ...array_values(array_filter($p2SalesActions, fn (string $action) => ! str_starts_with($action, 'ACTION:DSP-')
                     && $action !== 'ACTION:RET-CASE:RECEIVE')),
@@ -593,6 +598,8 @@ final class DatabaseSeeder extends Seeder
                 ['00000000-0000-4000-8000-000000000404', $users['admin'][0], $roles['ERP_ADMIN'][0], $trainingPlantId],
                 ['00000000-0000-4000-8000-000000000405', $users['admin'][0], $roles['ERP_ADMIN'][0], $financePlantId],
                 ['00000000-0000-4000-8000-000000000406', $users['finance'][0], $roles['FINANCE_REVIEWER'][0], $trainingPlantId],
+                ['00000000-0000-4000-8000-000000000407', $users['bi'][0], $roles['BI_ANALYST'][0], $trainingPlantId],
+                ['00000000-0000-4000-8000-000000000408', $users['bi'][0], $roles['BI_ANALYST'][0], $financePlantId],
             ];
 
             foreach ($assignments as [$id, $userId, $roleId, $plantId]) {
