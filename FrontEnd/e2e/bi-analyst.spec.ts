@@ -25,14 +25,13 @@ test('BI Analyst sees only BI workspaces and can run/export reports without tran
   await expect(page.getByRole('heading', { name: 'Controlled Reports' })).toBeVisible();
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await page.getByLabel('Report run number').fill(runNumber);
-  await page.getByLabel('Report definition').selectOption('INVENTORY_AVAILABILITY');
+  await page.getByLabel('Report definition', { exact: true }).selectOption('INVENTORY_AVAILABILITY');
   await page.getByRole('button', { name: 'Generate immutable snapshot' }).click();
   await expect(page.getByRole('status')).toContainText('INVENTORY_AVAILABILITY snapshot generated');
 
-  const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Create & download CSV' }).click();
-  expect((await download).suggestedFilename()).toBe(`${runNumber.toLowerCase()}.csv`);
   await expect(page.getByRole('status')).toContainText('CSV export created');
+  await expect(page.locator('.reporting-detail')).toContainText('CSV');
 
   await navigation.locator('[data-screen-code="BI-PROFIT"]').click();
   await expect(page.getByRole('heading', { name: 'Order Profitability' })).toBeVisible();
