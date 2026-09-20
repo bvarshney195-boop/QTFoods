@@ -34,7 +34,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.company.code', 'QTF')
             ->assertJsonPath('data.summary.plant_count', 2)
-            ->assertJsonPath('data.summary.active_users', 5)
+            ->assertJsonPath('data.summary.active_users', 6)
             ->assertJsonPath('data.plants.0.allowed_actions.0', 'UPDATE');
 
         $this->getJson('/api/v1/admin/locations')
@@ -45,15 +45,17 @@ final class FoundationAdministrationEndpointTest extends TestCase
 
         $this->getJson('/api/v1/admin/users')
             ->assertOk()
-            ->assertJsonPath('summary.total', 5)
-            ->assertJsonPath('summary.active_assignments', 5)
-            ->assertJsonFragment(['email' => 'finance.user@qtfoods.local']);
+            ->assertJsonPath('summary.total', 6)
+            ->assertJsonPath('summary.active_assignments', 6)
+            ->assertJsonFragment(['email' => 'finance.user@qtfoods.local'])
+            ->assertJsonFragment(['email' => 'bi.user@qtfoods.local']);
 
         $roles = $this->getJson('/api/v1/admin/roles')
             ->assertOk()
-            ->assertJsonPath('summary.roles', 5)
+            ->assertJsonPath('summary.roles', 6)
             ->assertJsonPath('summary.custom_roles', 0)
-            ->assertJsonFragment(['code' => 'ERP_ADMIN']);
+            ->assertJsonFragment(['code' => 'ERP_ADMIN'])
+            ->assertJsonFragment(['code' => 'BI_ANALYST']);
         $this->assertGreaterThan(70, $roles->json('summary.permissions'));
 
         $permissionId = DB::table('permissions')->where('code', 'SCREEN:ADM-ROLE:VIEW')->value('id');
