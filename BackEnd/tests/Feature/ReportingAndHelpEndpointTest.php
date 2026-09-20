@@ -152,7 +152,7 @@ final class ReportingAndHelpEndpointTest extends TestCase
 
         $this->getJson('/api/v1/reports/profitability')->assertOk();
 
-        $this->getJson('/api/v1/finance/journals')->assertForbidden();
+        $this->getJson('/api/v1/finance/ledger')->assertForbidden();
         $this->command()->postJson('/api/v1/sales/leads', [])->assertForbidden();
         $this->command()->postJson('/api/v1/inventory/issues', [])->assertForbidden();
     }
