@@ -76,10 +76,12 @@ return new class extends Migration {
             return;
         }
 
-        DB::table('role_permissions')->where('role_id', $role->id)->delete();
-
-        if ((string) $role->id === self::ROLE_ID && (bool) $role->is_system) {
-            DB::table('roles')->where('id', self::ROLE_ID)->delete();
+        if ((string) $role->id !== self::ROLE_ID || ! (bool) $role->is_system) {
+            return;
         }
+
+        DB::table('role_assignments')->where('role_id', self::ROLE_ID)->delete();
+        DB::table('role_permissions')->where('role_id', self::ROLE_ID)->delete();
+        DB::table('roles')->where('id', self::ROLE_ID)->delete();
     }
 };
