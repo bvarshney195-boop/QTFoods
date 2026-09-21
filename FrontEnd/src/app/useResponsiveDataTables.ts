@@ -5,6 +5,7 @@ const MAX_CARD_COLUMNS = 7;
 /**
  * Adds mobile labels to ordinary data tables without changing their desktop
  * markup. Complex matrix/report tables keep their horizontal-scroll layout.
+ * This shared enhancement intentionally contains no module-specific business logic.
  */
 export function useResponsiveDataTables(rootRef: RefObject<HTMLElement | null>): void {
   useEffect(() => {
