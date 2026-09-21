@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { isApiError } from '../api/client';
 import {
   claimWorkItem,
@@ -102,6 +102,21 @@ export default function WRK_HOME() {
   }
 
   const summary = queue?.summary;
+  const workloadTotal = Math.max(summary?.open_total ?? 0, 1);
+  const quickLinks = [
+    { code: 'PUR-REQ', label: 'Purchase requests', detail: 'Create and review material requirements', icon: 'PR' },
+    { code: 'INV-STK', label: 'Stock overview', detail: 'Review lots, availability and movement', icon: 'ST' },
+    { code: 'PLAN-SCH', label: 'Production schedule', detail: 'Check capacity and upcoming batches', icon: 'PS' },
+    { code: 'BI-REP', label: 'Reports', detail: 'Open controlled operational reports', icon: 'BI' },
+  ].filter((link) => session.allowed_screens.includes(link.code));
+
+  function clearFilters() {
+    setKind('');
+    setAssignment('ALL');
+    setOverdueOnly(false);
+    setSearchDraft('');
+    setSearch('');
+  }
 
   return (
     <>
@@ -122,6 +137,38 @@ export default function WRK_HOME() {
         <div className="kpi"><span>Assigned to me</span><b>{loading && !queue ? '—' : summary?.assigned_to_me ?? 0}</b><small>owned actions</small></div>
         <div className="kpi"><span>Pending approvals</span><b>{loading && !queue ? '—' : summary?.approvals ?? 0}</b><small>within your authority</small></div>
         <div className="kpi"><span>Overdue</span><b className={summary?.overdue ? 'text-bad' : ''}>{loading && !queue ? '—' : summary?.overdue ?? 0}</b><small>past deadline</small></div>
+      </div>
+
+      <div className="executive-grid">
+        <section className="panel executive-pulse" aria-labelledby="workload-pulse-title">
+          <div className="panel-head">
+            <div><h3 id="workload-pulse-title">Workload pulse</h3><span>Live distribution of visible open work</span></div>
+            <span className={`pulse-health ${(summary?.overdue ?? 0) > 0 ? 'needs-attention' : ''}`}>
+              {(summary?.overdue ?? 0) > 0 ? 'Needs attention' : 'On track'}
+            </span>
+          </div>
+          <div className="pulse-body">
+            <div className="pulse-ring" style={{ '--pulse': `${Math.min(100, ((summary?.assigned_to_me ?? 0) / workloadTotal) * 100)}%` } as CSSProperties}>
+              <b>{summary?.open_total ?? 0}</b><span>open</span>
+            </div>
+            <div className="pulse-bars">
+              <WorkloadBar label="Approvals" value={summary?.approvals ?? 0} total={workloadTotal} tone="approval" />
+              <WorkloadBar label="Exceptions" value={summary?.exceptions ?? 0} total={workloadTotal} tone="exception" />
+              <WorkloadBar label="Unassigned" value={summary?.unassigned ?? 0} total={workloadTotal} tone="unassigned" />
+            </div>
+          </div>
+        </section>
+
+        <section className="panel quick-access" aria-labelledby="quick-access-title">
+          <div className="panel-head"><div><h3 id="quick-access-title">Quick access</h3><span>Your most-used operational areas</span></div></div>
+          <div className="quick-link-grid">
+            {quickLinks.map((link) => (
+              <button key={link.code} type="button" onClick={() => { window.location.hash = link.code; }}>
+                <i aria-hidden="true">{link.icon}</i><span><b>{link.label}</b><small>{link.detail}</small></span><em aria-hidden="true">→</em>
+              </button>
+            ))}
+          </div>
+        </section>
       </div>
 
       <section className="panel work-queue-panel">
@@ -161,7 +208,14 @@ export default function WRK_HOME() {
         {error && <div className="form-error panel-message" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>Retry</button></div>}
         {success && <div className="form-success panel-message" role="status"><span></span>{success}</div>}
         {loading && !queue && <div className="empty-state">Loading your persisted work queue…</div>}
-        {!loading && !error && !queue?.data.length && <div className="empty-state">No work items match these filters in the selected context.</div>}
+        {!loading && !error && !queue?.data.length && (
+          <div className="empty-state enhanced-empty-state">
+            <span aria-hidden="true">✓</span>
+            <b>{search || kind || assignment !== 'ALL' || overdueOnly ? 'No matching work found' : 'You are all caught up'}</b>
+            <p>{search || kind || assignment !== 'ALL' || overdueOnly ? 'Try clearing the filters to see the full work queue.' : 'There are no open actions in this company and plant right now.'}</p>
+            {(search || kind || assignment !== 'ALL' || overdueOnly) && <button className="secondary" type="button" onClick={clearFilters}>Clear filters</button>}
+          </div>
+        )}
 
         {Boolean(queue?.data.length) && (
           <div className={`table-wrap work-table ${loading ? 'is-refreshing' : ''}`}>
@@ -195,6 +249,16 @@ export default function WRK_HOME() {
         )}
       </section>
     </>
+  );
+}
+
+function WorkloadBar({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
+  const width = value === 0 ? 0 : Math.max(8, Math.min(100, (value / total) * 100));
+  return (
+    <div className="pulse-bar">
+      <div><span>{label}</span><b>{value}</b></div>
+      <div className="pulse-track"><span className={`pulse-fill ${tone}`} style={{ width: `${width}%` }} /></div>
+    </div>
   );
 }
 
