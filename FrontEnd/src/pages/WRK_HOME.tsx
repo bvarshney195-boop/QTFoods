@@ -11,8 +11,12 @@ import {
 } from '../api/workQueue';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
+import { BusinessKpiDashboard } from '../components/BusinessKpiDashboard';
 
 type AssignmentFilter = 'ALL' | 'MINE' | 'UNASSIGNED';
+type SavedView = { id: string; name: string; kind: '' | WorkItemKind; assignment: AssignmentFilter; overdueOnly: boolean; search: string };
+type DashboardPreferences = { business: boolean; pulse: boolean; quickAccess: boolean; workQueue: boolean };
+const defaultPreferences: DashboardPreferences = { business: true, pulse: true, quickAccess: true, workQueue: true };
 
 export default function WRK_HOME() {
   const session = useErpSession();
@@ -27,6 +31,13 @@ export default function WRK_HOME() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const preferenceKey = `qtfoods:dashboard:${session.user.id}:${contextKey}`;
+  const viewKey = `qtfoods:work-views:${session.user.id}:${contextKey}`;
+  const [preferences, setPreferences] = useState<DashboardPreferences>(() => readStored(preferenceKey, defaultPreferences));
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => readStored(viewKey, []));
+  const [viewName, setViewName] = useState('');
+  const [savingView, setSavingView] = useState(false);
+  const [personalising, setPersonalising] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,6 +61,8 @@ export default function WRK_HOME() {
 
   useEffect(() => {
     setQueue(null);
+    setPreferences(readStored(preferenceKey, defaultPreferences));
+    setSavedViews(readStored(viewKey, []));
   }, [contextKey]);
 
   useEffect(() => {
@@ -118,6 +131,28 @@ export default function WRK_HOME() {
     setSearch('');
   }
 
+  function applyView(view: SavedView) {
+    setKind(view.kind); setAssignment(view.assignment); setOverdueOnly(view.overdueOnly);
+    setSearchDraft(view.search); setSearch(view.search);
+  }
+
+  function saveView() {
+    const name = viewName.trim();
+    if (!name) return;
+    const next = [{ id: crypto.randomUUID(), name, kind, assignment, overdueOnly, search }, ...savedViews].slice(0, 8);
+    setSavedViews(next); localStorage.setItem(viewKey, JSON.stringify(next)); setViewName(''); setSavingView(false);
+  }
+
+  function removeView(id: string) {
+    const next = savedViews.filter((view) => view.id !== id);
+    setSavedViews(next); localStorage.setItem(viewKey, JSON.stringify(next));
+  }
+
+  function updatePreference(key: keyof DashboardPreferences) {
+    const next = { ...preferences, [key]: !preferences[key] };
+    setPreferences(next); localStorage.setItem(preferenceKey, JSON.stringify(next));
+  }
+
   return (
     <>
       <PageHeader
@@ -132,14 +167,25 @@ export default function WRK_HOME() {
         Deadlines, ownership and completion state are read from workflow records in the ERP database.
       </div>
 
-      <div className="kpi-grid">
-        <div className="kpi"><span>Open work</span><b>{loading && !queue ? '—' : summary?.open_total ?? 0}</b><small>visible in this scope</small></div>
-        <div className="kpi"><span>Assigned to me</span><b>{loading && !queue ? '—' : summary?.assigned_to_me ?? 0}</b><small>owned actions</small></div>
-        <div className="kpi"><span>Pending approvals</span><b>{loading && !queue ? '—' : summary?.approvals ?? 0}</b><small>within your authority</small></div>
-        <div className="kpi"><span>Overdue</span><b className={summary?.overdue ? 'text-bad' : ''}>{loading && !queue ? '—' : summary?.overdue ?? 0}</b><small>past deadline</small></div>
+      <div className="workspace-personalisation">
+        <span>Workspace view</span>
+        <button className="secondary compact-button" type="button" aria-expanded={personalising} onClick={() => setPersonalising((value) => !value)}>Personalise</button>
+        {personalising && <div className="personalisation-popover" role="group" aria-label="Dashboard sections">
+          {([['business', 'Business performance'], ['pulse', 'Workload pulse'], ['quickAccess', 'Quick access'], ['workQueue', 'Priority work']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={preferences[key]} onChange={() => updatePreference(key)} />{label}</label>)}
+        </div>}
       </div>
 
-      <div className="executive-grid">
+      {preferences.business && <BusinessKpiDashboard allowedScreens={session.allowed_screens} />}
+
+      <div className="kpi-grid">
+        <button className="kpi" type="button" onClick={clearFilters}><span>Open work</span><b>{loading && !queue ? '—' : summary?.open_total ?? 0}</b><small>view complete queue →</small></button>
+        <button className="kpi" type="button" onClick={() => setAssignment('MINE')}><span>Assigned to me</span><b>{loading && !queue ? '—' : summary?.assigned_to_me ?? 0}</b><small>filter owned actions →</small></button>
+        <button className="kpi" type="button" onClick={() => setKind('APPROVAL')}><span>Pending approvals</span><b>{loading && !queue ? '—' : summary?.approvals ?? 0}</b><small>filter approvals →</small></button>
+        <button className="kpi" type="button" onClick={() => setOverdueOnly(true)}><span>Overdue</span><b className={summary?.overdue ? 'text-bad' : ''}>{loading && !queue ? '—' : summary?.overdue ?? 0}</b><small>filter deadlines →</small></button>
+      </div>
+
+      {(preferences.pulse || preferences.quickAccess) && <div className={`executive-grid ${!preferences.pulse || !preferences.quickAccess ? 'single-panel' : ''}`}>
+        {preferences.pulse &&
         <section className="panel executive-pulse" aria-labelledby="workload-pulse-title">
           <div className="panel-head">
             <div><h3 id="workload-pulse-title">Workload pulse</h3><span>Live distribution of visible open work</span></div>
@@ -163,8 +209,9 @@ export default function WRK_HOME() {
             <div><span>Closure rate</span><b>{summary?.closure_rate_7d ?? 0}%</b></div>
             <div><span>Aged over 3 days</span><b className={(summary?.older_than_three_days ?? 0) > 0 ? 'text-bad' : ''}>{summary?.older_than_three_days ?? 0}</b></div>
           </div>
-        </section>
+        </section>}
 
+        {preferences.quickAccess &&
         <section className="panel quick-access" aria-labelledby="quick-access-title">
           <div className="panel-head"><div><h3 id="quick-access-title">Quick access</h3><span>Your most-used operational areas</span></div></div>
           <div className="quick-link-grid">
@@ -174,13 +221,19 @@ export default function WRK_HOME() {
               </button>
             ))}
           </div>
-        </section>
-      </div>
+        </section>}
+      </div>}
 
+      {preferences.workQueue &&
       <section className="panel work-queue-panel">
         <div className="panel-head">
           <div><h3>Priority work</h3><span>{summary?.exceptions ?? 0} open exceptions · {summary?.unassigned ?? 0} unassigned</span></div>
           <button className="secondary compact-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button>
+        </div>
+
+        <div className="saved-view-bar">
+          <div><b>Saved views</b>{savedViews.length ? savedViews.map((view) => <span className="saved-view-chip" key={view.id}><button type="button" onClick={() => applyView(view)}>{view.name}</button><button type="button" aria-label={`Delete ${view.name} view`} onClick={() => removeView(view.id)}>×</button></span>) : <small>No personal views saved yet.</small>}</div>
+          {savingView ? <div className="save-view-form"><input aria-label="Saved view name" autoFocus value={viewName} maxLength={40} placeholder="View name" onChange={(event) => setViewName(event.target.value)} /><button className="primary compact-button" type="button" disabled={!viewName.trim()} onClick={saveView}>Save</button><button className="secondary compact-button" type="button" onClick={() => setSavingView(false)}>Cancel</button></div> : <button className="secondary compact-button" type="button" onClick={() => setSavingView(true)}>Save current view</button>}
         </div>
 
         <form className="work-toolbar" onSubmit={submitSearch}>
@@ -253,7 +306,7 @@ export default function WRK_HOME() {
             </table>
           </div>
         )}
-      </section>
+      </section>}
     </>
   );
 }
@@ -301,4 +354,9 @@ function sourceLabel(item: WorkItem): string {
 
 function shortId(id: string): string {
   return id.split('-').at(-1)?.slice(-8).toUpperCase() ?? id.slice(-8).toUpperCase();
+}
+
+function readStored<T>(key: string, fallback: T): T {
+  try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback; }
+  catch { return fallback; }
 }
