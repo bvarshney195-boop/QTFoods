@@ -8,6 +8,12 @@ export function useKeyboardScrollableRegions(rootRef: RefObject<HTMLElement | nu
     const makeReachable = () => {
       root.querySelectorAll<HTMLElement>('.table-wrap').forEach((region) => {
         if (!region.hasAttribute('tabindex')) region.tabIndex = 0;
+        if (!region.hasAttribute('role')) region.setAttribute('role', 'region');
+        if (!region.hasAttribute('aria-label')) {
+          const panel = region.closest('.panel');
+          const heading = panel?.querySelector<HTMLElement>('h2, h3, h4');
+          region.setAttribute('aria-label', heading?.textContent?.trim() || 'Scrollable data table');
+        }
       });
     };
 
