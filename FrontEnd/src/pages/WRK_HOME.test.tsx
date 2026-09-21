@@ -115,7 +115,7 @@ describe('WRK_HOME', () => {
         expect.any(String)
       );
     });
-    expect(await screen.findByText(/No work items match/)).toBeInTheDocument();
+    expect(await screen.findByText('You are all caught up')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('was completed');
   });
 });
