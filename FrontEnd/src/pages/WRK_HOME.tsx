@@ -157,6 +157,12 @@ export default function WRK_HOME() {
               <WorkloadBar label="Unassigned" value={summary?.unassigned ?? 0} total={workloadTotal} tone="unassigned" />
             </div>
           </div>
+          <div className="operational-trend" aria-label="Seven-day operational trend">
+            <div><span>New work · 7 days</span><b>{summary?.created_7d ?? 0}</b></div>
+            <div><span>Completed · 7 days</span><b>{summary?.completed_7d ?? 0}</b></div>
+            <div><span>Closure rate</span><b>{summary?.closure_rate_7d ?? 0}%</b></div>
+            <div><span>Aged over 3 days</span><b className={(summary?.older_than_three_days ?? 0) > 0 ? 'text-bad' : ''}>{summary?.older_than_three_days ?? 0}</b></div>
+          </div>
         </section>
 
         <section className="panel quick-access" aria-labelledby="quick-access-title">
@@ -224,17 +230,17 @@ export default function WRK_HOME() {
               <tbody>
                 {queue!.data.map((item) => (
                   <tr key={item.id} className={item.is_overdue ? 'work-overdue' : ''}>
-                    <td><span className={`work-kind work-kind-${item.kind.toLowerCase()}`}>{kindLabel(item.kind)}</span></td>
-                    <td>
+                    <td data-label="Type"><span className={`work-kind work-kind-${item.kind.toLowerCase()}`}>{kindLabel(item.kind)}</span></td>
+                    <td data-label="Work item">
                       <b>{item.title}</b>
                       <small>{item.description ?? sourceLabel(item)}</small>
                       {item.source && <small>{sourceLabel(item)} · v{item.record_version}</small>}
                     </td>
-                    <td><span className={`status ${priorityClass(item.priority)}`}>{item.priority}</span></td>
-                    <td>{ageLabel(item.age_minutes)}<small>{item.age_bucket.replaceAll('_', ' ').toLowerCase()}</small></td>
-                    <td className={item.is_overdue ? 'text-bad' : ''}>{dueLabel(item.due_at)}<small>{item.is_overdue ? 'Overdue' : 'Active deadline'}</small></td>
-                    <td>{item.assignee?.name ?? 'Unassigned'}<small>{item.assignee ? item.assignee.email : 'Available to claim'}</small></td>
-                    <td>
+                    <td data-label="Priority"><span className={`status ${priorityClass(item.priority)}`}>{item.priority}</span></td>
+                    <td data-label="Age">{ageLabel(item.age_minutes)}<small>{item.age_bucket.replaceAll('_', ' ').toLowerCase()}</small></td>
+                    <td data-label="Deadline" className={item.is_overdue ? 'text-bad' : ''}>{dueLabel(item.due_at)}<small>{item.is_overdue ? 'Overdue' : 'Active deadline'}</small></td>
+                    <td data-label="Owner">{item.assignee?.name ?? 'Unassigned'}<small>{item.assignee ? item.assignee.email : 'Available to claim'}</small></td>
+                    <td data-label="Actions">
                       <div className="work-actions">
                         {item.allowed_actions.includes('CLAIM') && <button className="secondary" type="button" onClick={() => void claim(item)} disabled={busyItemId === item.id}>Claim</button>}
                         {item.allowed_actions.includes('COMPLETE') && <button className="secondary" type="button" onClick={() => void complete(item)} disabled={busyItemId === item.id}>Complete</button>}
