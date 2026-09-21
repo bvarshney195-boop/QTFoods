@@ -39,6 +39,10 @@ export type WorkQueue = {
     exceptions: number;
     overdue: number;
     high_priority: number;
+    older_than_three_days: number;
+    created_7d: number;
+    completed_7d: number;
+    closure_rate_7d: number;
   };
   meta: {
     current_page: number;
