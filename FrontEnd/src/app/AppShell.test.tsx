@@ -38,6 +38,7 @@ describe('AppShell role navigation', () => {
     expect(within(navigation).queryByRole('button', { name: 'Production orders' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Finance Manager').length).toBeGreaterThan(0);
 
+    await userEvent.setup().click(within(navigation).getByRole('button', { name: /Finance & People/ }));
     expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
     expect(within(navigation).queryByText('FIN-GL')).not.toBeInTheDocument();
 
