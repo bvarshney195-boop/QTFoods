@@ -192,6 +192,13 @@ final class WorkQueueQuery
     private function summary(array $scope, string $actorId, array $permissions): array
     {
         $open = $this->visible($scope, $actorId, $permissions)->where('work.status', 'OPEN');
+        $visible = $this->visible($scope, $actorId, $permissions);
+        $sevenDaysAgo = now()->subDays(7);
+        $createdSevenDays = (clone $visible)->where('work.created_at', '>=', $sevenDaysAgo)->count();
+        $completedSevenDays = (clone $visible)
+            ->where('work.status', 'COMPLETED')
+            ->where('work.completed_at', '>=', $sevenDaysAgo)
+            ->count();
 
         return [
             'open_total' => (clone $open)->count(),
@@ -204,6 +211,12 @@ final class WorkQueueQuery
                 ->where('work.due_at', '<', now())
                 ->count(),
             'high_priority' => (clone $open)->whereIn('work.priority', ['URGENT', 'HIGH'])->count(),
+            'older_than_three_days' => (clone $open)->where('work.created_at', '<', now()->subDays(3))->count(),
+            'created_7d' => $createdSevenDays,
+            'completed_7d' => $completedSevenDays,
+            'closure_rate_7d' => $createdSevenDays === 0
+                ? ($completedSevenDays > 0 ? 100 : 0)
+                : min(100, (int) round(($completedSevenDays / $createdSevenDays) * 100)),
         ];
     }
 
