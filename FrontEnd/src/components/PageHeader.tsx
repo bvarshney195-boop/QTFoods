@@ -22,9 +22,9 @@ export function PageHeader({
       </div>
       {(onHistory || onExport || onNew) && (
         <div className="head-actions">
-          {onHistory && <button className="secondary" onClick={onHistory}>History</button>}
-          {onExport && <button className="secondary" onClick={onExport}>Export</button>}
-          {onNew && <button className="primary" onClick={onNew}>+ New</button>}
+          {onHistory && <button className="secondary" type="button" onClick={onHistory}>History</button>}
+          {onExport && <button className="secondary" type="button" onClick={onExport}>Export</button>}
+          {onNew && <button className="primary" type="button" onClick={onNew}>+ New</button>}
         </div>
       )}
     </div>
