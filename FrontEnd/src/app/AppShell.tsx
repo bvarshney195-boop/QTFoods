@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { screenRegistry } from '../data/screenRegistry';
 import type { ErpSession } from '../types/session';
 import { ErpSessionContext } from './ErpSessionContext';
-import { pageMap } from './pageMap';
+import { pageMap } from './lazyPageMap';
 import { AccountSecurityPanel } from '../components/AccountSecurityPanel';
 import { useEditorActionReveal } from './useEditorActionReveal';
 import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
@@ -35,6 +35,8 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   const defaultArea = navigation.find((screen) => screen.code === defaultCode)?.area;
   const [screenCode, setScreenCode] = useState(defaultCode ?? '');
   const [search, setSearch] = useState('');
+  const [favourites, setFavourites] = useState<string[]>(() => readCodes('qtfoods:favourite-screens'));
+  const [recent, setRecent] = useState<string[]>(() => readCodes('qtfoods:recent-screens'));
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(
     () => new Set(defaultArea ? [defaultArea] : [])
   );
@@ -90,6 +92,18 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   }, [closeSidebar, compactNavigation, sidebarOpen]);
 
   useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        if (compactNavigation) setSidebarOpen(true);
+        window.requestAnimationFrame(() => sidebarSearchRef.current?.focus());
+      }
+    };
+    document.addEventListener('keydown', handleShortcut);
+    return () => document.removeEventListener('keydown', handleShortcut);
+  }, [compactNavigation]);
+
+  useEffect(() => {
     const syncHash = () => {
       const route = window.location.hash.replace(/^#/, '');
       const requested = route.split('?', 1)[0];
@@ -127,8 +141,20 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
   function go(code: string) {
     if (!allowedScreens.has(code)) return;
+    const nextRecent = [code, ...recent.filter((item) => item !== code)].slice(0, 4);
+    setRecent(nextRecent);
+    localStorage.setItem('qtfoods:recent-screens', JSON.stringify(nextRecent));
     window.location.hash = code;
     setSidebarOpen(false);
+  }
+
+  function toggleFavourite() {
+    if (!current) return;
+    const next = favourites.includes(current.code)
+      ? favourites.filter((code) => code !== current.code)
+      : [current.code, ...favourites].slice(0, 6);
+    setFavourites(next);
+    localStorage.setItem('qtfoods:favourite-screens', JSON.stringify(next));
   }
 
   function toggleArea(area: string) {
@@ -165,8 +191,21 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
         </div>
         <div className="side-search">
           <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu" aria-label="Search menu" />
+          <kbd>Ctrl K</kbd>
         </div>
         <nav aria-label="Main menu">
+          {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
+            <section className="smart-navigation" aria-label="Pinned and recent pages">
+              {favourites.length > 0 && <div><b>Pinned</b>{favourites.filter((code) => allowedScreens.has(code)).map((code) => {
+                const item = navigation.find((screen) => screen.code === code);
+                return item ? <button type="button" key={code} onClick={() => go(code)}><span>★</span>{screenLabel(code, item.title)}</button> : null;
+              })}</div>}
+              {recent.length > 0 && <div><b>Recent</b>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
+                const item = navigation.find((screen) => screen.code === code);
+                return item ? <button type="button" key={code} onClick={() => go(code)}><span>↗</span>{screenLabel(code, item.title)}</button> : null;
+              })}</div>}
+            </section>
+          )}
           {navigationSections.map(({ key, label }) => {
             const items = filtered.filter((screen) => screen.area === key);
             if (!items.length) return null;
@@ -212,15 +251,18 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
             ⌄
           </button>
           <div className="spacer"></div>
+          {current && <button className={`icon favourite-button ${favourites.includes(current.code) ? 'is-favourite' : ''}`} type="button" aria-label={favourites.includes(current.code) ? 'Remove current page from favourites' : 'Add current page to favourites'} title="Pin page" onClick={toggleFavourite}>★</button>}
           <button ref={securityButtonRef} className="security-button" type="button" aria-label="Account security" aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>My account</span><b>{session.security?.mfa_enabled ? '2-step on' : '2-step off'}</b></button>
           {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
         </header>
 
         <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={-1}>
           <ErpSessionContext.Provider value={session}>
-            {CurrentPage ? <CurrentPage /> : (
-              <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
-            )}
+            <Suspense fallback={<section className="panel page-loading"><span></span><b>Opening workspace…</b></section>}>
+              {CurrentPage ? <CurrentPage /> : (
+                <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
+              )}
+            </Suspense>
           </ErpSessionContext.Provider>
         </main>
       </section>
@@ -231,4 +273,13 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
 function initials(name: string): string {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function readCodes(key: string): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
 }
