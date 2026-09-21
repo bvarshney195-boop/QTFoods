@@ -6,6 +6,7 @@ import { pageMap } from './lazyPageMap';
 import { AccountSecurityPanel } from '../components/AccountSecurityPanel';
 import { useEditorActionReveal } from './useEditorActionReveal';
 import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
+import { useResponsiveDataTables } from './useResponsiveDataTables';
 import { roleLabel, screenLabel } from '../utils/displayText';
 
 const navigationSections = [
@@ -49,6 +50,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   const mainContentRef = useRef<HTMLElement>(null);
 
   useKeyboardScrollableRegions(mainContentRef);
+  useResponsiveDataTables(mainContentRef);
   useEditorActionReveal(mainContentRef);
 
   const closeSidebar = useCallback(() => {
@@ -125,6 +127,12 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
   const current = navigation.find((screen) => screen.code === screenCode);
   const CurrentPage = current ? pageMap[current.code as keyof typeof pageMap] : null;
+
+  useEffect(() => {
+    if (!current) return;
+    document.title = `${screenLabel(current.code, current.title)} — Q & T FOODS LTD`;
+    window.requestAnimationFrame(() => mainContentRef.current?.focus({ preventScroll: true }));
+  }, [current]);
 
   useEffect(() => {
     if (!current?.area) return;
@@ -258,7 +266,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
         <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={-1}>
           <ErpSessionContext.Provider value={session}>
-            <Suspense fallback={<section className="panel page-loading"><span></span><b>Opening workspace…</b></section>}>
+            <Suspense fallback={<section className="panel page-loading" role="status" aria-live="polite"><span aria-hidden="true"></span><b>Opening workspace…</b></section>}>
               {CurrentPage ? <CurrentPage /> : (
                 <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
               )}
