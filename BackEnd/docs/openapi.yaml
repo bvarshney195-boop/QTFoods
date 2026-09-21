@@ -11271,7 +11271,7 @@ components:
         links: { $ref: "#/components/schemas/PaginationLinks" }
     WorkQueueSummary:
       type: object
-      required: [open_total, assigned_to_me, unassigned, approvals, exceptions, overdue, high_priority]
+      required: [open_total, assigned_to_me, unassigned, approvals, exceptions, overdue, high_priority, older_than_three_days, created_7d, completed_7d, closure_rate_7d]
       properties:
         open_total: { type: integer, minimum: 0 }
         assigned_to_me: { type: integer, minimum: 0 }
@@ -11280,6 +11280,10 @@ components:
         exceptions: { type: integer, minimum: 0 }
         overdue: { type: integer, minimum: 0 }
         high_priority: { type: integer, minimum: 0 }
+        older_than_three_days: { type: integer, minimum: 0 }
+        created_7d: { type: integer, minimum: 0 }
+        completed_7d: { type: integer, minimum: 0 }
+        closure_rate_7d: { type: integer, minimum: 0, maximum: 100 }
     WorkItemUser:
       type: object
       required: [id, name]
