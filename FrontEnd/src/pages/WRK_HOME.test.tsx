@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   listWorkItems: vi.fn(),
   claimWorkItem: vi.fn(),
   completeWorkItem: vi.fn(),
+  loadBusinessDashboard: vi.fn(),
 }));
 
 vi.mock('../api/workQueue', async () => {
@@ -20,10 +21,44 @@ vi.mock('../api/workQueue', async () => {
   return { ...actual, ...apiMocks };
 });
 
+vi.mock('../api/businessDashboard', async () => {
+  const actual = await vi.importActual<typeof import('../api/businessDashboard')>('../api/businessDashboard');
+  return { ...actual, loadBusinessDashboard: apiMocks.loadBusinessDashboard };
+});
+
 describe('WRK_HOME', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    localStorage.clear();
+    apiMocks.loadBusinessDashboard.mockResolvedValue({ metrics: [], refreshed_at: '2026-09-21T10:00:00Z', unavailable: 0 });
     window.history.replaceState(null, '', '#WRK-HOME');
+  });
+
+  it('drills from a KPI into the matching filtered queue', async () => {
+    apiMocks.listWorkItems.mockResolvedValue(makeQueue([makeApproval()]));
+    renderWorkspace();
+    await screen.findByText('Review unsold return loss disposition');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /Pending approvals/ }));
+
+    await waitFor(() => expect(apiMocks.listWorkItems).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'APPROVAL' })));
+  });
+
+  it('saves and reapplies a personal work-queue view', async () => {
+    apiMocks.listWorkItems.mockResolvedValue(makeQueue([]));
+    renderWorkspace();
+    await screen.findByText('You are all caught up');
+    const user = userEvent.setup();
+
+    await user.selectOptions(screen.getByLabelText('Ownership'), 'MINE');
+    await user.click(screen.getByRole('button', { name: 'Save current view' }));
+    await user.type(screen.getByLabelText('Saved view name'), 'My actions');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    expect(screen.getByRole('button', { name: 'My actions' })).toBeVisible();
+    const storedKey = Object.keys(localStorage).find((key) => key.startsWith('qtfoods:work-views:'));
+    expect(storedKey).toBeDefined();
+    expect(localStorage.getItem(storedKey!)).toContain('My actions');
   });
 
   it('renders persisted counters and drills into the exact workflow record', async () => {
