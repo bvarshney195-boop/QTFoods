@@ -46,7 +46,10 @@ export function Detail({ children }: { children: ReactNode }) { return <div clas
 export function DetailHead({ status, version, label }: { status: string; version?: number; label?: string }) { return <div className="detail-status"><StatusBadge status={status} />{version !== undefined ? <span>record version {version}</span> : null}{label ? <span>{label}</span> : null}</div>; }
 export function Datum({ text, value, wide = false }: { text: string; value: ReactNode; wide?: boolean }) { return <div className={wide ? 'wide' : undefined}><dt>{text}</dt><dd>{value}</dd></div>; }
 export function Field({ text }: { text?: string }) { return text ? <small className="field-error">{text}</small> : null; }
-export function Empty({ text }: { text: string }) { return <div className="empty-state">{text}</div>; }
+export function Empty({ text }: { text: string }) {
+  const loading = /^Loading\b/i.test(text);
+  return <div className={`empty-state shared-state ${loading ? 'is-loading' : ''}`} role={loading ? 'status' : undefined} aria-live={loading ? 'polite' : undefined}><span aria-hidden="true" />{text}</div>;
+}
 export function FormActions({ onClose, submit, busy = false }: { onClose: () => void; submit: string; busy?: boolean }) { return <div className="form-actions"><button className="secondary" type="button" disabled={busy} onClick={onClose}>Close</button><button className="primary" type="submit" disabled={busy}>{submit}</button></div>; }
 export function LineTable({ heads, rows }: { heads: string[]; rows: ReactNode[][] }) { return <div className="table-wrap"><table><thead><tr>{heads.map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, position) => <td key={position}>{cell}</td>)}</tr>)}</tbody></table></div>; }
 export function useManufacturingContextKey() { const session = useErpSession(); return `${session.selected_context?.company_id}:${session.selected_context?.plant_id}`; }
