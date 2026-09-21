@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listWorkItems, type WorkItem } from '../api/workQueue';
+import { enterpriseSearch, type EnterpriseSearchResult } from '../api/experience';
 import { screenRegistry } from '../data/screenRegistry';
 import { screenLabel } from '../utils/displayText';
 
@@ -13,6 +14,7 @@ type Props = {
 export function GlobalSearch({ allowedScreens, open, onClose, onNavigate }: Props) {
   const [query, setQuery] = useState('');
   const [records, setRecords] = useState<WorkItem[]>([]);
+  const [businessRecords, setBusinessRecords] = useState<EnterpriseSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -28,6 +30,7 @@ export function GlobalSearch({ allowedScreens, open, onClose, onNavigate }: Prop
     if (!open) return;
     setQuery('');
     setRecords([]);
+    setBusinessRecords([]);
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [open]);
@@ -35,16 +38,20 @@ export function GlobalSearch({ allowedScreens, open, onClose, onNavigate }: Prop
   useEffect(() => {
     if (!open || query.trim().length < 2) {
       setRecords([]);
+      setBusinessRecords([]);
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const result = await listWorkItems({ q: query.trim() });
-        if (!controller.signal.aborted) setRecords(result.data.slice(0, 6));
+        const [work, business] = await Promise.allSettled([listWorkItems({ q: query.trim() }), enterpriseSearch(query.trim())]);
+        if (!controller.signal.aborted) {
+          setRecords(work.status === 'fulfilled' ? work.value.data.slice(0, 5) : []);
+          setBusinessRecords(business.status === 'fulfilled' ? business.value.slice(0, 12) : []);
+        }
       } catch {
-        if (!controller.signal.aborted) setRecords([]);
+        if (!controller.signal.aborted) { setRecords([]); setBusinessRecords([]); }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -74,12 +81,17 @@ export function GlobalSearch({ allowedScreens, open, onClose, onNavigate }: Prop
         {screens.map((screen) => <button type="button" key={screen.code} onClick={() => navigate(screen.code)}>
           <i>{screen.code.split('-')[0]}</i><span><b>{screenLabel(screen.code, screen.title)}</b><small>{screen.description}</small></span><em>Open →</em>
         </button>)}
+        {query.trim().length >= 2 && <><div className="command-section"><b>Business records</b><small>{loading ? 'Searching…' : `${businessRecords.length} result${businessRecords.length === 1 ? '' : 's'}`}</small></div>
+          {businessRecords.map((item) => <button type="button" key={`${item.type}-${item.id}`} onClick={() => { window.location.hash = item.href; onClose(); }}>
+            <i>{item.type.slice(0, 2)}</i><span><b>{item.title}</b><small>{item.code} · {item.subtitle} · {item.status}</small></span><em>Open →</em>
+          </button>)}
+        </>}
         {query.trim().length >= 2 && <><div className="command-section"><b>Live work records</b><small>{loading ? 'Searching…' : `${records.length} result${records.length === 1 ? '' : 's'}`}</small></div>
           {records.map((item) => <button type="button" key={item.id} onClick={() => item.target && navigate(item.target.screen_code)}>
             <i className={item.is_overdue ? 'alert' : ''}>{item.kind.slice(0, 2)}</i><span><b>{item.title}</b><small>{item.description ?? item.source?.type ?? 'Workflow record'} · {item.priority}</small></span><em>{item.is_overdue ? 'Overdue' : 'Open'} →</em>
           </button>)}
         </>}
-        {!screens.length && !records.length && !loading && <div className="command-empty">No accessible page or work record matches “{query}”.</div>}
+        {!screens.length && !records.length && !businessRecords.length && !loading && <div className="command-empty">No accessible page or business record matches “{query}”.</div>}
       </div>
     </section>
   </div>;

@@ -38,6 +38,7 @@ use App\Modules\Sales\Http\Controllers\OrderToCashController;
 use App\Modules\Scale\Http\Controllers\MultiPlantController;
 use App\Modules\Scale\Http\Controllers\OptimisationController;
 use App\Modules\Work\Http\Controllers\WorkQueueController;
+use App\Modules\Experience\Http\Controllers\ExperienceController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => [
@@ -84,6 +85,21 @@ Route::middleware('web')->prefix('v1')->group(function () {
         Route::post('/contexts/select', [ContextController::class, 'select']);
 
         Route::middleware('erp.context')->group(function () {
+            Route::get('/experience/search', [ExperienceController::class, 'search']);
+            Route::get('/experience/workspace', [ExperienceController::class, 'workspace']);
+            Route::put('/experience/workspace/settings', [ExperienceController::class, 'saveSetting']);
+            Route::post('/experience/workspace/views', [ExperienceController::class, 'createView']);
+            Route::delete('/experience/workspace/views/{viewId}', [ExperienceController::class, 'deleteView'])->whereUuid('viewId');
+            Route::get('/experience/notifications', [ExperienceController::class, 'notifications']);
+            Route::post('/experience/notifications/{workItemId}/read', [ExperienceController::class, 'readNotification'])->whereUuid('workItemId');
+            Route::post('/experience/notifications/{workItemId}/dismiss', [ExperienceController::class, 'dismissNotification'])->whereUuid('workItemId');
+            Route::put('/experience/notification-preferences', [ExperienceController::class, 'saveNotificationPreferences']);
+            Route::get('/experience/analytics', [ExperienceController::class, 'analytics']);
+            Route::put('/experience/analytics/targets', [ExperienceController::class, 'saveTarget']);
+            Route::post('/experience/imports/preview', [ExperienceController::class, 'previewImport']);
+            Route::post('/experience/imports/{batchId}/commit', [ExperienceController::class, 'commitImport'])->whereUuid('batchId');
+            Route::post('/experience/imports/{batchId}/rollback', [ExperienceController::class, 'rollbackImport'])->whereUuid('batchId');
+            Route::get('/experience/imports/{batchId}/errors', [ExperienceController::class, 'importErrors'])->whereUuid('batchId');
             Route::get('/work/tasks', [WorkQueueController::class, 'index'])
                 ->middleware('erp.screen:WRK-HOME');
             Route::post('/work/tasks/{workItemId}/claim', [WorkQueueController::class, 'claim'])

@@ -12,6 +12,8 @@ import {
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
 import { BusinessKpiDashboard } from '../components/BusinessKpiDashboard';
+import { createSavedView, deleteSavedView, getWorkspace, saveWorkspaceSetting } from '../api/experience';
+import { BulkImportCentre } from '../components/BulkImportCentre';
 
 type AssignmentFilter = 'ALL' | 'MINE' | 'UNASSIGNED';
 type SavedView = { id: string; name: string; kind: '' | WorkItemKind; assignment: AssignmentFilter; overdueOnly: boolean; search: string };
@@ -63,6 +65,11 @@ export default function WRK_HOME() {
     setQueue(null);
     setPreferences(readStored(preferenceKey, defaultPreferences));
     setSavedViews(readStored(viewKey, []));
+    void getWorkspace().then((payload) => {
+      const serverPreferences = payload.settings.dashboard_sections;
+      if (serverPreferences && typeof serverPreferences === 'object') setPreferences({ ...defaultPreferences, ...(serverPreferences as DashboardPreferences) });
+      setSavedViews(payload.saved_views.filter((view) => view.screen_code === 'WRK-HOME').map((view) => ({ id: view.id, name: view.name, ...(view.filters as Omit<SavedView, 'id' | 'name'>) })));
+    }).catch(() => undefined);
   }, [contextKey]);
 
   useEffect(() => {
@@ -140,18 +147,22 @@ export default function WRK_HOME() {
   function saveView() {
     const name = viewName.trim();
     if (!name) return;
-    const next = [{ id: crypto.randomUUID(), name, kind, assignment, overdueOnly, search }, ...savedViews].slice(0, 8);
+    const temporaryId = crypto.randomUUID();
+    const next = [{ id: temporaryId, name, kind, assignment, overdueOnly, search }, ...savedViews.filter((view) => view.name !== name)].slice(0, 8);
     setSavedViews(next); localStorage.setItem(viewKey, JSON.stringify(next)); setViewName(''); setSavingView(false);
+    void createSavedView('WRK-HOME', name, { kind, assignment, overdueOnly, search }).then((created) => setSavedViews((current) => current.map((view) => view.id === temporaryId ? { ...view, id: created.id } : view))).catch(() => undefined);
   }
 
   function removeView(id: string) {
     const next = savedViews.filter((view) => view.id !== id);
     setSavedViews(next); localStorage.setItem(viewKey, JSON.stringify(next));
+    void deleteSavedView(id).catch(() => undefined);
   }
 
   function updatePreference(key: keyof DashboardPreferences) {
     const next = { ...preferences, [key]: !preferences[key] };
     setPreferences(next); localStorage.setItem(preferenceKey, JSON.stringify(next));
+    void saveWorkspaceSetting('dashboard_sections', next).catch(() => undefined);
   }
 
   function exportQueue() {
@@ -245,6 +256,7 @@ export default function WRK_HOME() {
           {session.allowed_screens.includes('BI-REP') && <button type="button" onClick={() => { window.location.hash = 'BI-REP'; }}><i>BI</i><span><b>Controlled report exports</b><small>Create traceable CSV or PDF evidence from completed report runs.</small></span><em>Open</em></button>}
           {session.allowed_screens.includes('FIN-LEGACY') && <button type="button" onClick={() => { window.location.hash = 'FIN-LEGACY'; }}><i>IMP</i><span><b>Legacy finance import</b><small>Stage, validate and post balanced historical accounting batches.</small></span><em>Open</em></button>}
         </div>
+        <BulkImportCentre allowedScreens={session.allowed_screens} allowedActions={session.allowed_actions} />
       </section>}
 
       {preferences.workQueue &&
