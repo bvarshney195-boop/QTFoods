@@ -210,6 +210,10 @@ function makeQueue(
       exceptions: data.filter((item) => item.kind === 'EXCEPTION').length,
       overdue: data.filter((item) => item.is_overdue).length,
       high_priority: data.filter((item) => ['URGENT', 'HIGH'].includes(item.priority)).length,
+      older_than_three_days: 0,
+      created_7d: data.length,
+      completed_7d: 0,
+      closure_rate_7d: 0,
       ...summaryOverrides,
     },
     meta: {
