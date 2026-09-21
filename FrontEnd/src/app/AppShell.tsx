@@ -4,6 +4,8 @@ import type { ErpSession } from '../types/session';
 import { ErpSessionContext } from './ErpSessionContext';
 import { pageMap } from './lazyPageMap';
 import { AccountSecurityPanel } from '../components/AccountSecurityPanel';
+import { GlobalSearch } from '../components/GlobalSearch';
+import { NotificationCentre } from '../components/NotificationCentre';
 import { useEditorActionReveal } from './useEditorActionReveal';
 import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
 import { useResponsiveDataTables } from './useResponsiveDataTables';
@@ -43,6 +45,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [compactNavigation, setCompactNavigation] = useState(() => window.matchMedia('(max-width: 820px)').matches);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarSearchRef = useRef<HTMLInputElement>(null);
@@ -97,13 +100,12 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        if (compactNavigation) setSidebarOpen(true);
-        window.requestAnimationFrame(() => sidebarSearchRef.current?.focus());
+        setGlobalSearchOpen(true);
       }
     };
     document.addEventListener('keydown', handleShortcut);
     return () => document.removeEventListener('keydown', handleShortcut);
-  }, [compactNavigation]);
+  }, []);
 
   useEffect(() => {
     const syncHash = () => {
@@ -259,6 +261,8 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
             ⌄
           </button>
           <div className="spacer"></div>
+          <button className="global-search-trigger" type="button" onClick={() => setGlobalSearchOpen(true)}><span>⌕</span><b>Search everything</b><kbd>Ctrl K</kbd></button>
+          <NotificationCentre onNavigate={(href) => { window.location.hash = href.replace(/^#/, ''); }} />
           {current && <button className={`icon favourite-button ${favourites.includes(current.code) ? 'is-favourite' : ''}`} type="button" aria-label={favourites.includes(current.code) ? 'Remove current page from favourites' : 'Add current page to favourites'} title="Pin page" onClick={toggleFavourite}>★</button>}
           <button ref={securityButtonRef} className="security-button" type="button" aria-label="Account security" aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>My account</span><b>{session.security?.mfa_enabled ? '2-step on' : '2-step off'}</b></button>
           {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
@@ -275,6 +279,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
         </main>
       </section>
       {securityOpen && <AccountSecurityPanel session={session} onClose={closeSecurity} />}
+      <GlobalSearch allowedScreens={allowedScreens} open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} onNavigate={go} />
     </div>
   );
 }

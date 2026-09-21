@@ -15,8 +15,8 @@ import { BusinessKpiDashboard } from '../components/BusinessKpiDashboard';
 
 type AssignmentFilter = 'ALL' | 'MINE' | 'UNASSIGNED';
 type SavedView = { id: string; name: string; kind: '' | WorkItemKind; assignment: AssignmentFilter; overdueOnly: boolean; search: string };
-type DashboardPreferences = { business: boolean; pulse: boolean; quickAccess: boolean; workQueue: boolean };
-const defaultPreferences: DashboardPreferences = { business: true, pulse: true, quickAccess: true, workQueue: true };
+type DashboardPreferences = { business: boolean; pulse: boolean; quickAccess: boolean; dataExchange: boolean; workQueue: boolean };
+const defaultPreferences: DashboardPreferences = { business: true, pulse: true, quickAccess: true, dataExchange: true, workQueue: true };
 
 export default function WRK_HOME() {
   const session = useErpSession();
@@ -122,6 +122,7 @@ export default function WRK_HOME() {
     { code: 'PLAN-SCH', label: 'Production schedule', detail: 'Check capacity and upcoming batches', icon: 'PS' },
     { code: 'BI-REP', label: 'Reports', detail: 'Open controlled operational reports', icon: 'BI' },
   ].filter((link) => session.allowed_screens.includes(link.code));
+  const workspaceProfile = roleWorkspace(session.roles, session.allowed_screens);
 
   function clearFilters() {
     setKind('');
@@ -153,6 +154,14 @@ export default function WRK_HOME() {
     setPreferences(next); localStorage.setItem(preferenceKey, JSON.stringify(next));
   }
 
+  function exportQueue() {
+    if (!queue?.data.length) return;
+    const cells = [['Type', 'Title', 'Priority', 'Deadline', 'Owner', 'Status'], ...queue.data.map((item) => [item.kind, item.title, item.priority, item.due_at ?? '', item.assignee?.name ?? 'Unassigned', item.is_overdue ? 'OVERDUE' : item.status])];
+    const csv = cells.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = `qtfoods-work-queue-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  }
+
   return (
     <>
       <PageHeader
@@ -167,11 +176,16 @@ export default function WRK_HOME() {
         Deadlines, ownership and completion state are read from workflow records in the ERP database.
       </div>
 
+      <section className="role-workspace-banner" aria-label="Role-personalised workspace">
+        <div><span>{workspaceProfile.eyebrow}</span><h2>{workspaceProfile.title}</h2><p>{workspaceProfile.detail}</p></div>
+        <div className="role-workspace-actions">{workspaceProfile.actions.map((action) => <button className="secondary compact-button" type="button" key={action.code} onClick={() => { window.location.hash = action.code; }}>{action.label}<span>→</span></button>)}</div>
+      </section>
+
       <div className="workspace-personalisation">
         <span>Workspace view</span>
         <button className="secondary compact-button" type="button" aria-expanded={personalising} onClick={() => setPersonalising((value) => !value)}>Personalise</button>
         {personalising && <div className="personalisation-popover" role="group" aria-label="Dashboard sections">
-          {([['business', 'Business performance'], ['pulse', 'Workload pulse'], ['quickAccess', 'Quick access'], ['workQueue', 'Priority work']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={preferences[key]} onChange={() => updatePreference(key)} />{label}</label>)}
+          {([['business', 'Business performance'], ['pulse', 'Workload pulse'], ['quickAccess', 'Quick access'], ['dataExchange', 'Data exchange'], ['workQueue', 'Priority work']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={preferences[key]} onChange={() => updatePreference(key)} />{label}</label>)}
         </div>}
       </div>
 
@@ -223,6 +237,15 @@ export default function WRK_HOME() {
           </div>
         </section>}
       </div>}
+
+      {preferences.dataExchange && <section className="panel data-exchange" aria-labelledby="data-exchange-title">
+        <div className="panel-head"><div><h3 id="data-exchange-title">Data exchange</h3><span>Permission-aware exports and governed import workspaces</span></div></div>
+        <div className="data-exchange-grid">
+          <button type="button" onClick={exportQueue} disabled={!queue?.data.length}><i>CSV</i><span><b>Export current work view</b><small>Uses the filters currently applied to your queue.</small></span><em>Download</em></button>
+          {session.allowed_screens.includes('BI-REP') && <button type="button" onClick={() => { window.location.hash = 'BI-REP'; }}><i>BI</i><span><b>Controlled report exports</b><small>Create traceable CSV or PDF evidence from completed report runs.</small></span><em>Open</em></button>}
+          {session.allowed_screens.includes('FIN-LEGACY') && <button type="button" onClick={() => { window.location.hash = 'FIN-LEGACY'; }}><i>IMP</i><span><b>Legacy finance import</b><small>Stage, validate and post balanced historical accounting batches.</small></span><em>Open</em></button>}
+        </div>
+      </section>}
 
       {preferences.workQueue &&
       <section className="panel work-queue-panel">
@@ -357,6 +380,33 @@ function shortId(id: string): string {
 }
 
 function readStored<T>(key: string, fallback: T): T {
-  try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback; }
+  try {
+    const value = localStorage.getItem(key);
+    if (!value) return fallback;
+    const parsed = JSON.parse(value) as T;
+    return typeof parsed === 'object' && parsed && typeof fallback === 'object' && fallback
+      ? { ...fallback, ...parsed }
+      : parsed;
+  }
   catch { return fallback; }
+}
+
+function roleWorkspace(roles: string[], allowedScreens: string[]) {
+  const role = roles.join(' ').toLowerCase();
+  const candidates = role.includes('finance') || role.includes('account')
+    ? [['FIN-AR', 'Review receivables'], ['FIN-AP', 'Review payables'], ['BI-PROFIT', 'Profitability']]
+    : role.includes('sales')
+      ? [['CRM-ORDER', 'Sales orders'], ['DSP-LOAD', 'Dispatch'], ['FIN-AR', 'Collections']]
+      : role.includes('production') || role.includes('plant')
+        ? [['PLAN-SCH', 'Production schedule'], ['PRO-ORDER', 'Production orders'], ['QC-LAB', 'Quality results']]
+        : role.includes('purchase') || role.includes('procure')
+          ? [['PUR-REQ', 'Requisitions'], ['PUR-RFQ', 'RFQ comparison'], ['PUR-PO', 'Purchase orders']]
+          : [['WRK-HOME', 'Priority work'], ['BI-REP', 'Controlled reports'], ['INV-STK', 'Stock overview']];
+  const primary = roles[0]?.replaceAll('_', ' ').replaceAll('-', ' ') || 'ERP user';
+  return {
+    eyebrow: 'PERSONALISED FOR YOUR ROLE',
+    title: `${primary.replace(/\b\w/g, (letter) => letter.toUpperCase())} workspace`,
+    detail: 'Your shortcuts, live work and business indicators respect the selected company, plant and assigned permissions.',
+    actions: candidates.filter(([code]) => allowedScreens.includes(code)).slice(0, 3).map(([code, label]) => ({ code, label })),
+  };
 }
