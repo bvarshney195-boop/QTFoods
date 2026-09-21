@@ -32,10 +32,11 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
     [allowedScreens]
   );
   const defaultCode = allowedScreens.has('WRK-HOME') ? 'WRK-HOME' : navigation[0]?.code;
+  const defaultArea = navigation.find((screen) => screen.code === defaultCode)?.area;
   const [screenCode, setScreenCode] = useState(defaultCode ?? '');
   const [search, setSearch] = useState('');
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(
-    () => new Set(navigationSections.map(({ key }) => key))
+    () => new Set(defaultArea ? [defaultArea] : [])
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -114,7 +115,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   useEffect(() => {
     if (!current?.area) return;
     const area = current.area;
-    setExpandedAreas((areas) => areas.has(area) ? areas : new Set([...areas, area]));
+    setExpandedAreas((areas) => areas.has(area) ? areas : new Set([area]));
   }, [current?.area]);
 
   const filtered = useMemo(() => {
@@ -132,10 +133,8 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
   function toggleArea(area: string) {
     setExpandedAreas((areas) => {
-      const next = new Set(areas);
-      if (next.has(area)) next.delete(area);
-      else next.add(area);
-      return next;
+      if (areas.has(area)) return new Set();
+      return new Set([area]);
     });
   }
 
