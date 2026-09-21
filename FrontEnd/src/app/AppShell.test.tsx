@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ErpSession } from '../types/session';
 import AppShell from './AppShell';
 
-vi.mock('./pageMap', () => ({
+vi.mock('./lazyPageMap', () => ({
   pageMap: {
     'WRK-HOME': () => <div>Assigned work page</div>,
     'FIN-GL': () => <div>General ledger page</div>,
@@ -18,6 +18,7 @@ vi.mock('../components/AccountSecurityPanel', () => ({
 
 describe('AppShell role navigation', () => {
   beforeEach(() => {
+    localStorage.clear();
     window.history.replaceState(null, '', '#WRK-HOME');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
