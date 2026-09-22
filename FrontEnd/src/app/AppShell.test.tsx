@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ErpSession } from '../types/session';
@@ -53,8 +53,10 @@ describe('AppShell role navigation', () => {
 
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Search menu' }), 'general ledger');
 
-    expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
-    expect(within(navigation).queryByRole('button', { name: 'My work' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
+      expect(within(navigation).queryByRole('button', { name: 'My work' })).not.toBeInTheDocument();
+    });
   });
 });
 
