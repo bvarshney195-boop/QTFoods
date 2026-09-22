@@ -172,6 +172,14 @@ function ScalarField({ fieldKey, value, path, catalog, errors, required, onChang
     </label>;
   }
 
+  if (fieldKey === 'uom_code') {
+    return <label>{title}<RequiredMark show={requiredField} />
+      <input {...common} className="p2-automatic-choice" readOnly value={stringValue(value)} />
+      <small className="field-hint">Selected automatically from the item master.</small>
+      <FieldError id={errorId} text={error} />
+    </label>;
+  }
+
   const choices = primitiveOptions(fieldKey, value, catalog);
   if (choices.length > 1) {
     return <label>{title}<RequiredMark show={requiredField} />
@@ -490,7 +498,6 @@ function primitiveChoiceField(fieldKey: string): boolean {
     || fieldKey === 'priority'
     || fieldKey === 'severity'
     || fieldKey === 'currency'
-    || fieldKey === 'uom_code'
     || fieldKey === 'allocation_basis'
     || fieldKey === 'payment_method'
     || fieldKey === 'classification'
