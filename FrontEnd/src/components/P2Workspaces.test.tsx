@@ -68,6 +68,32 @@ describe('P2 commercial and finance workspaces', () => {
     expect(screen.getByLabelText('Credit Limit')).toBeInTheDocument();
   });
 
+  it('keeps sales-order UOM mapped to the selected item master', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: {
+        statuses: ['DRAFT', 'CONFIRMED', 'PICKED'],
+        customers: [{ id: 'customer-1', name: 'Retail customer' }],
+        items: [
+          { id: 'item-pack', code: 'SKU-MILLET-150', name: 'Millet Crunch Pack 150g', base_uom: 'PACK' },
+          { id: 'item-service', code: 'SERVICE-DELIVERY', name: 'Delivery service', base_uom: 'EA' },
+        ],
+      },
+      allowed_actions: ['CREATE'],
+    });
+    renderPage(<CommercialP2Workspace screen="CRM-ORDER" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const unit = screen.getByLabelText('Unit of measure') as HTMLInputElement;
+    expect(unit).toHaveValue('PACK');
+    expect(unit).toHaveAttribute('readonly');
+    expect(screen.queryByRole('option', { name: 'Picked' })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Item'), 'item-service');
+    await waitFor(() => expect(unit).toHaveValue('EA'));
+  });
+
   it('refreshes receipt allocation and total when the selected invoice changes', async () => {
     const user = userEvent.setup();
     api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { open_invoices: [
