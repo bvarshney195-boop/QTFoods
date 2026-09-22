@@ -30,9 +30,9 @@ describe('quality and packing workspaces', () => {
   });
 
   it('releases an active food-safety hold with corrective evidence', async () => {
-    const user = userEvent.setup(); api.getSafetyRecord.mockResolvedValue(hold()); api.releaseFoodSafetyHold.mockResolvedValue({ id: 'hold-1' }); vi.spyOn(window, 'prompt').mockReturnValue('Verified allergen clean-down evidence.');
+    const user = userEvent.setup(); api.getSafetyRecord.mockResolvedValue(hold()); api.releaseFoodSafetyHold.mockResolvedValue({ id: 'hold-1' }); vi.spyOn(window, 'prompt').mockReturnValueOnce('Verified allergen clean-down evidence.').mockReturnValueOnce('Cleaning record was awaiting verification.').mockReturnValueOnce('ACCEPTED');
     renderPage(<QualitySafetyWorkspace />); await user.click((await screen.findAllByRole('button', { name: 'Open' }))[0]); await user.click(await screen.findByRole('button', { name: 'Release hold' }));
-    await waitFor(() => expect(api.releaseFoodSafetyHold).toHaveBeenCalledWith(expect.objectContaining({ id: 'hold-1', record_version: 1 }), 'Verified allergen clean-down evidence.', expect.any(String)));
+    await waitFor(() => expect(api.releaseFoodSafetyHold).toHaveBeenCalledWith(expect.objectContaining({ id: 'hold-1', record_version: 1 }), { disposition: 'ACCEPTED', root_cause: 'Cleaning record was awaiting verification.', corrective_action: 'Verified allergen clean-down evidence.' }, expect.any(String)));
   });
 
   it('creates and approves an effective artwork revision', async () => {

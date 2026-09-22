@@ -247,13 +247,14 @@ final class ManufacturingQualityService
             DB::table('food_safety_holds')->where('id', $id)->update([
                 'status' => 'RELEASED', 'record_version' => $version,
                 'released_at' => $now, 'released_by' => $data['actor_id'],
+                'disposition' => Str::upper($data['disposition']), 'root_cause' => trim($data['root_cause']),
                 'corrective_action' => trim($data['corrective_action']), 'updated_at' => $now,
             ]);
             $this->refreshOrderQuality($hold->production_order_id, $now);
             $result = ['entity_type' => 'food_safety_hold', 'id' => $id, 'production_order_id' => $hold->production_order_id,
                 'status' => 'RELEASED', 'record_version' => $version];
             $this->record('RELEASE_FOOD_SAFETY_HOLD', 'quality.food-safety-hold.released', 'food_safety_hold', $id, $data, $version, [
-                'status' => ['from' => 'ACTIVE', 'to' => 'RELEASED'],
+                'status' => ['from' => 'ACTIVE', 'to' => 'RELEASED'], 'disposition' => Str::upper($data['disposition']),
             ], $result);
             $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
 

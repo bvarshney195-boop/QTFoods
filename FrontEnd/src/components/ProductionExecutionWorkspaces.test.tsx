@@ -45,6 +45,19 @@ describe('production execution workspaces', () => {
     expect(await screen.findByText('Stage completed with actual time.')).toBeInTheDocument();
   });
 
+  it('records output directly from the production-order action without treating it as cancellation', async () => {
+    const user = userEvent.setup();
+    api.getProductionOrder.mockResolvedValueOnce(order({ status: 'IN_PROCESS', record_version: 3, allowed_actions: ['RECORD_OUTPUT', 'CANCEL'] })).mockResolvedValueOnce(order({ status: 'IN_PROCESS', record_version: 4, allowed_actions: ['RECORD_OUTPUT', 'CANCEL'], good_quantity: '10.000000', accounted_quantity: '10.000000' }));
+    api.recordProductionOutput.mockResolvedValue({ id: 'order-1' });
+    api.listProductionOrders.mockResolvedValue({ ...orderWorkspace(), data: [order({ status: 'IN_PROCESS', record_version: 3, allowed_actions: ['RECORD_OUTPUT', 'CANCEL'] })] });
+    renderPage(<ProductionOrderWorkspace />);
+    await user.click((await screen.findAllByRole('button', { name: 'Open' }))[0]);
+    fireEvent.change(await screen.findByLabelText('Direct output quantity'), { target: { value: '10' } });
+    await user.click(screen.getByRole('button', { name: 'Record output' }));
+    await waitFor(() => expect(api.recordProductionOutput).toHaveBeenCalledWith(expect.objectContaining({ id: 'order-1', record_version: 3 }), expect.objectContaining({ event_type: 'GOOD', quantity: '10', reason_code: null }), expect.any(String)));
+    expect(api.cancelProductionOrder).not.toHaveBeenCalled();
+  });
+
   it('records accountable output and resolves open rework', async () => {
     const user = userEvent.setup(); api.recordProductionOutput.mockResolvedValue({ id: 'order-1' }); api.resolveProductionRework.mockResolvedValue({ id: 'order-1' });
     vi.spyOn(window, 'prompt').mockReturnValue('Re-seal passed inspection.'); renderPage(<ProductionLossWorkspace />);

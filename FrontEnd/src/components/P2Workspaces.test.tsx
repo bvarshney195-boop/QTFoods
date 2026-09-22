@@ -129,6 +129,20 @@ describe('P2 commercial and finance workspaces', () => {
     }, undefined));
   });
 
+  it('uses fixed assets rather than ledger accounts for maintenance asset selection', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: {
+      assets: [{ id: 'asset-1', asset_number: 'AST-001', name: 'Packing conveyor', status: 'ACTIVE' }],
+      accounts: [{ id: 'account-1', account_code: '550000', name: 'Maintenance expense', account_type: 'EXPENSE' }],
+      priorities: ['LOW', 'MEDIUM', 'HIGH'],
+    }, allowed_actions: ['CREATE'] });
+    renderPage(<FinanceP2Workspace screen="ENG-MNT" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const asset = screen.getByLabelText('Asset') as HTMLSelectElement;
+    expect(Array.from(asset.options).map((option) => option.text)).toContain('AST-001 · Packing conveyor');
+    expect(Array.from(asset.options).map((option) => option.text)).not.toContain('550000 · Maintenance expense');
+  });
+
   it('uploads an archive document as multipart private evidence', async () => {
     const user = userEvent.setup();
     api.listP2.mockResolvedValue({ ...emptyWorkspace(), summary: { count: 0, size_bytes: 0 }, lookups: { document_types: ['SUPPLIER_INVOICE'] }, allowed_actions: ['UPLOAD'] });

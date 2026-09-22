@@ -308,7 +308,8 @@ function buildLookupCatalog(workspace: P2Workspace | null): LookupCatalog {
 function referenceOptions(fieldKey: string, currentValue: unknown, catalog: LookupCatalog): Array<{ value: string; label: string }> {
   const current = currentValue === null || currentValue === undefined ? '' : String(currentValue);
   const matches = current ? catalog.records.filter((collection) => collection.rows.some((row) => String(row.id ?? '') === current)) : [];
-  const candidates = (matches.length ? matches : catalog.records.filter((collection) => lookupScore(fieldKey, collection.key) > 0))
+  const exactCollection = explicitLookupCollection(fieldKey, catalog);
+  const candidates = exactCollection ? [exactCollection] : (matches.length ? matches : catalog.records.filter((collection) => lookupScore(fieldKey, collection.key) > 0))
     .sort((left, right) => (lookupScore(fieldKey, right.key) + collectionQuality(right)) - (lookupScore(fieldKey, left.key) + collectionQuality(left)));
   const collection = candidates[0];
   if (!collection) return [];
@@ -322,6 +323,14 @@ function referenceOptions(fieldKey: string, currentValue: unknown, catalog: Look
   });
   if (current && !seen.has(current)) options.unshift({ value: current, label: 'Current selection' });
   return options;
+}
+
+function explicitLookupCollection(fieldKey: string, catalog: LookupCatalog): LookupCollection | undefined {
+  const keys: Record<string, string> = {
+    asset_id: 'lookups.assets', source_position_id: 'lookups.source_positions', destination_position_id: 'lookups.destination_positions',
+  };
+  const expected = keys[fieldKey];
+  return expected ? catalog.records.find((collection) => collection.key === expected) : undefined;
 }
 
 function suitableReferenceRows(fieldKey: string, rows: LookupRow[]): LookupRow[] {
@@ -370,6 +379,10 @@ function collectionQuality(collection: LookupCollection): number {
 }
 
 function lookupRowLabel(row: LookupRow, index: number): string {
+  if (row.item_code && row.lot_code && row.location_code) {
+    return `${humanValue(row.item_code)} · lot ${humanValue(row.lot_code)} · ${humanValue(row.location_code)} · ${humanValue(row.quality_status)} · available ${humanValue(row.available_quantity)} ${humanValue(row.uom_code)}`;
+  }
+  if (row.asset_number && row.name) return `${humanValue(row.asset_number)} · ${humanValue(row.name)}`;
   const preferredPairs = [
     ['employee_number', 'name'], ['account_code', 'name'], ['account_code', 'account_name'], ['route_code', 'name'],
     ['order_number', 'customer_name'], ['invoice_number', 'customer_name'], ['item_code', 'name'], ['sku_code', 'name'],

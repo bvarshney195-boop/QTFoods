@@ -362,15 +362,19 @@ final class ManufacturingPlanningQuery
     {
         return DB::table('items as sku')->where('sku.company_id', $scope['company_id'])->where('sku.status', 'ACTIVE')
             ->whereIn('sku.item_type', ['INTERMEDIATE', 'FINISHED_GOOD'])
-            ->whereExists(fn (Builder $recipe) => $recipe->selectRaw('1')->from('recipes')
-                ->whereColumn('recipes.output_sku_id', 'sku.id')->where('recipes.status', 'ACTIVE'))
-            ->whereExists(fn (Builder $route) => $route->selectRaw('1')->from('production_routes')
-                ->whereColumn('production_routes.catalog_item_id', 'sku.catalog_item_id')->where('production_routes.status', 'ACTIVE'))
-            ->orderBy('sku.code')->get(['sku.id', 'sku.code', 'sku.name', 'sku.item_type', 'sku.base_uom'])
-            ->map(fn (object $sku) => [
-                'id' => (string) $sku->id, 'code' => $sku->code, 'name' => $sku->name,
-                'item_type' => $sku->item_type, 'uom_code' => $sku->base_uom,
-            ])->all();
+            ->orderBy('sku.code')->get(['sku.id', 'sku.code', 'sku.name', 'sku.item_type', 'sku.base_uom', 'sku.catalog_item_id'])
+            ->map(function (object $sku): array {
+                $hasRecipe = DB::table('recipes')->where('output_sku_id', $sku->id)->where('status', 'ACTIVE')->exists();
+                $hasRoute = $sku->catalog_item_id && DB::table('production_routes')->where('catalog_item_id', $sku->catalog_item_id)->where('status', 'ACTIVE')->exists();
+                $issues = [];
+                if (! $hasRecipe) $issues[] = 'active recipe required';
+                if (! $hasRoute) $issues[] = 'active production route required';
+                return [
+                    'id' => (string) $sku->id, 'code' => $sku->code, 'name' => $sku->name,
+                    'item_type' => $sku->item_type, 'uom_code' => $sku->base_uom,
+                    'eligible' => $issues === [], 'eligibility_issues' => $issues,
+                ];
+            })->all();
     }
 
     private function releasedDemandPlans(array $scope): array

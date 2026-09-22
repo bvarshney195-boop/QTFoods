@@ -8,7 +8,7 @@ export type PlanningCommandResult = {
   shortage_quantity?: string; work_center_count?: number; overloaded_work_centers?: number;
   reservation_count?: number; released_reservation_count?: number; reserved_quantity?: string;
 };
-export type OutputSku = { id: string; code: string; name: string; item_type?: string; uom_code?: string };
+export type OutputSku = { id: string; code: string; name: string; item_type?: string; uom_code?: string; eligible?: boolean; eligibility_issues?: string[] };
 
 export type DemandPlanLine = {
   id: string; line_number: number; output_sku: OutputSku; demand_date: string;

@@ -135,7 +135,7 @@ export type FinishedGoodsWorkspace = {
   lookups: { statuses: string[]; sorts: string[] }; allowed_actions: string[];
 };
 
-export type TraceLot = { id: string; code: string; status: string; item_code: string; item_name: string };
+export type TraceLot = { id: string; code: string; status: string; item?: NamedSku; item_code?: string; item_name?: string };
 export type TraceGraph = {
   lot: TraceLot; nodes: (TraceLot & { depth?: number })[];
   edges: { id: string; input_lot_id: string; output_lot_id: string; input_quantity: string; output_quantity: string; production_order_id: string; packing_run_id: string }[];
@@ -200,7 +200,7 @@ export const completeLabSample = (row: Pick<LabSample, 'id' | 'record_version'>,
 export const listSafetyRecords = (filters: Record<string, unknown> = {}) => apiRequest<SafetyWorkspace>(withQuery(safetyPath, filters));
 export const getSafetyRecord = async (kind: string, id: string) => (await apiRequest<{ data: SafetyRecord }>(`${safetyPath}/${kind}/${id}`)).data;
 export const createFoodSafetyHold = async (order: Pick<QualityOrderLookup, 'record_version'>, body: unknown, key: string) => unwrap(apiMutation<{ data: CommandResult }>('/api/v1/quality/food-safety-holds', body, { idempotencyKey: key, expectedVersion: order.record_version }));
-export const releaseFoodSafetyHold = (row: Pick<SafetyRecord, 'id' | 'record_version'>, corrective_action: string, key: string) => command(`/api/v1/quality/food-safety-holds/${row.id}/release`, { corrective_action }, key, row.record_version);
+export const releaseFoodSafetyHold = (row: Pick<SafetyRecord, 'id' | 'record_version'>, body: { disposition: string; root_cause: string; corrective_action: string }, key: string) => command(`/api/v1/quality/food-safety-holds/${row.id}/release`, body, key, row.record_version);
 export const resolveQualityDeviation = (row: Pick<SafetyRecord, 'id' | 'record_version'>, body: unknown, key: string) => command(`/api/v1/quality/deviations/${row.id}/resolve`, body, key, row.record_version);
 export const releaseBatchQuality = (order: Pick<QualityOrderLookup, 'id' | 'record_version'>, key: string) => command(`/api/v1/quality/production-orders/${order.id}/release`, {}, key, order.record_version);
 

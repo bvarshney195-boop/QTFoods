@@ -106,6 +106,8 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         $this->withHeaders($this->headers(9))->postJson('/api/v1/quality/production-orders/'.$orderId.'/release')
             ->assertUnprocessable()->assertJsonPath('error.fields.holds.0', 'Release every active food-safety hold before batch release.');
         $this->withHeaders($this->headers(1))->postJson('/api/v1/quality/food-safety-holds/'.$holdId.'/release', [
+            'disposition' => 'ACCEPTED',
+            'root_cause' => 'Cleaning record was awaiting independent verification.',
             'corrective_action' => 'QA verified the signed allergen clean-down checklist.',
         ])->assertOk()->assertJsonPath('data.status', 'RELEASED');
         $order = $this->getJson('/api/v1/manufacturing/orders/'.$orderId)->assertOk()->json('data');

@@ -558,7 +558,8 @@ final class ManufacturingExecutionQuery
         return ['kind' => 'HOLD', 'id' => (string) $row->id, 'number' => (string) $row->hold_number,
             'production_order' => ['id' => (string) $row->production_order_id, 'number' => (string) $row->order_number, 'batch_number' => (string) $row->batch_number],
             'category' => (string) $row->hazard_type, 'description' => (string) $row->reason,
-            'status' => (string) $row->status, 'corrective_action' => $row->corrective_action,
+            'status' => (string) $row->status, 'disposition' => $row->disposition, 'root_cause' => $row->root_cause,
+            'corrective_action' => $row->corrective_action,
             'record_version' => (int) $row->record_version, 'occurred_at' => $row->placed_at, 'resolved_at' => $row->released_at,
             'allowed_actions' => $row->status === 'ACTIVE' && $this->can($permissions, 'ACTION:QC-SAFE:RELEASE-HOLD') ? ['RELEASE'] : []];
     }

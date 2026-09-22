@@ -28,6 +28,8 @@ describe('Multi-Plant Control workspace', () => {
     expect((screen.getByLabelText('Transfer route') as HTMLSelectElement).value).toBe('route-1');
     expect((screen.getByLabelText('Source stock position') as HTMLSelectElement).value).toBe('source-position-1');
     expect((screen.getByLabelText('Destination stock position') as HTMLSelectElement).value).toBe('destination-position-1');
+    expect(screen.getByLabelText('Source stock position')).toHaveAccessibleName('Source stock position');
+    expect(screen.getByRole('option', { name: /SKU-APPLE-100 · lot FG-APPLE-001 · FG-A1 · RELEASED · available 10 PACK/ })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /command payload/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -86,11 +88,13 @@ function workspace() {
       }],
       source_positions: [{
         id: 'source-position-1', company_id: 'company-1', plant_id: 'plant-1', item_id: 'item-1',
-        lot_id: 'lot-1', inventory_owner_id: 'owner-1', available_quantity: '10',
+        lot_id: 'lot-1', inventory_owner_id: 'owner-1', item_code: 'SKU-APPLE-100', lot_code: 'FG-APPLE-001',
+        location_code: 'FG-A1', quality_status: 'RELEASED', available_quantity: '10', uom_code: 'PACK',
       }],
       destination_positions: [{
         id: 'destination-position-1', company_id: 'company-1', plant_id: 'plant-2', item_id: 'item-1',
-        lot_id: 'lot-1', inventory_owner_id: 'owner-1', quantity_base: '0',
+        lot_id: 'lot-1', inventory_owner_id: 'owner-1', item_code: 'SKU-APPLE-100', lot_code: 'FG-APPLE-001',
+        location_code: 'FG-B1', quality_status: 'RELEASED', quantity_base: '0', available_quantity: '0', uom_code: 'PACK',
       }],
       plants: [], groups: [], group_members: [], items: [],
     },

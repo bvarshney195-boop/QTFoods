@@ -202,7 +202,12 @@ final class ManufacturingExecutionController
     public function holdRelease(string $foodSafetyHoldId, Request $request): JsonResponse
     {
         $this->selectedScope($request, true);
-        $validated = $request->validate(['corrective_action' => ['required', 'string', 'min:3', 'max:4000']]);
+        $this->normalise($request);
+        $validated = $request->validate([
+            'disposition' => ['required', 'string', Rule::in(ManufacturingQualityService::DEVIATION_DISPOSITIONS)],
+            'root_cause' => ['required', 'string', 'min:3', 'max:4000'],
+            'corrective_action' => ['required', 'string', 'min:3', 'max:4000'],
+        ]);
         return response()->json(['data' => $this->quality->releaseHold($foodSafetyHoldId,
             $validated + $this->commandContext($request, true))]);
     }
