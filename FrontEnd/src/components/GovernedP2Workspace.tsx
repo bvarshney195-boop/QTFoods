@@ -164,20 +164,50 @@ function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fiel
 
 function refreshCollectionAllocation(body: unknown, previous: unknown, workspace: P2Workspace | null): unknown {
   if (!body || typeof body !== 'object' || Array.isArray(body) || !previous || typeof previous !== 'object' || Array.isArray(previous)) return body;
-  const next = body as Record<string, unknown>;
+  const next = refreshItemUnits(body as Record<string, unknown>, previous as Record<string, unknown>, workspace);
   const before = previous as Record<string, unknown>;
   const allocations = Array.isArray(next.allocations) ? next.allocations : [];
   const priorAllocations = Array.isArray(before.allocations) ? before.allocations : [];
-  if (allocations.length !== 1 || !allocations[0] || typeof allocations[0] !== 'object') return body;
+  if (allocations.length !== 1 || !allocations[0] || typeof allocations[0] !== 'object') return next;
   const allocation = allocations[0] as Record<string, unknown>;
   const prior = priorAllocations[0] && typeof priorAllocations[0] === 'object' ? priorAllocations[0] as Record<string, unknown> : {};
-  if (allocation.invoice_id === prior.invoice_id) return body;
+  if (allocation.invoice_id === prior.invoice_id) return next;
   const lookups = workspace?.lookups && typeof workspace.lookups === 'object' ? workspace.lookups as Record<string, unknown> : {};
   const invoices = Array.isArray(lookups.open_invoices) ? lookups.open_invoices : [];
   const invoice = invoices.find((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).id ?? '') === String(allocation.invoice_id ?? '')) as Record<string, unknown> | undefined;
-  if (!invoice) return body;
+  if (!invoice) return next;
   const amount = String(invoice.outstanding_amount ?? '0');
   return { ...next, customer_party_id: invoice.customer_party_id, total_amount: amount, allocations: [{ ...allocation, amount }] };
+}
+
+function refreshItemUnits(next: Record<string, unknown>, previous: Record<string, unknown>, workspace: P2Workspace | null): Record<string, unknown> {
+  const lookupRoot = workspace?.lookups && typeof workspace.lookups === 'object' ? workspace.lookups as Record<string, unknown> : {};
+  const items = Array.isArray(lookupRoot.items) ? lookupRoot.items.filter(isRecord) : [];
+  if (!items.length) return next;
+
+  function sync(current: unknown, before: unknown): unknown {
+    if (Array.isArray(current)) {
+      const prior = Array.isArray(before) ? before : [];
+      return current.map((row, index) => sync(row, prior[index]));
+    }
+    if (!isRecord(current)) return current;
+    const prior = isRecord(before) ? before : {};
+    let result: Record<string, unknown> = Object.fromEntries(
+      Object.entries(current).map(([key, value]) => [key, sync(value, prior[key])]),
+    );
+    if ('item_id' in result && 'uom_code' in result && String(result.item_id ?? '') !== String(prior.item_id ?? '')) {
+      const item = items.find((row) => String(row.id ?? '') === String(result.item_id ?? ''));
+      const uom = item?.base_uom ?? item?.uom_code;
+      if (typeof uom === 'string' && uom.trim()) result = { ...result, uom_code: uom };
+    }
+    return result;
+  }
+
+  return sync(next, previous) as Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {
