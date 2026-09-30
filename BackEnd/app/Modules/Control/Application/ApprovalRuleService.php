@@ -77,7 +77,7 @@ final class ApprovalRuleService
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
-                $this->replaceBands($id, $bands, $now);
+                $this->syncBands($id, $bands, $now);
 
                 $result = $this->result('approval_rule', $id, $data['status'], 1, [
                     'band_count' => count($bands),
@@ -107,7 +107,7 @@ final class ApprovalRuleService
                 'record_version' => $version,
                 'updated_at' => $now,
             ]);
-            $this->replaceBands($ruleId, $bands, $now);
+            $this->syncBands($ruleId, $bands, $now);
 
             $result = $this->result('approval_rule', $ruleId, $data['status'], $version, [
                 'band_count' => count($bands),
@@ -424,15 +424,51 @@ final class ApprovalRuleService
         return $bands;
     }
 
-    private function replaceBands(string $ruleId, array $bands, mixed $now): void
+    private function syncBands(string $ruleId, array $bands, mixed $now): void
     {
-        DB::table('approval_rule_bands')->where('approval_rule_id', $ruleId)->delete();
-        DB::table('approval_rule_bands')->insert(array_map(fn (array $band) => $band + [
-            'id' => (string) Str::uuid(),
-            'approval_rule_id' => $ruleId,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ], $bands));
+        $existing = DB::table('approval_rule_bands')
+            ->where('approval_rule_id', $ruleId)
+            ->orderBy('sequence')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy(fn (object $band) => (int) $band->sequence);
+        $sequences = array_column($bands, 'sequence');
+        $obsoleteIds = $existing
+            ->reject(fn (object $band) => in_array((int) $band->sequence, $sequences, true))
+            ->pluck('id')
+            ->all();
+
+        if ($obsoleteIds !== [] && DB::table('approval_requests')
+            ->whereIn('approval_rule_band_id', $obsoleteIds)->exists()) {
+            throw ValidationException::withMessages([
+                'bands' => [
+                    'Authority bands used by existing approvals cannot be removed. Edit those bands in place instead.',
+                ],
+            ]);
+        }
+
+        foreach ($bands as $band) {
+            $current = $existing->get($band['sequence']);
+            if ($current) {
+                DB::table('approval_rule_bands')
+                    ->where('id', $current->id)
+                    ->where('approval_rule_id', $ruleId)
+                    ->update($band + ['updated_at' => $now]);
+
+                continue;
+            }
+
+            DB::table('approval_rule_bands')->insert($band + [
+                'id' => (string) Str::uuid(),
+                'approval_rule_id' => $ruleId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        if ($obsoleteIds !== []) {
+            DB::table('approval_rule_bands')->whereIn('id', $obsoleteIds)->delete();
+        }
     }
 
     private function scopedRule(string $ruleId, array $data, bool $lock = false): object

@@ -5,9 +5,11 @@
          cacheDirectory=".phpunit.cache"
          colors="true">
     <testsuites>
-        <testsuite name="PostgreSQL integrity and concurrency">
+        <testsuite name="PostgreSQL integrity, concurrency, and UAT regressions">
             <file>tests/Feature/MasterTransactionRelationalIntegrityTest.php</file>
             <file>tests/Feature/StockLockingPostgresTest.php</file>
+            <file>tests/Feature/ApprovalGovernanceEndpointTest.php</file>
+            <file>tests/Feature/FoundationAdministrationEndpointTest.php</file>
         </testsuite>
     </testsuites>
     <php>

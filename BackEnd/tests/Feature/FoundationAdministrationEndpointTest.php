@@ -65,6 +65,31 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertJsonPath('data.allowed_actions', []);
     }
 
+    public function test_user_search_filters_names_and_emails_within_the_selected_plant(): void
+    {
+        $this->getJson('/api/v1/admin/users?q=Demo%20Finance%20Manager')
+            ->assertOk()
+            ->assertJsonPath('summary.total', 1)
+            ->assertJsonPath('data.0.name', 'Demo Finance Manager')
+            ->assertJsonPath('data.0.email', 'finance.user@qtfoods.local');
+
+        $this->getJson('/api/v1/admin/users?q=finance.user%40qtfoods.local')
+            ->assertOk()
+            ->assertJsonPath('summary.total', 1)
+            ->assertJsonPath('data.0.name', 'Demo Finance Manager');
+
+        $this->getJson('/api/v1/admin/users?q=No%20Matching%20User')
+            ->assertOk()
+            ->assertJsonPath('summary.total', 0)
+            ->assertJsonCount(0, 'data');
+
+        $this->signIn(self::ADMIN_USER_ID, self::FINANCE_PLANT_ID);
+        $this->getJson('/api/v1/admin/users?q=Demo%20Sales%20Manager')
+            ->assertOk()
+            ->assertJsonPath('summary.total', 0)
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_company_creation_is_idempotent_and_grants_the_creator_a_new_context(): void
     {
         $payload = [

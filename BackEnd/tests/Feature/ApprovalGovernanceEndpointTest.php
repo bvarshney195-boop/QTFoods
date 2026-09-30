@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Modules\Foundation\Domain\User;
 use App\Modules\Sales\Application\UnsoldSalesReturnService;
+use App\Shared\Approval\ApprovalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -123,6 +124,61 @@ final class ApprovalGovernanceEndpointTest extends TestCase
             'authority_metric' => 'ESTIMATED_TOTAL',
             'authority_uom' => 'INR',
         ]);
+    }
+
+    public function test_rule_update_preserves_bands_referenced_by_completed_approvals(): void
+    {
+        $approvals = app(ApprovalService::class);
+        $approvalId = $approvals->request(
+            'purchase_requisition',
+            (string) Str::uuid(),
+            1,
+            self::OPERATIONS_USER_ID,
+            self::COMPANY_ID,
+            self::PLANT_ID,
+            'PURCHASE_REQUISITION_APPROVAL',
+            ['authority_value' => '50000'],
+        );
+        $approvals->decide($approvalId, self::ADMIN_USER_ID, 'APPROVE');
+
+        $snapshot = DB::table('approval_requests')->where('id', $approvalId)->firstOrFail();
+        $ruleId = (string) $snapshot->approval_rule_id;
+        $bandId = (string) $snapshot->approval_rule_band_id;
+
+        $this->withHeaders(['If-Match' => '1', 'Idempotency-Key' => (string) Str::uuid()])
+            ->postJson("/api/v1/admin/approval-rules/{$ruleId}", Arr::except($this->purchaseRuleBody(), ['code']))
+            ->assertOk()
+            ->assertJsonPath('data.record_version', 2)
+            ->assertJsonPath('data.band_count', 2);
+
+        $this->assertDatabaseHas('approval_rule_bands', [
+            'id' => $bandId,
+            'approval_rule_id' => $ruleId,
+            'sequence' => 1,
+        ]);
+        $this->assertDatabaseHas('approval_requests', [
+            'id' => $approvalId,
+            'status' => 'APPROVED',
+            'approval_rule_id' => $ruleId,
+            'approval_rule_version' => 1,
+            'approval_rule_band_id' => $bandId,
+            'band_name_snapshot' => $snapshot->band_name_snapshot,
+            'required_permission' => $snapshot->required_permission,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'command' => 'UPDATE_APPROVAL_RULE',
+            'entity_id' => $ruleId,
+            'entity_version' => 2,
+        ]);
+        $this->assertDatabaseHas('outbox_events', [
+            'event_type' => 'approval.rule.updated',
+            'aggregate_id' => $ruleId,
+        ]);
+        $this->getJson("/api/v1/admin/approval-rules/{$ruleId}")
+            ->assertOk()
+            ->assertJsonPath('data.record_version', 2)
+            ->assertJsonPath('data.pending_request_count', 0)
+            ->assertJsonCount(2, 'data.bands');
     }
 
     public function test_authority_band_is_snapshotted_and_enforced_for_the_decision(): void

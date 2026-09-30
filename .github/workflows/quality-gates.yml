@@ -72,7 +72,7 @@ jobs:
         working-directory: BackEnd
         run: composer test
 
-      - name: Run PostgreSQL integrity and concurrency suite
+      - name: Run PostgreSQL integrity, concurrency, and UAT regression suite
         working-directory: BackEnd
         run: vendor/bin/phpunit -c phpunit.pgsql.xml
 

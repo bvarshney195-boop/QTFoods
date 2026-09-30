@@ -615,7 +615,8 @@ final class FoundationAdminQuery
             $pattern = '%'.Str::lower($search).'%';
             foreach ($columns as $index => $column) {
                 $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
-                $query->{$method}("LOWER(COALESCE({$column}, ?)) LIKE ?", ['', $pattern]);
+                $wrappedColumn = $query->getGrammar()->wrap($column);
+                $query->{$method}("LOWER(COALESCE({$wrappedColumn}, ?)) LIKE ?", ['', $pattern]);
             }
         });
     }
