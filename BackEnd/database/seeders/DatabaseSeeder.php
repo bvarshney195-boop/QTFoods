@@ -169,12 +169,15 @@ final class DatabaseSeeder extends Seeder
                 'SALES_MANAGER' => [
                     'ACTION:WRK-HOME:CLAIM',
                     'ACTION:WRK-HOME:COMPLETE',
+                    'ACTION:WRK-HOME:PERSONALISE',
                     'ACTION:RET-UNSOLD:CREATE',
                     'ACTION:RET-UNSOLD:EVIDENCE',
                 ],
                 'OPERATIONS_MANAGER' => [
                     'ACTION:WRK-HOME:CLAIM',
                     'ACTION:WRK-HOME:COMPLETE',
+                    'ACTION:WRK-HOME:PERSONALISE',
+                    'ACTION:WRK-HOME:IMPORT',
                     'ACTION:PUR-REQ:CREATE',
                     'ACTION:PUR-REQ:UPDATE',
                     'ACTION:PUR-REQ:SUBMIT',
@@ -288,6 +291,7 @@ final class DatabaseSeeder extends Seeder
                 'FINANCE_REVIEWER' => [
                     'ACTION:WRK-HOME:CLAIM',
                     'ACTION:WRK-HOME:COMPLETE',
+                    'ACTION:WRK-HOME:PERSONALISE',
                     'ACTION:PUR-REQ:APPROVE',
                     'ACTION:FIN-AP:INVOICE-CREATE',
                     'ACTION:FIN-AP:INVOICE-UPDATE',
@@ -316,6 +320,8 @@ final class DatabaseSeeder extends Seeder
                     'ACTION:WRK-HOME:CLAIM',
                     'ACTION:WRK-HOME:COMPLETE',
                     'ACTION:WRK-HOME:MANAGE',
+                    'ACTION:WRK-HOME:PERSONALISE',
+                    'ACTION:WRK-HOME:IMPORT',
                     'ACTION:PUR-REQ:CREATE',
                     'ACTION:PUR-REQ:UPDATE',
                     'ACTION:PUR-REQ:SUBMIT',

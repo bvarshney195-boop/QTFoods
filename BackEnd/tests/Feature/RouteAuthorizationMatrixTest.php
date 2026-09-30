@@ -271,8 +271,8 @@ final class RouteAuthorizationMatrixTest extends TestCase
             }
 
             foreach ($catalog as $route) {
-                $allowed = $screenDecisions[$route['screen']]
-                    && ($route['action'] === null || $actionDecisions[$route['action']]);
+                $allowed = ($screenDecisions[$route['screen']] ?? false)
+                    && ($route['action'] === null || ($actionDecisions[$route['action']] ?? false));
                 $routeOutcomes[$route['key']][$allowed ? 'allowed' : 'denied']++;
             }
         }

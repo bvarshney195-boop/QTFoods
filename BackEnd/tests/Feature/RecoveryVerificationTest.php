@@ -66,7 +66,12 @@ final class RecoveryVerificationTest extends TestCase
         self::assertGreaterThan(0, $healthy['object_storage']['total']);
         self::assertSame($healthy['object_storage']['total'], $healthy['object_storage']['verified']);
         self::assertSame([], $healthy['issues']);
-        self::assertStringEndsWith('add_bi_analyst_role', (string) $healthy['database']['latest_migration']);
+        $latestMigration = collect(File::files(database_path('migrations')))
+            ->map(static fn (\SplFileInfo $file): string => $file->getBasename('.php'))
+            ->sort()
+            ->last();
+        self::assertNotNull($latestMigration);
+        self::assertSame($latestMigration, (string) $healthy['database']['latest_migration']);
 
         Storage::disk(self::STORAGE_DISK)->put($first['storage_path'], 'corrupt');
         $corrupt = app(RecoveryVerifier::class)->verify(0);
