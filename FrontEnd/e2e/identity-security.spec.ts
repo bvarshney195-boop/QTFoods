@@ -14,6 +14,7 @@ test('named user changes password, enables TOTP, and signs in with both factors'
   await page.getByRole('button', { name: 'Create user' }).click();
   await expect(page.getByRole('status')).toContainText('created atomically');
   await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 
   await loginAndSelect(page, 'e2e.security.admin@qtfoods.local', 'SecurityInitial123');
   await page.getByRole('button', { name: 'Account security' }).click();
@@ -40,10 +41,12 @@ test('named user changes password, enables TOTP, and signs in with both factors'
 
   await page.getByRole('button', { name: 'Close account security' }).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await loginWithMfa(page, 'e2e.security.admin@qtfoods.local', 'SecurityChanged123', totp(secret!));
   await page.getByRole('button', { name: /Training Plant/ }).click();
   await expect(page.getByRole('button', { name: 'Account security' })).toContainText('2-step on');
   await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 
   await loginWithMfa(page, 'e2e.security.admin@qtfoods.local', 'SecurityChanged123', recoveryCode!);
   await page.getByRole('button', { name: /Training Plant/ }).click();

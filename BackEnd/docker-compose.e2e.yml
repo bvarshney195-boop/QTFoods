@@ -21,7 +21,7 @@ x-e2e-environment: &e2e-environment
   FILESYSTEM_DISK: local
   MAIL_MAILER: log
   MAIL_FROM_ADDRESS: no-reply@qtfoods.local
-  QT_FRONTEND_URL: http://127.0.0.1:4173
+  QT_FRONTEND_URL: http://127.0.0.1:${PLAYWRIGHT_WEB_PORT:-4173}
   QT_IDENTITY_PREVIEW_LINKS: "true"
   QT_EVIDENCE_DISK: evidence_test
   QT_PRIVATE_DOCUMENT_DISK: evidence_test

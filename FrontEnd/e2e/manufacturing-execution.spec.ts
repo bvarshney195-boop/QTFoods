@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Dialog, type Locator, type Page } from '@playwright/test';
 
 test('manufacturing executes a planned batch through quality, packing, cost, genealogy, and recall', async ({ page }) => {
   test.setTimeout(420_000);
@@ -102,9 +102,21 @@ test('manufacturing executes a planned batch through quality, packing, cost, gen
   await editor.getByLabel('Hold reason').fill('Allergen clean-down sign-off awaiting QA verification.');
   await editor.getByRole('button', { name: 'Place food-safety hold' }).click();
   await expect(editor.getByRole('status')).toContainText('batch quality blocked');
-  page.once('dialog', (dialog) => dialog.accept('QA verified the signed clean-down checklist.'));
+  const holdResponses = [
+    'QA verified the signed clean-down checklist.',
+    'The clean-down record was awaiting QA verification.',
+    'ACCEPTED',
+  ];
+  const answerHoldDialog = async (dialog: Dialog) => {
+    const response = holdResponses.shift();
+    if (response === undefined) throw new Error(`Unexpected hold-release prompt: ${dialog.message()}`);
+    await dialog.accept(response);
+  };
+  page.on('dialog', answerHoldDialog);
   await editor.getByRole('button', { name: 'Release hold' }).click();
   await expect(editor.getByRole('status')).toContainText('Food-safety hold released');
+  page.off('dialog', answerHoldDialog);
+  expect(holdResponses).toEqual([]);
   await selectByText(editor.getByLabel('Batch quality release'), 'E2E-MFG-PRO-001');
   await editor.getByRole('button', { name: 'Release batch quality' }).click();
   await expect(editor.getByRole('status')).toContainText('passed the lab');

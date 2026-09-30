@@ -35,13 +35,12 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
     [allowedScreens]
   );
   const defaultCode = allowedScreens.has('WRK-HOME') ? 'WRK-HOME' : navigation[0]?.code;
-  const defaultArea = navigation.find((screen) => screen.code === defaultCode)?.area;
   const [screenCode, setScreenCode] = useState(defaultCode ?? '');
   const [search, setSearch] = useState('');
   const [favourites, setFavourites] = useState<string[]>(() => readCodes('qtfoods:favourite-screens'));
   const [recent, setRecent] = useState<string[]>(() => readCodes('qtfoods:recent-screens'));
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(
-    () => new Set(defaultArea ? [defaultArea] : [])
+    () => new Set(navigationSections.map(({ key }) => key))
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -51,6 +50,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   const sidebarSearchRef = useRef<HTMLInputElement>(null);
   const securityButtonRef = useRef<HTMLButtonElement>(null);
   const mainContentRef = useRef<HTMLElement>(null);
+  const previousScreenRef = useRef(screenCode);
 
   useKeyboardScrollableRegions(mainContentRef);
   useResponsiveDataTables(mainContentRef);
@@ -133,13 +133,22 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   useEffect(() => {
     if (!current) return;
     document.title = `${screenLabel(current.code, current.title)} — Q & T FOODS LTD`;
-    window.requestAnimationFrame(() => mainContentRef.current?.focus({ preventScroll: true }));
+    if (previousScreenRef.current === current.code) return;
+
+    previousScreenRef.current = current.code;
+    const frame = window.requestAnimationFrame(() => mainContentRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
   }, [current]);
 
   useEffect(() => {
     if (!current?.area) return;
     const area = current.area;
-    setExpandedAreas((areas) => areas.has(area) ? areas : new Set([area]));
+    setExpandedAreas((areas) => {
+      if (areas.has(area)) return areas;
+      const next = new Set(areas);
+      next.add(area);
+      return next;
+    });
   }, [current?.area]);
 
   const filtered = useMemo(() => {
@@ -169,8 +178,10 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
   function toggleArea(area: string) {
     setExpandedAreas((areas) => {
-      if (areas.has(area)) return new Set();
-      return new Set([area]);
+      const next = new Set(areas);
+      if (next.has(area)) next.delete(area);
+      else next.add(area);
+      return next;
     });
   }
 

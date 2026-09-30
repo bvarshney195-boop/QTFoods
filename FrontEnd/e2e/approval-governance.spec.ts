@@ -29,7 +29,7 @@ test('ERP Administrator versions approval policy and delegates scoped authority'
   await page.getByLabel('Delegator').selectOption({
     label: 'Demo Finance Manager (finance.user@qtfoods.local)',
   });
-  await page.getByLabel('Delegate').selectOption({
+  await page.getByLabel('Delegate', { exact: true }).selectOption({
     label: 'Demo Operations Manager (operations.user@qtfoods.local)',
   });
   await page.getByLabel('Approval authority').selectOption('ACTION:RET-UNSOLD:APPROVE');
@@ -47,6 +47,7 @@ test('ERP Administrator versions approval policy and delegates scoped authority'
   await page.getByRole('button', { name: 'Escalate due approvals' }).click();
   await expect(page.getByRole('status')).toContainText('0 overdue approvals routed');
   await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 
   await loginAndSelect(page, 'operations.user@qtfoods.local');
   const operationsNavigation = page.getByRole('navigation', { name: 'Main menu' });

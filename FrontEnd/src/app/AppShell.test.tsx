@@ -38,13 +38,14 @@ describe('AppShell role navigation', () => {
     expect(within(navigation).queryByText('WRK-HOME')).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'Production orders' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Finance Manager').length).toBeGreaterThan(0);
-
-    await userEvent.setup().click(within(navigation).getByRole('button', { name: /Finance & People/ }));
     expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
     expect(within(navigation).queryByText('FIN-GL')).not.toBeInTheDocument();
 
     await userEvent.setup().click(within(navigation).getByRole('button', { name: /Finance & People/ }));
     expect(within(navigation).queryByRole('button', { name: 'General ledger' })).not.toBeInTheDocument();
+
+    await userEvent.setup().click(within(navigation).getByRole('button', { name: /Finance & People/ }));
+    expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
   });
 
   it('searches friendly menu names and expands the matching section', async () => {

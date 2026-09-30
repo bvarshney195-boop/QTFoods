@@ -17,7 +17,7 @@ test('ERP Administrator traces a scoped change through audit evidence and outbox
   await navigation.locator('[data-screen-code="ADM-AUD"]').click();
   await expect(page.getByRole('heading', { name: 'Audit & Evidence' })).toBeVisible();
   await page.getByLabel('Search audit').fill('CREATE_LOCATION');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   const auditRow = page.locator('.control-table tbody tr').filter({ hasText: 'CREATE_LOCATION' }).first();
   await expect(auditRow).toContainText('Demo ERP Administrator');
   await auditRow.getByRole('button', { name: 'Open' }).click();
@@ -26,7 +26,7 @@ test('ERP Administrator traces a scoped change through audit evidence and outbox
   await navigation.locator('[data-screen-code="ADM-INT"]').click();
   await expect(page.getByRole('heading', { name: 'Integration Operations' })).toBeVisible();
   await page.getByLabel('Search outbox').fill('foundation.location.created');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   const outboxRow = page.locator('.control-table tbody tr').filter({ hasText: 'foundation.location.created' }).first();
   await expect(outboxRow).toBeVisible();
   await page.getByRole('button', { name: 'Process due now' }).click();
