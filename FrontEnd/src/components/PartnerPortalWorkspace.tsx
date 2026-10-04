@@ -74,6 +74,9 @@ export function PartnerPortalWorkspace() {
   const tabs = useMemo(() => workspace ? visibleTabs(workspace) : [], [workspace]);
   const tab = tabs.find((candidate) => candidate.key === tabKey) ?? tabs[0];
   const records = tab && workspace ? collection(workspace, tab.key) : [];
+  useEffect(() => {
+    if (selected && !records.some((record) => record.id === selected.id)) setSelected(null);
+  }, [records, selected]);
   const actions = workspace?.allowed_actions ?? [];
 
   async function open(record: P2Record) {
@@ -230,13 +233,13 @@ export function PartnerPortalWorkspace() {
         <div className="requisition-toolbar p2-toolbar"><label>Search<input aria-label="Partner Portal search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Number, title, partner or email" /></label><div /><button type="button" className="secondary compact-button" disabled={loading} onClick={() => void refresh()}>Refresh</button></div>
         {loading && !workspace ? <Empty text="Loading the governed partner workspace..." /> : <PortalTable records={records} tab={tab} selectedId={selected?.id} open={open} />}
       </section>
-      <aside className="panel requisition-editor"><div className="requisition-detail-body">
+      {(editor || selected || error || success) ? <aside className="panel requisition-editor p2-detail-on-demand"><div className="requisition-detail-body">
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {editor ? <PortalEditor editor={editor} workspace={workspace} file={file} setFile={setFile} update={updateDraft} submit={submit} close={() => { setEditor(null); setFile(null); }} busy={busy} />
+        {success ? <div className="form-success" role="status" aria-live="polite"><span />{success}</div> : null}
+        {editor ? <PortalEditor editor={editor} workspace={workspace} file={file} setFile={setFile} update={updateDraft} submit={submit} close={() => { setEditor(null); setFile(null); setError(null); }} busy={busy} />
           : selected ? <PortalDetail record={selected} tabKey={tabKey} canClaim={Boolean(!internal && actions.includes('CLAIM-CREATE'))} action={recordAction} claim={() => startClaim(selected)} busy={busy} />
-            : <Empty text={internal ? 'Choose an access grant or document, or start a new portal entry.' : 'Choose one of your available records or start a document or claim exchange.'} />}
-      </div></aside>
+            : null}
+      </div></aside> : null}
     </div>
   </>;
 }
