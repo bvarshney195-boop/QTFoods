@@ -168,7 +168,7 @@ final class UnsoldSalesReturnService
 
                 DB::table('unsold_return_lines')->where('id', $line->id)->update([
                     'received_quantity' => $newReceived,
-                    'return_position_id' => $lineInput['return_position_id'],
+                    'return_position_id' => $position->id,
                     'updated_at' => now(),
                 ]);
             }
@@ -584,13 +584,66 @@ final class UnsoldSalesReturnService
             ->where('location.status', 'ACTIVE')
             ->lockForUpdate()
             ->first([
-                'position.id',
-                'position.item_id',
-                'position.lot_id',
-                'position.uom_code',
-                'position.quantity_base',
-                'position.record_version',
+                'position.id', 'position.item_id', 'position.lot_id', 'position.uom_code',
+                'position.quantity_base', 'position.record_version',
             ]);
+
+        if (! $position) {
+            $location = DB::table('locations')
+                ->where('id', $lineInput['return_position_id'])
+                ->where('company_id', $case->company_id)
+                ->where('plant_id', $case->plant_id)
+                ->where('location_type', 'RETURN_QUARANTINE')
+                ->where('status', 'ACTIVE')
+                ->lockForUpdate()
+                ->first(['id']);
+            if ($location) {
+                $ownerId = DB::table('inventory_owners')
+                    ->where('company_id', $case->company_id)
+                    ->where('owner_type', 'COMPANY')
+                    ->where('status', 'ACTIVE')
+                    ->orderBy('code')
+                    ->value('id');
+                if (! $ownerId) {
+                    throw ValidationException::withMessages([
+                        "lines.{$index}.return_position_id" => ['No active company inventory owner is configured for this plant.'],
+                    ]);
+                }
+                $positionId = DB::table('stock_positions')
+                    ->where('company_id', $case->company_id)
+                    ->where('plant_id', $case->plant_id)
+                    ->where('item_id', $line->sku_id)
+                    ->where('lot_id', $line->fg_lot_id)
+                    ->where('inventory_owner_id', $ownerId)
+                    ->where('location_id', $location->id)
+                    ->where('quality_status', 'RETURN_QUARANTINE')
+                    ->where('uom_code', $line->uom_code)
+                    ->value('id');
+                if (! $positionId) {
+                    $positionId = (string) Str::uuid();
+                    DB::table('stock_positions')->insert([
+                        'id' => $positionId,
+                        'company_id' => $case->company_id,
+                        'plant_id' => $case->plant_id,
+                        'item_id' => $line->sku_id,
+                        'lot_id' => $line->fg_lot_id,
+                        'owner_party_id' => null,
+                        'inventory_owner_id' => $ownerId,
+                        'location_id' => $location->id,
+                        'quality_status' => 'RETURN_QUARANTINE',
+                        'quantity_base' => '0',
+                        'reserved_quantity_base' => '0',
+                        'uom_code' => $line->uom_code,
+                        'record_version' => 1,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+                $position = DB::table('stock_positions')->where('id', $positionId)->lockForUpdate()
+                    ->first(['id', 'item_id', 'lot_id', 'uom_code', 'quantity_base', 'record_version']);
+                $lineInput['return_position_id'] = $positionId;
+            }
+        }
 
         if (
             ! $position
@@ -600,7 +653,7 @@ final class UnsoldSalesReturnService
         ) {
             throw ValidationException::withMessages([
                 "lines.{$index}.return_position_id" => [
-                    'Select an active return-quarantine position for this case plant, SKU, lot, and UOM.',
+                    'Select an active return-quarantine destination for this case plant, SKU, lot, owner, and UOM.',
                 ],
             ]);
         }
