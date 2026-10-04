@@ -53,6 +53,8 @@ Route::get('/metrics', [ObservabilityController::class, 'metrics'])
 Route::middleware('web')->prefix('v1')->group(function () {
     Route::get('/auth/csrf', [AuthController::class, 'csrf']);
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:identity-login');
+    Route::post('/auth/email-otp/request', [AuthController::class, 'requestEmailOtp'])->middleware('throttle:identity-email');
+    Route::post('/auth/email-otp/verify', [AuthController::class, 'verifyEmailOtp'])->middleware('throttle:identity-mfa-challenge');
     Route::post('/auth/mfa/challenge', [AuthController::class, 'mfaChallenge'])->middleware('throttle:identity-mfa-challenge');
     Route::get('/auth/invitations/{token}', [IdentityController::class, 'invitation'])
         ->where('token', '[A-Fa-f0-9]{64}')->middleware('throttle:identity-link-read');
