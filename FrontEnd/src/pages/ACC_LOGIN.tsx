@@ -81,9 +81,10 @@ export default function ACC_LOGIN({
 
   useEffect(() => {
     if (!mfaChallenge) return;
-    const next = mfaChallenge.available_methods?.includes('TOTP')
+    const available = mfaChallenge.available_methods?.length ? mfaChallenge.available_methods : ['TOTP', 'RECOVERY_CODE'];
+    const next = available.includes('TOTP')
       ? 'TOTP'
-      : mfaChallenge.available_methods?.includes('EMAIL_OTP')
+      : available.includes('EMAIL_OTP')
         ? 'EMAIL_OTP'
         : 'RECOVERY_CODE';
     setMfaMethod(next);
@@ -220,11 +221,11 @@ export default function ACC_LOGIN({
 
             {mfaChallenge ? <>
               <div className="auth-methods" role="group" aria-label="Second factor method">
-                {mfaChallenge.available_methods?.includes('EMAIL_OTP') && <button type="button" className={mfaMethod === 'EMAIL_OTP' ? 'selected' : ''} onClick={() => setMfaMethod('EMAIL_OTP')}>Email OTP</button>}
-                {mfaChallenge.available_methods?.includes('TOTP') && <button type="button" className={mfaMethod === 'TOTP' ? 'selected' : ''} onClick={() => setMfaMethod('TOTP')}>Google Authenticator</button>}
-                {mfaChallenge.available_methods?.includes('RECOVERY_CODE') && <button type="button" className={mfaMethod === 'RECOVERY_CODE' ? 'selected' : ''} onClick={() => setMfaMethod('RECOVERY_CODE')}>Recovery code</button>}
+                {(mfaChallenge.available_methods?.length ? mfaChallenge.available_methods : ['TOTP', 'RECOVERY_CODE']).includes('EMAIL_OTP') && <button type="button" className={mfaMethod === 'EMAIL_OTP' ? 'selected' : ''} onClick={() => setMfaMethod('EMAIL_OTP')}>Email OTP</button>}
+                {(mfaChallenge.available_methods?.length ? mfaChallenge.available_methods : ['TOTP', 'RECOVERY_CODE']).includes('TOTP') && <button type="button" className={mfaMethod === 'TOTP' ? 'selected' : ''} onClick={() => setMfaMethod('TOTP')}>Google Authenticator</button>}
+                {(mfaChallenge.available_methods?.length ? mfaChallenge.available_methods : ['TOTP', 'RECOVERY_CODE']).includes('RECOVERY_CODE') && <button type="button" className={mfaMethod === 'RECOVERY_CODE' ? 'selected' : ''} onClick={() => setMfaMethod('RECOVERY_CODE')}>Recovery code</button>}
               </div>
-              <label htmlFor="login-code">{mfaMethod === 'EMAIL_OTP' ? 'Email OTP' : mfaMethod === 'TOTP' ? 'Google Authenticator code' : 'Recovery code'}</label>
+              <label htmlFor="login-code">{!mfaChallenge.available_methods?.length ? 'Authenticator or recovery code' : mfaMethod === 'EMAIL_OTP' ? 'Email OTP' : mfaMethod === 'TOTP' ? 'Google Authenticator code' : 'Recovery code'}</label>
               <input id="login-code" inputMode={mfaMethod === 'RECOVERY_CODE' ? 'text' : 'numeric'} value={code} onChange={(event) => setCode(event.target.value)} autoComplete="one-time-code" autoFocus required />
               <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : 'Verify and sign in'}</button>
               <button className="auth-link centered" type="button" onClick={onCancelMfa}>Back to sign in</button>
