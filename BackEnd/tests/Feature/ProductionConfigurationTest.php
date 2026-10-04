@@ -102,6 +102,28 @@ final class ProductionConfigurationTest extends TestCase
             ->assertHeader('Access-Control-Allow-Origin', 'https://erp.secure.test');
     }
 
+    public function test_production_requires_privileged_mfa_and_acknowledged_outbox_delivery(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'qtfoods.identity.enforce_privileged_mfa' => false,
+            'qtfoods.identity.mfa_required_roles' => ['FINANCE_REVIEWER'],
+            'qtfoods.outbox.transport' => 'log',
+            'qtfoods.outbox.http_endpoint' => null,
+            'qtfoods.outbox.signing_secret' => 'short',
+            'qtfoods.outbox.require_acknowledgement' => false,
+        ]);
+
+        $violations = app(ProductionEnvironmentGuard::class)->violations('production');
+
+        self::assertContains('QT_ENFORCE_PRIVILEGED_MFA must be true.', $violations);
+        self::assertContains('QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.', $violations);
+        self::assertContains('QT_OUTBOX_TRANSPORT must be http in production.', $violations);
+        self::assertContains('QT_OUTBOX_HTTP_ENDPOINT must be an absolute HTTPS receiver endpoint.', $violations);
+        self::assertContains('QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.', $violations);
+        self::assertContains('QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must be true.', $violations);
+    }
+
     public function test_demo_database_seeder_is_disabled_by_production_policy(): void
     {
         config()->set('deployment.allow_demo_seeders', false);
@@ -211,6 +233,12 @@ final class ProductionConfigurationTest extends TestCase
             'session.same_site' => 'lax',
             'session.driver' => 'redis',
             'qtfoods.identity.preview_links' => false,
+            'qtfoods.identity.enforce_privileged_mfa' => true,
+            'qtfoods.identity.mfa_required_roles' => ['ERP_ADMIN', 'FINANCE_REVIEWER'],
+            'qtfoods.outbox.transport' => 'http',
+            'qtfoods.outbox.http_endpoint' => 'https://events.erp.secure.test/qtfoods',
+            'qtfoods.outbox.signing_secret' => 'O8b4R2x9K7m5C1v6T3q0W2z8L4p9S6d1',
+            'qtfoods.outbox.require_acknowledgement' => true,
             'database.default' => 'pgsql',
             'database.connections.pgsql.password' => 'D6e9J4m2C8r5V7x1',
             'database.connections.pgsql.mask_bindings_in_exception_messages' => true,
