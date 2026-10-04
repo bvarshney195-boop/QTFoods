@@ -17,6 +17,16 @@ final class IdentityNotificationService
         return $this->deliver($email, 'Your Q & T Foods ERP invitation', $body, $url);
     }
 
+    public function loginOtp(string $email, string $name, string $code, string $expiresAt, string $purpose): array
+    {
+        $context = $purpose === 'SECOND_FACTOR' ? 'complete your two-step sign-in' : 'sign in';
+        $body = "Hello {$name},\n\nYour Q & T Foods ERP verification code is {$code}. "
+            ."Use it to {$context}. The code expires at {$expiresAt}.\n\n"
+            .'If you did not request this code, do not share it and contact your administrator.';
+
+        return $this->deliver($email, 'Your Q & T Foods ERP sign-in code', $body, '');
+    }
+
     public function passwordReset(string $email, string $name, string $token, string $expiresAt): array
     {
         $url = $this->url('reset', $email, $token);
