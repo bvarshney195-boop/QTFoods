@@ -163,6 +163,10 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
     const uoms = [...new Set(destroyed.map((line) => line.uom_code))];
     return uoms.length === 1 ? uoms[0] : '';
   }, [detail]);
+  const receiptRoutingReady = useMemo(
+    () => remainingLines.length > 0 && remainingLines.every((line) => (positions[line.id] ?? []).length > 0),
+    [remainingLines, positions]
+  );
 
   function changeReceipt(lineId: string, patch: Partial<ReceiptDraft[string]>) {
     receiptKey.current = null;
@@ -597,6 +601,10 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
             <form className="action-card" onSubmit={submitReceipt} noValidate>
               <div className="action-card-head"><div><span>STORES ACTION</span><h4>Record physical receipt</h4></div><StatusBadge status="AVAILABLE" /></div>
               <p>Only positive quantities are posted. Set a line to zero to leave it open for a later partial receipt.</p>
+              {!receiptRoutingReady ? <div className="form-warning" role="alert">
+                <span>No eligible return-quarantine destination is configured for one or more lines. Posting is disabled. Ask an administrator to activate a Return Quarantine location, then refresh this case.</span>
+                <button type="button" className="secondary compact-button" disabled={loading} onClick={() => void loadCase()}>Retry routing</button>
+              </div> : null}
               {remainingLines.map((line) => {
                 const routes = positions[line.id] ?? [];
                 const draft = receiptDraft[line.id] ?? { quantity: '', positionId: '' };
@@ -608,7 +616,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                   </div>
                 );
               })}
-              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
+              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length || !receiptRoutingReady}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
             </form>
           ) : <ActionWait role="STORES ACTION" title="Physical receipt" message={`Available only while a return is requested, in transit, or partially received. Current state: ${displayStatus(detail.status)}.`} />)}
 
