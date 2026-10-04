@@ -321,7 +321,7 @@ function linkedBusinessRecords(workspace: PortalWorkspace | null, type: string):
     : type === 'shipment_id' ? 'shipments'
       : type === 'invoice_id' ? 'invoices'
         : type === 'customer_claim_id' ? 'claims' : '';
-  return key ? collection(workspace as PortalWorkspace, key) : [];
+  return key && workspace ? collection(workspace, key) : [];
 }
 
 function businessRecordLabel(record: P2Record, type: string): string {
