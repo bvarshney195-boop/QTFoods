@@ -160,7 +160,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
   function go(code: string) {
     if (!allowedScreens.has(code)) return;
-    const nextRecent = [code, ...recent.filter((item) => item !== code)].slice(0, 4);
+    const nextRecent = [code, ...recent.filter((item) => item !== code)].slice(0, 3);
     setRecent(nextRecent);
     localStorage.setItem('qtfoods:recent-screens', JSON.stringify(nextRecent));
     window.location.hash = code;
@@ -212,7 +212,6 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
         </div>
         <div className="side-search">
           <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu" aria-label="Search menu" />
-          <kbd>Ctrl K</kbd>
         </div>
         <nav aria-label="Main menu">
           {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
