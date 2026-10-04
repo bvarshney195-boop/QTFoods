@@ -183,6 +183,15 @@ final class MfaService
         return ['recovery_codes' => $codes];
     }
 
+    public function verifyAuthenticatorCode(User $user, string $code): bool
+    {
+        if ($user->mfa_enabled_at === null || ! is_string($user->mfa_secret)) {
+            return false;
+        }
+
+        return $this->verifyTotp($this->decryptSecret($user), $code);
+    }
+
     public function verifyLoginCode(User $user, string $code): ?string
     {
         if ($user->mfa_enabled_at === null || ! is_string($user->mfa_secret)) {
