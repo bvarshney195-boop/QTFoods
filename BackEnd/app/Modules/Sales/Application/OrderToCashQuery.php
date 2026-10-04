@@ -186,8 +186,18 @@ final class OrderToCashQuery
         $today = CarbonImmutable::today();
         $invoices = collect($page->items())->map(function ($row) use ($today): array {
             $payload = $this->receivableRow($row);
+            $outstanding = (string) $row->outstanding_amount;
+            $gross = (string) $row->gross_amount;
             $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date)) ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : 0;
-            $payload['ageing_bucket'] = bccomp((string) $row->outstanding_amount, '0', 4) === 0 ? 'SETTLED'
+            $settled = bccomp($outstanding, '0', 4) === 0;
+            $partiallyPaid = ! $settled && bccomp($outstanding, $gross, 4) < 0;
+            $paymentStatus = $settled ? 'SETTLED' : ($days > 0 ? 'OVERDUE' : ($partiallyPaid ? 'PARTIALLY_PAID' : 'OPEN'));
+            $payload['document_status'] = $payload['status'] ?? null;
+            $payload['payment_status'] = $paymentStatus;
+            // Primary status in the receivables workspace is collection state, not retention/archive state.
+            $payload['status'] = $paymentStatus;
+            $payload['ageing_bucket'] = $settled
+                ? 'SETTLED'
                 : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'))));
             $payload['days_overdue'] = $days;
             return $payload;
