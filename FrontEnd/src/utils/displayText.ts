@@ -3,6 +3,7 @@ const roleNames: Record<string, string> = {
   OPERATIONS_MANAGER: 'Operations Manager',
   FINANCE_REVIEWER: 'Finance Manager',
   ERP_ADMIN: 'ERP Administrator',
+  BI_ANALYST: 'BI Analyst',
   PARTNER_PORTAL: 'Partner User',
 };
 
