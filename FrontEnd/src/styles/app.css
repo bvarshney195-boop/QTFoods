@@ -408,3 +408,9 @@ td:has(.money),.money,.currency,.amount{font-variant-numeric:tabular-nums;white-
 .success-toast div{display:grid;gap:2px}.success-toast b{font-size:14px;line-height:20px}.success-toast div span{font-size:13px;line-height:18px}
 .success-toast button{border:0;background:transparent;color:inherit;min-width:40px;min-height:40px;margin:-8px -8px 0 0;font-size:20px;line-height:1;cursor:pointer}
 @media(max-width:767px){.success-toast{top:72px;right:16px;left:16px;width:auto}}
+
+.modal-backdrop{position:fixed;z-index:150;inset:0;background:rgba(16,36,32,.42);display:grid;place-items:center;padding:16px}
+.confirm-dialog{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;padding:24px;box-shadow:0 24px 80px rgba(16,36,32,.24)}
+.confirm-dialog h2{margin:0 0 12px;font-size:20px;line-height:28px}.confirm-dialog-body{font-size:14px;line-height:20px}.confirm-dialog .form-actions{margin-top:20px}
+button.danger{min-height:40px;padding:9px 16px;border-radius:8px;border:1px solid #B42318;background:#B42318;color:#fff;font-weight:650;white-space:nowrap}
+@media(max-width:767px){button.danger{min-height:44px}.confirm-dialog{padding:20px}}
