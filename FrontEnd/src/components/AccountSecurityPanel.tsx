@@ -29,6 +29,8 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   const [mfaCode, setMfaCode] = useState('');
   const [setup, setSetup] = useState<MfaSetup | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
   const panelRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -175,6 +177,8 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   }
 
   async function revoke(device: DeviceSession) {
+    const name = deviceName(device.user_agent);
+    if (!window.confirm(`${device.current ? 'Sign out this device' : 'Revoke ' + name}?\n\nLast seen: ${new Date(device.last_seen_at).toLocaleString()}\n\nChoose Cancel to keep the session active.`)) return;
     setBusy(device.id); clearFeedback();
     try {
       const result = await revokeDeviceSession(device.id);
@@ -238,12 +242,26 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
           </section>
 
           <section className="security-section">
-            <div className="subsection-head"><div><b>Device sessions</b><small>Logical sessions; no cookie or raw framework session ID is stored</small></div><button className="secondary compact-button" type="button" onClick={() => void revokeOthers()} disabled={busy === 'other-devices'}>Revoke others</button></div>
+            <div className="subsection-head"><div><b>Device sessions</b><small>Active devices are shown first. Technical session identifiers stay hidden.</small></div><button className="secondary compact-button" type="button" onClick={() => void revokeOthers()} disabled={busy === 'other-devices'}>Revoke others</button></div>
+            <div className="workspace-tabs" role="tablist" aria-label="Device session view">
+              <button type="button" role="tab" aria-selected={!showSessionHistory} className={!showSessionHistory ? 'active' : ''} onClick={() => { setShowSessionHistory(false); setHistoryPage(1); }}>Active devices</button>
+              <button type="button" role="tab" aria-selected={showSessionHistory} className={showSessionHistory ? 'active' : ''} onClick={() => { setShowSessionHistory(true); setHistoryPage(1); }}>History</button>
+            </div>
             {loadingDevices && <div className="empty-state">Loading device sessions…</div>}
-            {!loadingDevices && devices.map((device) => <div className="device-row" key={device.id}>
-              <div><b>{deviceName(device.user_agent)}</b><small>{device.ip_address ?? 'Unknown IP'} · Last seen {new Date(device.last_seen_at).toLocaleString()}</small><small>{device.current ? 'This device · ' : ''}{device.id.slice(0, 8)}</small></div>
-              <div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={() => void revoke(device)}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
-            </div>)}
+            {!loadingDevices && (() => {
+              const active = devices.filter((device) => device.status === 'ACTIVE');
+              const history = devices.filter((device) => device.status !== 'ACTIVE');
+              const pageSize = 5;
+              const pages = Math.max(1, Math.ceil(history.length / pageSize));
+              const visible = showSessionHistory ? history.slice((historyPage - 1) * pageSize, historyPage * pageSize) : active;
+              return <>
+                {visible.length === 0 ? <div className="empty-state compact">{showSessionHistory ? 'No expired or revoked device sessions.' : 'No active device session records.'}</div> : visible.map((device) => <div className="device-row" key={device.id}>
+                  <div><b>{deviceName(device.user_agent)}{device.current ? ' · This device' : ''}</b><small>{device.ip_address ?? 'Unknown IP'} · Last seen {new Date(device.last_seen_at).toLocaleString()}</small></div>
+                  <div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={() => void revoke(device)}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
+                </div>)}
+                {showSessionHistory && pages > 1 ? <div className="pagination"><button type="button" disabled={historyPage <= 1} onClick={() => setHistoryPage((page) => page - 1)}>Previous</button><span>Page {historyPage} of {pages}</span><button type="button" disabled={historyPage >= pages} onClick={() => setHistoryPage((page) => page + 1)}>Next</button></div> : null}
+              </>;
+            })()}
           </section>
         </div>
       </section>
