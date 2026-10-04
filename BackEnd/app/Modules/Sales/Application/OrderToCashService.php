@@ -548,10 +548,10 @@ final class OrderToCashService
             DB::table('sales_orders')->where('id', $orderId)->update(['status' => 'ALLOCATED', 'record_version' => $version, 'updated_at' => $now]);
             $result = $this->result('sales_allocation', $allocationId, 'RESERVED', 1) + [
                 'sales_order_id' => $orderId, 'sales_order_record_version' => $version,
-                'allocated_quantity' => $allocatedTotal, 'fefo_break_count' => $allocationLineNumber,
+                'allocated_quantity' => $allocatedTotal, 'selected_lot_count' => $allocationLineNumber, 'fefo_break_count' => 0,
             ];
             $this->record('ALLOCATE_SALES_ORDER', 'sales.allocation.created', 'sales_allocation', $allocationId, $data, 1, [
-                'sales_order_id' => $orderId, 'allocated_quantity' => $allocatedTotal, 'fefo_break_count' => $allocationLineNumber,
+                'sales_order_id' => $orderId, 'allocated_quantity' => $allocatedTotal, 'selected_lot_count' => $allocationLineNumber, 'fefo_break_count' => 0,
             ], $result);
             $this->complete($namespace, $data, $result);
             return $result;
