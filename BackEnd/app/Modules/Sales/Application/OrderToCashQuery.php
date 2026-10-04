@@ -179,17 +179,23 @@ final class OrderToCashQuery
         $base = DB::table('sales_invoice_financials as invoice')->join('parties as customer', 'customer.id', '=', 'invoice.party_id')
             ->join('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')
             ->leftJoin('sales_orders as orders', 'orders.id', '=', 'invoice.sales_order_id')
+            ->leftJoin('invoices as source_invoice', 'source_invoice.id', '=', 'invoice.invoice_id')
             ->where('invoice.company_id', $scope['company_id'])->where('invoice.plant_id', $scope['plant_id'])
             ->select(['invoice.*', 'customer.code as customer_code', 'customer.display_name as customer_name',
-                'shipment.shipment_number', 'orders.order_number']);
+                'shipment.shipment_number', 'orders.order_number', 'source_invoice.status as document_status']);
         $page = $this->page($base, $filters, ['invoice.invoice_number', 'customer.display_name', 'shipment.shipment_number', 'orders.order_number'], null, 'invoice.invoice_number', 'invoice');
         $today = CarbonImmutable::today();
         $invoices = collect($page->items())->map(function ($row) use ($today): array {
             $payload = $this->receivableRow($row);
             $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date)) ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : 0;
-            $payload['ageing_bucket'] = bccomp((string) $row->outstanding_amount, '0', 4) === 0 ? 'SETTLED'
-                : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'))));
-            $payload['days_overdue'] = $days;
+            $settled = bccomp((string) $row->outstanding_amount, '0', 4) === 0;
+            $hasPayment = bccomp((string) ($row->paid_amount ?? 0), '0', 4) > 0
+                || bccomp((string) ($row->credited_amount ?? 0), '0', 4) > 0;
+            $payload['collection_status'] = $settled ? 'SETTLED'
+                : ($hasPayment ? 'PARTIALLY_PAID' : ($days > 0 ? 'OVERDUE' : 'OPEN'));
+            $payload['ageing_bucket'] = $settled ? 'SETTLED'
+                : (! $row->due_date ? 'UNKNOWN' : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+')))));
+            $payload['days_overdue'] = $row->due_date ? $days : null;
             return $payload;
         })->all();
         $openBase = DB::table('sales_invoice_financials')->where($scope)->where('outstanding_amount', '>', 0);
@@ -394,9 +400,10 @@ final class OrderToCashQuery
     private function receivableDetail(string $id, array $scope): array
     {
         $row = DB::table('sales_invoice_financials as invoice')->join('parties as customer', 'customer.id', '=', 'invoice.party_id')
-            ->join('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')->where('invoice.invoice_id', $id)
+            ->join('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')
+            ->leftJoin('invoices as source_invoice', 'source_invoice.id', '=', 'invoice.invoice_id')->where('invoice.invoice_id', $id)
             ->where('invoice.company_id', $scope['company_id'])->where('invoice.plant_id', $scope['plant_id'])
-            ->first(['invoice.*', 'customer.code as customer_code', 'customer.display_name as customer_name', 'shipment.shipment_number']);
+            ->first(['invoice.*', 'customer.code as customer_code', 'customer.display_name as customer_name', 'shipment.shipment_number', 'source_invoice.status as document_status']);
         if (! $row) throw new NotFoundHttpException('Receivable invoice not found.');
         $payload = $this->receivableRow($row);
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()->map(function ($record): array {
@@ -601,6 +608,13 @@ final class OrderToCashQuery
                 $payload[$field] = $this->decimal($payload[$field], 4);
             }
         }
+        $settled = bccomp((string) ($row->outstanding_amount ?? 0), '0', 4) === 0;
+        $hasPayment = bccomp((string) ($row->paid_amount ?? 0), '0', 4) > 0
+            || bccomp((string) ($row->credited_amount ?? 0), '0', 4) > 0;
+        $overdue = ! $settled && ! $hasPayment && $row->due_date
+            && CarbonImmutable::today()->greaterThan(CarbonImmutable::parse($row->due_date));
+        $payload['collection_status'] = $settled ? 'SETTLED' : ($hasPayment ? 'PARTIALLY_PAID' : ($overdue ? 'OVERDUE' : 'OPEN'));
+        $payload['document_retention_status'] = $payload['document_status'] ?? null;
         return $payload;
     }
 
