@@ -4,11 +4,18 @@ import {
   currentSession,
   isApiError,
   isMfaChallenge,
-  login,
+  loginWithPassword,
+  loginWithTotp,
   logout,
+  requestEmailOtp,
+  requestMfaEmailOtp,
   resetAuthenticationClient,
   selectContext,
+  verifyEmailOtp,
+  type EmailOtpChallenge,
+  type LoginResult,
   type MfaChallenge,
+  type SecondFactorMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -70,19 +77,22 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  function acceptAuthentication(result: LoginResult) {
+    if (isMfaChallenge(result)) {
+      setMfaChallenge(result);
+      return;
+    }
+
+    setMfaChallenge(null);
+    setSession(result);
+    setChoosingContext(true);
+  }
+
+  async function runAuthentication(action: () => Promise<LoginResult>) {
     setBusy(true);
     setError(null);
-
     try {
-      const authenticated = await login(email, password);
-      if (isMfaChallenge(authenticated)) {
-        setMfaChallenge(authenticated);
-        return;
-      }
-      setMfaChallenge(null);
-      setSession(authenticated);
-      setChoosingContext(true);
+      acceptAuthentication(await action());
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Sign in failed.');
     } finally {
@@ -90,17 +100,56 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handlePassword(email: string, password: string) {
+    await runAuthentication(() => loginWithPassword(email, password));
+  }
+
+  async function handleTotp(email: string, code: string) {
+    await runAuthentication(() => loginWithTotp(email, code));
+  }
+
+  async function handleEmailOtpRequest(email: string): Promise<EmailOtpChallenge | null> {
+    setBusy(true);
+    setError(null);
+    try {
+      return await requestEmailOtp(email);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email code.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEmailOtpVerify(challengeId: string, code: string) {
+    await runAuthentication(() => verifyEmailOtp(challengeId, code));
+  }
+
+  async function handleMfa(method: SecondFactorMethod, code: string) {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, method, code);
       setMfaChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Two-step verification failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfaEmailRequest(): Promise<EmailOtpChallenge | null> {
+    if (!mfaChallenge) return null;
+    setBusy(true);
+    setError(null);
+    try {
+      return await requestMfaEmailOtp(mfaChallenge.challenge_id);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the two-step email code.');
+      return null;
     } finally {
       setBusy(false);
     }
@@ -144,8 +193,12 @@ export default function App() {
   if (!session) {
     return (
       <ACC_LOGIN
-        onLogin={handleLogin}
+        onPassword={handlePassword}
+        onTotp={handleTotp}
+        onEmailOtpRequest={handleEmailOtpRequest}
+        onEmailOtpVerify={handleEmailOtpVerify}
         onMfa={handleMfa}
+        onMfaEmailRequest={handleMfaEmailRequest}
         onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
         mfaChallenge={mfaChallenge}
         busy={busy}
