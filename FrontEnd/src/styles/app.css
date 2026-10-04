@@ -402,3 +402,9 @@ td:has(.money),.money,.currency,.amount{font-variant-numeric:tabular-nums;white-
   .kpi-grid{grid-template-columns:1fr}
   .auth-form{padding:16px 12px}
 }
+
+.success-toast{position:fixed;z-index:130;right:16px;top:80px;width:min(360px,calc(100vw - 32px));display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:10px;border:1px solid #ABEFC6;background:#ECFDF3;color:#05603A;border-radius:10px;padding:12px 14px;box-shadow:0 14px 40px rgba(24,51,43,.16)}
+.success-toast-icon{width:22px;height:22px;border-radius:999px;background:#147D57;color:#fff;display:grid;place-items:center;font-weight:800}
+.success-toast div{display:grid;gap:2px}.success-toast b{font-size:14px;line-height:20px}.success-toast div span{font-size:13px;line-height:18px}
+.success-toast button{border:0;background:transparent;color:inherit;min-width:40px;min-height:40px;margin:-8px -8px 0 0;font-size:20px;line-height:1;cursor:pointer}
+@media(max-width:767px){.success-toast{top:72px;right:16px;left:16px;width:auto}}
