@@ -90,6 +90,11 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, $this->config->get('session.driver') !== 'redis', 'SESSION_DRIVER must be redis.');
         $this->reject($violations, $this->config->get('queue.failed.driver') !== 'database-uuids', 'QUEUE_FAILED_DRIVER must persist failed jobs with UUIDs.');
 
+        $this->reject($violations, $this->config->get('qtfoods.outbox.transport') !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $this->reject($violations, $this->unsafeHttpsEndpoint($this->config->get('qtfoods.outbox.http_endpoint')), 'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS receiver.');
+        $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must remain true in production.');
+
         $this->reject($violations, $this->unsafeSecret($this->config->get('observability.metrics.token'), 32), 'QT_METRICS_TOKEN must be a non-placeholder secret of at least 32 characters.');
         foreach (['database', 'redis', 'object_storage'] as $dependency) {
             $this->reject($violations, ! (bool) $this->config->get("observability.readiness.{$dependency}"), "Production readiness must probe {$dependency}.");
@@ -168,6 +173,21 @@ final class ProductionEnvironmentGuard
         $proxies = array_values(array_filter(array_map('trim', explode(',', $value))));
 
         return $proxies === [] || array_intersect($proxies, ['*', '**', '0.0.0.0/0', '::/0']) !== [];
+    }
+
+    private function unsafeHttpsEndpoint(mixed $value): bool
+    {
+        if (! is_string($value) || trim($value) !== $value || $value === '' || $this->placeholder($value)) {
+            return true;
+        }
+        $parts = parse_url($value);
+
+        return ! is_array($parts)
+            || ($parts['scheme'] ?? null) !== 'https'
+            || empty($parts['host'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment']);
     }
 
     private function unsafeObjectStorageEndpoint(mixed $value): bool
