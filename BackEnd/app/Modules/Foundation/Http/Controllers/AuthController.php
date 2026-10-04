@@ -9,6 +9,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Domain\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -127,9 +128,9 @@ final class AuthController
             'expires_at' => $issued['expires_at'],
             'message' => $issued['message'],
             'delivery' => $issued['delivery'] ?? ['channel' => 'EMAIL', 'status' => 'UNKNOWN'],
-            ...config('qtfoods.identity.preview_links', false) && isset($issued['preview_code'])
+            ...(config('qtfoods.identity.preview_links', false) && isset($issued['preview_code'])
                 ? ['preview_code' => $issued['preview_code']]
-                : [],
+                : []),
         ]], 202);
     }
 
@@ -193,7 +194,7 @@ final class AuthController
             throw ValidationException::withMessages(['email' => ['The supplied credentials are invalid.']]);
         }
         if ($user->email_verified_at === null) {
-            abort(response()->json(['error' => [
+            throw new HttpResponseException(response()->json(['error' => [
                 'code' => 'EMAIL_VERIFICATION_REQUIRED',
                 'message' => 'Verify this email address before signing in.',
             ]], 403));
