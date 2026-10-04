@@ -248,6 +248,12 @@ export function PurchaseRequisitionWorkspace() {
       setFieldErrors({ approval_reason: 'Explain why the requisition is being rejected.' });
       return;
     }
+    if (decision === 'reject') {
+      const confirmed = window.confirm(
+        `Reject requisition ${selected.requisition_number}?\n\nRequester: ${selected.requested_by.name}\nAmount: ${money(selected.estimated_total, selected.currency)}\nReason: ${approvalReason.trim()}\n\nChoose Cancel to keep reviewing.`
+      );
+      if (!confirmed) return;
+    }
     setBusy(true);
     try {
       const result = await decidePurchaseRequisition(
