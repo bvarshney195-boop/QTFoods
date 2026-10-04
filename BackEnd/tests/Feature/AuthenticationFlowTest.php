@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Modules\Foundation\Domain\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 final class AuthenticationFlowTest extends TestCase
@@ -28,6 +29,89 @@ final class AuthenticationFlowTest extends TestCase
             ->assertJsonMissing(['ADM-USER']);
 
         $this->assertAuthenticated();
+    }
+
+
+    public function test_privileged_password_login_cannot_bypass_required_second_factor(): void
+    {
+        $this->seed();
+        Mail::fake();
+        config([
+            'qtfoods.identity.mfa_required_roles' => 'ERP_ADMIN,FINANCE_REVIEWER',
+            'qtfoods.identity.preview_links' => true,
+        ]);
+
+        $challenge = $this->postJson('/api/v1/auth/login', [
+            'email' => 'admin.user@qtfoods.local',
+            'password' => 'prototype',
+        ])->assertStatus(202)
+            ->assertJsonPath('data.mfa_required', true)
+            ->assertJsonPath('data.primary_method', 'PASSWORD');
+
+        $this->assertGuest();
+        $challengeId = (string) $challenge->json('data.challenge_id');
+        self::assertContains('EMAIL_OTP', $challenge->json('data.methods'));
+
+        $emailFactor = $this->postJson('/api/v1/auth/mfa/email-otp', [
+            'challenge_id' => $challengeId,
+        ])->assertStatus(202);
+        $code = (string) $emailFactor->json('data.preview_code');
+        self::assertMatchesRegularExpression('/^\d{6}$/', $code);
+
+        $this->postJson('/api/v1/auth/mfa/challenge', [
+            'challenge_id' => $challengeId,
+            'method' => 'EMAIL_OTP',
+            'code' => $code,
+        ])->assertOk()->assertJsonPath('data.roles.0', 'ERP_ADMIN');
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_email_otp_is_a_selectable_passwordless_login_for_non_privileged_user(): void
+    {
+        $this->seed();
+        Mail::fake();
+        config([
+            'qtfoods.identity.mfa_required_roles' => 'ERP_ADMIN,FINANCE_REVIEWER',
+            'qtfoods.identity.preview_links' => true,
+        ]);
+
+        $request = $this->postJson('/api/v1/auth/email-otp/request', [
+            'email' => 'demo.user@qtfoods.local',
+        ])->assertStatus(202);
+        $challengeId = (string) $request->json('data.challenge_id');
+        $code = (string) $request->json('data.preview_code');
+
+        $this->postJson('/api/v1/auth/email-otp/verify', [
+            'challenge_id' => $challengeId,
+            'code' => $code,
+        ])->assertOk()
+            ->assertJsonPath('data.roles.0', 'SALES_MANAGER')
+            ->assertJsonPath('data.authentication.method', 'EMAIL_OTP');
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_privileged_email_otp_primary_login_requires_an_independent_authenticator_factor(): void
+    {
+        $this->seed();
+        Mail::fake();
+        config([
+            'qtfoods.identity.mfa_required_roles' => 'ERP_ADMIN',
+            'qtfoods.identity.preview_links' => true,
+        ]);
+
+        $request = $this->postJson('/api/v1/auth/email-otp/request', [
+            'email' => 'admin.user@qtfoods.local',
+        ])->assertStatus(202);
+
+        $this->postJson('/api/v1/auth/email-otp/verify', [
+            'challenge_id' => $request->json('data.challenge_id'),
+            'code' => $request->json('data.preview_code'),
+        ])->assertForbidden()
+            ->assertJsonPath('error.code', 'MFA_ENROLMENT_REQUIRED');
+
+        $this->assertGuest();
     }
 
     public function test_context_and_screen_permissions_are_enforced_server_side(): void
