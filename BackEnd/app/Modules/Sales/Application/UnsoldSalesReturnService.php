@@ -168,7 +168,7 @@ final class UnsoldSalesReturnService
 
                 DB::table('unsold_return_lines')->where('id', $line->id)->update([
                     'received_quantity' => $newReceived,
-                    'return_position_id' => $lineInput['return_position_id'],
+                    'return_position_id' => $position->id,
                     'updated_at' => now(),
                 ]);
             }
@@ -569,51 +569,109 @@ final class UnsoldSalesReturnService
         object $case,
         int $index,
     ): object {
-        $position = DB::table('stock_positions as position')
-            ->join('locations as location', function ($join) {
-                $join
-                    ->on('location.id', '=', 'position.location_id')
-                    ->on('location.company_id', '=', 'position.company_id')
-                    ->on('location.plant_id', '=', 'position.plant_id');
-            })
-            ->where('position.id', $lineInput['return_position_id'])
-            ->where('position.company_id', $case->company_id)
-            ->where('position.plant_id', $case->plant_id)
-            ->where('position.quality_status', 'RETURN_QUARANTINE')
-            ->where('location.location_type', 'RETURN_QUARANTINE')
-            ->where('location.status', 'ACTIVE')
+        $requestedId = $lineInput['return_position_id'] ?? $line->return_position_id ?? null;
+
+        if ($requestedId) {
+            $position = DB::table('stock_positions as position')
+                ->join('locations as location', function ($join) {
+                    $join
+                        ->on('location.id', '=', 'position.location_id')
+                        ->on('location.company_id', '=', 'position.company_id')
+                        ->on('location.plant_id', '=', 'position.plant_id');
+                })
+                ->where('position.id', $requestedId)
+                ->where('position.company_id', $case->company_id)
+                ->where('position.plant_id', $case->plant_id)
+                ->where('position.quality_status', 'RETURN_QUARANTINE')
+                ->where('location.location_type', 'RETURN_QUARANTINE')
+                ->where('location.status', 'ACTIVE')
+                ->lockForUpdate()
+                ->first([
+                    'position.id',
+                    'position.item_id',
+                    'position.lot_id',
+                    'position.uom_code',
+                    'position.quantity_base',
+                    'position.record_version',
+                ]);
+
+            if (
+                ! $position
+                || (string) $position->item_id !== (string) $line->sku_id
+                || (string) $position->lot_id !== (string) ($line->fg_lot_id ?? '')
+                || $position->uom_code !== $line->uom_code
+            ) {
+                throw ValidationException::withMessages([
+                    "lines.{$index}.return_position_id" => [
+                        'Select an active return-quarantine destination for this case plant, SKU, lot, and UOM.',
+                    ],
+                ]);
+            }
+
+            if ($line->return_position_id && (string) $line->return_position_id !== (string) $position->id) {
+                throw ValidationException::withMessages([
+                    "lines.{$index}.return_position_id" => [
+                        'A partial return must continue into the quarantine destination used for its first receipt.',
+                    ],
+                ]);
+            }
+
+            return $position;
+        }
+
+        $location = DB::table('locations')
+            ->where('company_id', $case->company_id)
+            ->where('plant_id', $case->plant_id)
+            ->where('location_type', 'RETURN_QUARANTINE')
+            ->where('status', 'ACTIVE')
+            ->orderBy('code')
+            ->first(['id', 'code', 'name']);
+
+        if (! $location) {
+            throw ValidationException::withMessages([
+                "lines.{$index}.return_position_id" => [
+                    'No active return-quarantine location is configured for this plant. Ask an administrator to configure one before posting the receipt.',
+                ],
+            ]);
+        }
+
+        $position = DB::table('stock_positions')
+            ->where('company_id', $case->company_id)
+            ->where('plant_id', $case->plant_id)
+            ->where('item_id', $line->sku_id)
+            ->where('lot_id', $line->fg_lot_id)
+            ->where('inventory_owner_id', $case->company_id)
+            ->whereNull('owner_party_id')
+            ->where('location_id', $location->id)
+            ->where('quality_status', 'RETURN_QUARANTINE')
+            ->where('uom_code', $line->uom_code)
             ->lockForUpdate()
-            ->first([
-                'position.id',
-                'position.item_id',
-                'position.lot_id',
-                'position.uom_code',
-                'position.quantity_base',
-                'position.record_version',
-            ]);
+            ->first();
 
-        if (
-            ! $position
-            || (string) $position->item_id !== (string) $line->sku_id
-            || (string) $position->lot_id !== (string) ($line->fg_lot_id ?? '')
-            || $position->uom_code !== $line->uom_code
-        ) {
-            throw ValidationException::withMessages([
-                "lines.{$index}.return_position_id" => [
-                    'Select an active return-quarantine position for this case plant, SKU, lot, and UOM.',
-                ],
-            ]);
+        if ($position) {
+            return $position;
         }
 
-        if ($line->return_position_id && (string) $line->return_position_id !== (string) $position->id) {
-            throw ValidationException::withMessages([
-                "lines.{$index}.return_position_id" => [
-                    'A partial return must continue into the quarantine position used for its first receipt.',
-                ],
-            ]);
-        }
+        $positionId = (string) Str::uuid();
+        DB::table('stock_positions')->insert([
+            'id' => $positionId,
+            'company_id' => $case->company_id,
+            'plant_id' => $case->plant_id,
+            'item_id' => $line->sku_id,
+            'lot_id' => $line->fg_lot_id,
+            'owner_party_id' => null,
+            'inventory_owner_id' => $case->company_id,
+            'location_id' => $location->id,
+            'quality_status' => 'RETURN_QUARANTINE',
+            'quantity_base' => 0,
+            'reserved_quantity_base' => 0,
+            'uom_code' => $line->uom_code,
+            'record_version' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        return $position;
+        return DB::table('stock_positions')->where('id', $positionId)->lockForUpdate()->first();
     }
 
     private function recordShipmentReturn(object $line, array $lineInput, object $case, int $index): void
