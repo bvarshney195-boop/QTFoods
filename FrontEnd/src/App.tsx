@@ -6,9 +6,13 @@ import {
   isMfaChallenge,
   login,
   logout,
+  requestEmailOtp,
+  verifyEmailOtp,
   resetAuthenticationClient,
   selectContext,
+  type EmailOtpChallenge,
   type MfaChallenge,
+  type MfaMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -22,6 +26,7 @@ export default function App() {
   const [choosingContext, setChoosingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [emailOtpChallenge, setEmailOtpChallenge] = useState<EmailOtpChallenge | null>(null);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -29,6 +34,7 @@ export default function App() {
       setSession(null);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setError('Your ERP session expired. Sign in again to continue.');
     };
     const handleContextRequired = () => {
@@ -70,17 +76,18 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  async function handleLogin(email: string, password: string, method: 'PASSWORD' | 'TOTP' = 'PASSWORD', code?: string) {
     setBusy(true);
     setError(null);
 
     try {
-      const authenticated = await login(email, password);
+      const authenticated = await login(email, password, method, code);
       if (isMfaChallenge(authenticated)) {
         setMfaChallenge(authenticated);
         return;
       }
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
@@ -90,17 +97,52 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handleMfa(code: string, method: MfaMethod) {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code, method);
       setMfaChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Two-step verification failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRequestEmailOtp(email: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const challenge = await requestEmailOtp(email);
+      setEmailOtpChallenge(challenge);
+      return challenge;
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email OTP.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVerifyEmailOtp(challengeId: string, email: string, code: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const authenticated = await verifyEmailOtp(challengeId, email, code);
+      if (isMfaChallenge(authenticated)) {
+        setEmailOtpChallenge(null);
+        setMfaChallenge(authenticated);
+        return;
+      }
+      setEmailOtpChallenge(null);
+      setMfaChallenge(null);
+      setSession(authenticated);
+      setChoosingContext(true);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Email OTP verification failed.');
     } finally {
       setBusy(false);
     }
@@ -115,6 +157,7 @@ export default function App() {
       setSession(updated);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       window.location.hash = 'WRK-HOME';
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Context selection failed.');
@@ -132,6 +175,8 @@ export default function App() {
     } finally {
       setSession(null);
       setChoosingContext(false);
+      setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setBusy(false);
       window.location.hash = '';
     }
@@ -145,9 +190,12 @@ export default function App() {
     return (
       <ACC_LOGIN
         onLogin={handleLogin}
+        onRequestEmailOtp={handleRequestEmailOtp}
+        onVerifyEmailOtp={handleVerifyEmailOtp}
         onMfa={handleMfa}
-        onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
+        onCancelMfa={() => { setMfaChallenge(null); setEmailOtpChallenge(null); setError(null); }}
         mfaChallenge={mfaChallenge}
+        emailOtpChallenge={emailOtpChallenge}
         busy={busy}
         error={error}
         onRetry={error === 'Unable to contact the ERP service.' ? restoreSession : undefined}
