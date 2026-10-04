@@ -297,6 +297,7 @@ final class UnsoldSalesReturnLookupQuery
             ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('position.plant_id', $plantId))
             ->where('position.item_id', $skuId)
             ->where('position.quality_status', 'RETURN_QUARANTINE')
+            ->where('location.location_type', 'RETURN_QUARANTINE')
             ->where('location.status', 'ACTIVE')
             ->when($filters['lot_id'] ?? null, fn (Builder $query, string $id) => $query->where('position.lot_id', $id))
             ->orderBy('location.code')
