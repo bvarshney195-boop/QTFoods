@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Modules\Foundation\Application\MfaService;
 use App\Modules\Foundation\Domain\User;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -29,6 +32,129 @@ final class AuthenticationFlowTest extends TestCase
 
         $this->assertAuthenticated();
     }
+
+    public function test_email_otp_can_be_used_as_primary_authentication_for_non_privileged_user(): void
+    {
+        $this->seed();
+        Mail::fake();
+        config()->set('qtfoods.identity.preview_links', true);
+
+        $challenge = $this->postJson('/api/v1/auth/email-otp/request', [
+            'email' => 'demo.user@qtfoods.local',
+        ])->assertAccepted()
+            ->assertJsonPath('data.delivery.channel', 'EMAIL')
+            ->json('data');
+
+        self::assertMatchesRegularExpression('/^\d{6}$/', (string) $challenge['delivery']['preview_code']);
+
+        $this->postJson('/api/v1/auth/email-otp/login', [
+            'challenge_id' => $challenge['challenge_id'],
+            'code' => $challenge['delivery']['preview_code'],
+        ])->assertOk()
+            ->assertJsonPath('data.user.email', 'demo.user@qtfoods.local')
+            ->assertJsonPath('data.authentication.primary_method', 'EMAIL_OTP')
+            ->assertJsonPath('data.authentication.mfa_method', null);
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_totp_can_be_used_as_primary_authentication_for_non_privileged_user(): void
+    {
+        $this->seed();
+        $user = User::query()->where('email', 'demo.user@qtfoods.local')->firstOrFail();
+        $secret = 'JBSWY3DPEHPK3PXP';
+        $user->forceFill([
+            'mfa_secret' => Crypt::encryptString($secret),
+            'mfa_enabled_at' => now(),
+        ])->save();
+
+        $code = app(MfaService::class)->codeForSecret($secret);
+        $this->postJson('/api/v1/auth/totp/login', [
+            'email' => $user->email,
+            'code' => $code,
+        ])->assertAccepted()
+            ->assertJsonPath('data.mfa_required', true)
+            ->assertJsonPath('data.primary_method', 'AUTHENTICATOR')
+            ->assertJsonPath('data.allowed_methods.0', 'EMAIL_OTP');
+
+        // A user with MFA enabled cannot use the authenticator as both factors.
+        $this->assertGuest();
+    }
+
+    public function test_privileged_password_authentication_cannot_bypass_second_factor(): void
+    {
+        $this->seed();
+        config()->set('qtfoods.identity.enforce_privileged_mfa', true);
+        config()->set('qtfoods.identity.mfa_required_roles', ['ERP_ADMIN', 'FINANCE_REVIEWER']);
+        config()->set('qtfoods.identity.preview_links', true);
+        Mail::fake();
+
+        $challenge = $this->postJson('/api/v1/auth/login', [
+            'email' => 'admin.user@qtfoods.local',
+            'password' => 'prototype',
+        ])->assertAccepted()
+            ->assertJsonPath('data.mfa_required', true)
+            ->assertJsonPath('data.primary_method', 'PASSWORD')
+            ->json('data');
+
+        $this->assertGuest();
+
+        $delivery = $this->postJson('/api/v1/auth/mfa/email-otp/request', [
+            'challenge_id' => $challenge['challenge_id'],
+        ])->assertAccepted()->json('data');
+
+        $this->postJson('/api/v1/auth/mfa/challenge', [
+            'challenge_id' => $challenge['challenge_id'],
+            'method' => 'EMAIL_OTP',
+            'code' => $delivery['delivery']['preview_code'],
+        ])->assertOk()
+            ->assertJsonPath('data.user.email', 'admin.user@qtfoods.local')
+            ->assertJsonPath('data.authentication.primary_method', 'PASSWORD')
+            ->assertJsonPath('data.authentication.mfa_method', 'EMAIL_OTP');
+
+        $this->assertAuthenticated();
+    }
+
+    public function test_privileged_email_otp_primary_requires_distinct_totp_second_factor(): void
+    {
+        $this->seed();
+        config()->set('qtfoods.identity.enforce_privileged_mfa', true);
+        config()->set('qtfoods.identity.mfa_required_roles', ['ERP_ADMIN']);
+        config()->set('qtfoods.identity.preview_links', true);
+        Mail::fake();
+
+        $user = User::query()->where('email', 'admin.user@qtfoods.local')->firstOrFail();
+        $secret = 'JBSWY3DPEHPK3PXP';
+        $user->forceFill([
+            'mfa_secret' => Crypt::encryptString($secret),
+            'mfa_enabled_at' => now(),
+        ])->save();
+
+        $primary = $this->postJson('/api/v1/auth/email-otp/request', [
+            'email' => $user->email,
+        ])->assertAccepted()->json('data');
+
+        $second = $this->postJson('/api/v1/auth/email-otp/login', [
+            'challenge_id' => $primary['challenge_id'],
+            'code' => $primary['delivery']['preview_code'],
+        ])->assertAccepted()
+            ->assertJsonPath('data.primary_method', 'EMAIL_OTP')
+            ->assertJsonMissing(['EMAIL_OTP'])
+            ->json('data');
+
+        $this->assertGuest();
+
+        $this->postJson('/api/v1/auth/mfa/challenge', [
+            'challenge_id' => $second['challenge_id'],
+            'method' => 'TOTP',
+            'code' => app(MfaService::class)->codeForSecret($secret),
+        ])->assertOk()
+            ->assertJsonPath('data.authentication.primary_method', 'EMAIL_OTP')
+            ->assertJsonPath('data.authentication.mfa_method', 'AUTHENTICATOR');
+
+        $this->assertAuthenticated();
+    }
+
 
     public function test_context_and_screen_permissions_are_enforced_server_side(): void
     {
