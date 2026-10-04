@@ -81,10 +81,14 @@ export type StockWorkspace = {
     position_count: number;
     sku_count: number;
     lot_count: number;
-    total: string;
-    available: string;
-    blocked: string;
-    reserved: string;
+    total: string | null;
+    available: string | null;
+    blocked: string | null;
+    reserved: string | null;
+    uom_code: string | null;
+    uom_count: number;
+    mixed_uom: boolean;
+    by_uom: Array<{ uom_code: string; total: string; available: string; blocked: string; reserved: string }>;
     expired_lots: number;
     expiring_30_lots: number;
   };
