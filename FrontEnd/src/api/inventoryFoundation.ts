@@ -61,10 +61,8 @@ export type StockPosition = {
   quality_status: QualityStatus;
   stock_bucket: 'AVAILABLE' | 'BLOCKED';
   quantity: {
-    total: string;
-    available: string;
-    blocked: string;
-    reserved: string;
+    uom_count: number;
+    by_uom: Array<{ uom_code: string; total: string; available: string; blocked: string; reserved: string }>;
     uom_code: string;
   };
   record_version: number;
