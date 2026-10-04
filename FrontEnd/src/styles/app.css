@@ -414,3 +414,5 @@ td:has(.money),.money,.currency,.amount{font-variant-numeric:tabular-nums;white-
 .confirm-dialog h2{margin:0 0 12px;font-size:20px;line-height:28px}.confirm-dialog-body{font-size:14px;line-height:20px}.confirm-dialog .form-actions{margin-top:20px}
 button.danger{min-height:40px;padding:9px 16px;border-radius:8px;border:1px solid #B42318;background:#B42318;color:#fff;font-weight:650;white-space:nowrap}
 @media(max-width:767px){button.danger{min-height:44px}.confirm-dialog{padding:20px}}
+
+.status-neutral{background:#F2F4F7;color:#344054}
