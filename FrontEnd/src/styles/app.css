@@ -296,3 +296,81 @@ input::placeholder,textarea::placeholder{color:#81938C}
 @media(max-width:1050px){.global-search-trigger b{display:none}.data-exchange-grid{grid-template-columns:1fr}.role-workspace-banner{align-items:flex-start;flex-direction:column}.role-workspace-actions{justify-content:flex-start}}
 @media(max-width:650px){.global-search-trigger kbd{display:none}.command-scrim{padding:7vh 10px}.command-results>button{grid-template-columns:36px 1fr}.command-results>button em{display:none}.notification-centre{position:fixed;top:66px;right:10px}.role-workspace-banner{padding:18px}.role-workspace-actions{display:grid;width:100%}.role-workspace-actions button{width:100%;justify-content:space-between}}
 .notification-head>div:last-child{display:flex;gap:8px}.notification-preferences{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 15px;background:#f6faf7;border-bottom:1px solid var(--border)}.notification-preferences label{display:flex;gap:7px;align-items:center;font-size:12px}.notification-item{display:grid;grid-template-columns:1fr auto;padding:0}.notification-item>button:first-child{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:10px;padding:12px 8px 12px 15px;border:0;background:transparent;text-align:left;cursor:pointer}.notification-item.is-read{opacity:.7}.notification-dismiss{border:0;background:transparent;color:var(--muted);padding:0 14px;cursor:pointer;font-size:18px}.notification-dismiss:hover{color:#b23b2a}.analytics-period{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}.analytics-period select{width:auto;padding:6px 26px 6px 8px}.analytics-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.analytics-comparison article{padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:#fbfdfb}.analytics-comparison article>div:first-child{display:flex;justify-content:space-between}.analytics-comparison small{color:var(--muted)}.analytics-target{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px}.analytics-target button{border:0;background:none;color:var(--primary);font-weight:700;cursor:pointer}.analytics-target form{display:flex;gap:5px}.analytics-target input{width:100px;padding:5px}.bulk-import-centre{margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}.bulk-import-centre>div:first-child b,.bulk-import-centre>div:first-child small{display:block}.bulk-import-centre>div:first-child small{margin-top:3px;color:var(--muted)}.bulk-import-controls{display:grid;grid-template-columns:180px 1fr auto;gap:9px;margin-top:12px;align-items:center}.bulk-import-controls input,.bulk-import-controls select{min-height:38px}.import-preview{margin-top:12px}.import-summary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:#f6faf7;border-radius:10px}.import-summary>div{margin-left:auto;display:flex;gap:7px}.text-good{color:#26744d}@media(max-width:720px){.analytics-comparison{grid-template-columns:1fr}.bulk-import-controls{grid-template-columns:1fr}.import-summary>div{margin-left:0;width:100%}}
+
+
+/* Final Master UAT remediation — 2026-10-04 */
+:root{
+  --bg:#F6F8FA;
+  --surface:#FFFFFF;
+  --line:#DDE5E1;
+  --text:#18332B;
+  --muted:#52655D;
+  --teal:#147D57;
+  --good:#147D57;
+  --warn:#B54708;
+  --bad:#B42318;
+  --info:#175CD3;
+}
+body{background:var(--bg);color:var(--text);font-size:16px;line-height:1.5}
+.content{padding:24px}
+.panel,.card,.kpi,.action-card,.security-section,.party-subsection{border-color:var(--line);border-radius:10px;background:#fff;box-shadow:none}
+.page-head h1,.content h1{font-size:28px;line-height:36px;font-weight:700}
+.content h2{font-size:20px;line-height:28px;font-weight:650}
+.content h3{font-size:16px;line-height:24px;font-weight:650}
+.content table{font-size:14px;line-height:20px}
+.content label,.auth-card label{font-size:14px;line-height:20px;font-weight:600}
+.field-hint,.field-error,.fine,.content small{font-size:12px;line-height:18px}
+button,input,select{min-height:40px}
+button{border-radius:8px}
+input,select,textarea{font-size:14px!important}
+textarea{min-height:96px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid #2563EB!important;outline-offset:2px!important}
+button.primary,button.secondary,.form-actions button{white-space:nowrap}
+table td[data-format="money"],.money,.numeric,td.text-good,td.text-bad{font-variant-numeric:tabular-nums;white-space:nowrap}
+.live-notice,.p2-live-notice,.inventory-notice{background:#F6F8FA;border-color:#DDE5E1;color:#52655D}
+.live-notice>span:empty{background:#64748B;box-shadow:none}
+.form-success{position:fixed;z-index:150;right:16px;top:80px;width:min(360px,calc(100vw - 32px));background:#EEFAF4;border-color:#BFE5D3;box-shadow:0 10px 30px rgba(15,35,28,.16);font-size:14px;line-height:20px}
+.form-error{font-size:14px;line-height:20px}
+.auth-methods{border:0;padding:0;margin:18px 0 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.auth-methods legend{font-size:14px;font-weight:600;margin-bottom:8px}
+.auth-methods button{border:1px solid var(--line);background:#fff;color:var(--text);padding:8px 10px;font-size:13px;font-weight:700}
+.auth-methods button.selected{border-color:var(--teal);background:#EEF8F3;color:#0F6244;box-shadow:inset 0 0 0 1px var(--teal)}
+.smart-nav-heading{display:flex!important;align-items:center;justify-content:space-between;gap:8px}
+.smart-nav-heading button{min-height:28px!important;padding:2px 6px!important;border:0!important;background:transparent!important;color:var(--muted)!important;font-size:11px!important}
+.table-wrap{overflow:auto;max-width:100%}
+.p2-workspace,.inventory-workspace,.requisition-workspace{grid-template-columns:minmax(0,1fr)!important}
+.p2-editor,.inventory-editor,.requisition-editor{position:static!important;max-height:none!important;overflow:visible!important}
+.p2-register{min-width:860px}
+.p2-register th:first-child,.p2-register td:first-child{position:sticky;left:0;background:#fff;z-index:2}
+.p2-register th:last-child,.p2-register td:last-child{position:sticky;right:0;background:#fff;z-index:2}
+.action-card input,.action-card select,.inventory-toolbar input,.inventory-toolbar select,.operation-field-grid input,.operation-field-grid select,.operation-line-grid input,.operation-line-grid select,.security-inline-form input{min-height:40px;height:40px}
+.approval-decision textarea{min-height:96px;font-size:14px;line-height:20px}
+.status-badge{min-height:24px;font-size:12px;line-height:18px;font-weight:600}
+.status-badge[data-status="DELIVERED"],.status-badge[data-status="APPROVED"],.status-badge[data-status="ACTIVE"],.status-badge[data-status="RESOLVED"]{color:#067647;background:#ECFDF3}
+.status-badge[data-status="PENDING"],.status-badge[data-status="RETRY"]{color:#B54708;background:#FFFAEB}
+.status-badge[data-status="REJECTED"],.status-badge[data-status="QUARANTINED"],.status-badge[data-status="ERROR"],.status-badge[data-status="FAILED"]{color:#B42318;background:#FEF3F2}
+.status-badge[data-status="DRAFT"],.status-badge[data-status="INACTIVE"],.status-badge[data-status="CLOSED"]{color:#475467;background:#F2F4F7}
+.status-badge[data-status="IN_PROGRESS"]{color:#175CD3;background:#EFF8FF}
+.field-help{display:block;margin-top:4px;color:var(--muted);font-size:12px;line-height:18px}
+
+@media(max-width:1023px){
+  .content{padding:16px}
+  .form-grid,.operation-field-grid,.operation-line-grid,.case-actions,.inline-fields{grid-template-columns:1fr!important}
+  .form-grid label,.operation-field-grid label,.operation-line-grid label{min-width:0}
+  .p2-register,.inventory-table,.approval-lines table{min-width:760px}
+}
+@media(max-width:767px){
+  .content{padding:16px}
+  button,input,select{min-height:44px}
+  .auth-methods{grid-template-columns:1fr}
+  .auth-card{width:min(100%,560px)}
+  .form-grid,.operation-field-grid,.operation-line-grid,.action-line,.disposition-grid,.case-facts,.approval-facts,.stock-quantity-grid{grid-template-columns:1fr!important}
+  .security-panel{width:100vw}
+  .p2-register,.inventory-table{min-width:680px}
+  .topbar{height:auto;min-height:64px;gap:8px}
+}
+@media(max-width:390px){
+  .content{padding:16px}
+  .global-search-trigger b,.global-search-trigger kbd{display:none}
+  .context-button span b{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
