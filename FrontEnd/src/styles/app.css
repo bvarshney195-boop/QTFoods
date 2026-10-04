@@ -296,3 +296,109 @@ input::placeholder,textarea::placeholder{color:#81938C}
 @media(max-width:1050px){.global-search-trigger b{display:none}.data-exchange-grid{grid-template-columns:1fr}.role-workspace-banner{align-items:flex-start;flex-direction:column}.role-workspace-actions{justify-content:flex-start}}
 @media(max-width:650px){.global-search-trigger kbd{display:none}.command-scrim{padding:7vh 10px}.command-results>button{grid-template-columns:36px 1fr}.command-results>button em{display:none}.notification-centre{position:fixed;top:66px;right:10px}.role-workspace-banner{padding:18px}.role-workspace-actions{display:grid;width:100%}.role-workspace-actions button{width:100%;justify-content:space-between}}
 .notification-head>div:last-child{display:flex;gap:8px}.notification-preferences{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 15px;background:#f6faf7;border-bottom:1px solid var(--border)}.notification-preferences label{display:flex;gap:7px;align-items:center;font-size:12px}.notification-item{display:grid;grid-template-columns:1fr auto;padding:0}.notification-item>button:first-child{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:10px;padding:12px 8px 12px 15px;border:0;background:transparent;text-align:left;cursor:pointer}.notification-item.is-read{opacity:.7}.notification-dismiss{border:0;background:transparent;color:var(--muted);padding:0 14px;cursor:pointer;font-size:18px}.notification-dismiss:hover{color:#b23b2a}.analytics-period{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}.analytics-period select{width:auto;padding:6px 26px 6px 8px}.analytics-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.analytics-comparison article{padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:#fbfdfb}.analytics-comparison article>div:first-child{display:flex;justify-content:space-between}.analytics-comparison small{color:var(--muted)}.analytics-target{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px}.analytics-target button{border:0;background:none;color:var(--primary);font-weight:700;cursor:pointer}.analytics-target form{display:flex;gap:5px}.analytics-target input{width:100px;padding:5px}.bulk-import-centre{margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}.bulk-import-centre>div:first-child b,.bulk-import-centre>div:first-child small{display:block}.bulk-import-centre>div:first-child small{margin-top:3px;color:var(--muted)}.bulk-import-controls{display:grid;grid-template-columns:180px 1fr auto;gap:9px;margin-top:12px;align-items:center}.bulk-import-controls input,.bulk-import-controls select{min-height:38px}.import-preview{margin-top:12px}.import-summary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:#f6faf7;border-radius:10px}.import-summary>div{margin-left:auto;display:flex;gap:7px}.text-good{color:#26744d}@media(max-width:720px){.analytics-comparison{grid-template-columns:1fr}.bulk-import-controls{grid-template-columns:1fr}.import-summary>div{margin-left:0;width:100%}}
+
+
+/* Final master UAT remediation: production design-system and responsive controls */
+:root{
+  --bg:#F6F8FA;
+  --panel:#FFFFFF;
+  --line:#DDE5E1;
+  --text:#18332B;
+  --muted:#52655D;
+  --teal:#147D57;
+  --good:#147D57;
+  --warn:#B54708;
+  --bad:#B42318;
+  --info:#175CD3;
+  --shadow-card:none;
+}
+body{font-size:16px;line-height:1.5;background:var(--bg)}
+.content{padding:24px 24px 40px}
+.page-head h1{font-size:28px;line-height:36px;font-weight:700}
+.page-head p{font-size:16px;line-height:24px}
+.panel,.kpi,.action-card,.context-card,.role-workspace-banner,.business-kpi{border-radius:10px;box-shadow:none;background:#fff}
+.panel-body,.focus-card{padding:24px}
+.panel-head{padding:16px 24px}
+.panel-head h3{font-size:16px;line-height:24px;font-weight:650}
+.panel-head span,.kpi span,.kpi small,.task-row small,.focus-card p,.focus-card li{font-size:14px;line-height:20px}
+table{font-size:14px;line-height:20px}
+th{height:40px;padding:10px 16px;font-size:12px;line-height:18px}
+td{min-height:48px;padding:13px 16px;font-size:14px;line-height:20px}
+td.numeric,th.numeric{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.primary,.secondary,.compact-button,.icon,.context-button,.global-search-trigger{min-height:40px;border-radius:8px;font-size:14px;line-height:20px}
+.primary,.secondary{padding:9px 16px;white-space:nowrap}
+.toolbar input,.toolbar select,.form-grid input,.form-grid select,.auth-card input,.auth-card select,
+.requisition-toolbar input,.requisition-toolbar select,.p2-command-editor input,.p2-command-editor select{
+  min-height:40px;font-size:14px;line-height:20px;
+}
+.form-grid textarea,.p2-command-editor textarea{min-height:96px;font-size:14px;line-height:20px}
+.form-grid{gap:16px 24px}
+.form-grid label,.auth-card label,.p2-command-editor label{font-size:14px;line-height:20px;font-weight:600}
+.field-hint,.field-error,.fine{font-size:12px;line-height:18px}
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:2px solid #2563EB;outline-offset:2px;box-shadow:none}
+.status{min-height:24px;display:inline-flex;align-items:center;font-size:12px;line-height:18px;font-weight:600;padding:3px 8px}
+.status-ok{background:#ECFDF3;color:#027A48}.status-warn{background:#FFFAEB;color:#B54708}.status-bad{background:#FEF3F2;color:#B42318}.status-info{background:#EFF8FF;color:#175CD3}
+.live-notice,.demo-notice{background:#EFF8FF;border-color:#B2DDFF;color:#175CD3}
+.form-warning{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:12px 0;border:1px solid #FEDF89;background:#FFFAEB;color:#93370D;border-radius:8px;padding:12px 14px;font-size:14px;line-height:20px}
+.form-info{border:1px solid #B2DDFF;background:#EFF8FF;color:#175CD3;border-radius:8px;padding:10px 12px;font-size:14px;line-height:20px;margin:12px 0}
+
+/* Registers own horizontal overflow; detail opens as an on-demand drawer instead of reserving half the canvas. */
+.module-grid,.requisition-workspace,.p2-workspace{grid-template-columns:minmax(0,1fr)}
+.module-grid>.panel:first-child,.requisition-workspace>.panel:first-child,.p2-workspace>.panel:first-child{min-width:0}
+.requisition-editor:has(.requisition-detail),.requisition-editor:has(.p2-command-editor),.module-grid>aside:has(.focus-card:not(:empty)){
+  position:fixed;z-index:70;right:16px;top:82px;bottom:16px;width:min(600px,calc(100vw - 32px));
+  overflow:auto;box-shadow:0 18px 60px rgba(24,51,43,.18);border:1px solid var(--line);background:#fff;
+}
+.table-wrap{max-width:100%;overflow:auto}
+.table-wrap table{min-width:760px}
+.table-wrap th:first-child,.table-wrap td:first-child{position:sticky;left:0;background:inherit;z-index:1}
+.table-wrap th:last-child,.table-wrap td:last-child{position:sticky;right:0;background:inherit;z-index:1}
+.table-wrap td:last-child button{white-space:nowrap}
+
+/* Authentication method selector */
+.auth-methods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:16px 0}
+.auth-methods button{min-height:44px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text);font-size:13px;font-weight:650;padding:8px}
+.auth-methods button.selected{border-color:#147D57;background:#ECFDF3;color:#08633F;box-shadow:0 0 0 2px rgba(20,125,87,.12)}
+.auth-security-note{font-size:12px;line-height:18px;color:var(--muted);border-left:3px solid #175CD3;padding-left:10px;margin-top:16px}
+
+/* Production success feedback uses compact toast semantics instead of full-width permanent strips. */
+.form-success{position:fixed;z-index:120;right:16px;top:80px;width:min(360px,calc(100vw - 32px));box-shadow:0 14px 40px rgba(24,51,43,.16);font-size:14px;line-height:20px}
+
+/* Keep technical metadata subordinate to the business task. */
+.control-definition dt{font-size:12px;line-height:18px;color:var(--muted)}
+.control-definition dd{font-size:14px;line-height:20px;overflow-wrap:anywhere}
+.p2-checksum{font-size:12px}
+
+/* Numeric presentation: no wrapped currency/percent columns. */
+td:has(.money),.money,.currency,.amount{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Empty states use neutral language and do not imply create authority. */
+.empty-state{font-size:14px;line-height:20px;padding:32px 20px;color:var(--muted)}
+
+@media(max-width:1024px){
+  .form-grid{grid-template-columns:1fr}
+  .form-grid .full{grid-column:auto}
+  .sidebar{width:240px}
+}
+@media(max-width:767px){
+  .content{padding:16px 16px calc(28px + env(safe-area-inset-bottom))}
+  .page-head h1{font-size:24px;line-height:32px}
+  .page-head p{font-size:14px;line-height:20px}
+  button,.primary,.secondary,.compact-button,.icon,.context-button,
+  input:not([type=checkbox]):not([type=radio]),select{min-height:44px}
+  textarea{min-height:96px}
+  .form-grid{grid-template-columns:1fr;gap:16px}
+  .form-grid .full,.full-span{grid-column:auto}
+  .requisition-editor:has(.requisition-detail),.requisition-editor:has(.p2-command-editor),.module-grid>aside:has(.focus-card:not(:empty)){
+    inset:0;width:100vw;max-width:none;border-radius:0;padding-bottom:env(safe-area-inset-bottom);
+  }
+  .auth-form{padding:20px 16px}.auth-card{width:100%}.auth-methods{grid-template-columns:1fr}
+  .table-wrap{overflow-x:auto}
+  .table-wrap th:first-child,.table-wrap td:first-child,.table-wrap th:last-child,.table-wrap td:last-child{position:static}
+}
+@media(max-width:390px){
+  .content{padding-left:12px;padding-right:12px}
+  .head-actions{grid-template-columns:1fr}
+  .kpi-grid{grid-template-columns:1fr}
+  .auth-form{padding:16px 12px}
+}
