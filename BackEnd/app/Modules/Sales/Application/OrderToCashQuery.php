@@ -211,34 +211,121 @@ final class OrderToCashQuery
 
     public function profitability(array $scope, array $filters): array
     {
-        $query = DB::table('sales_orders as orders')->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')
+        $recognizedStatuses = ['CONFIRMED', 'ALLOCATED', 'PICKED', 'LOADED', 'DISPATCHED', 'DELIVERED', 'COMPLETED'];
+
+        $query = DB::table('sales_orders as orders')
+            ->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')
             ->join('sales_order_lines as line', 'line.sales_order_id', '=', 'orders.id')
-            ->where('orders.company_id', $scope['company_id'])->where('orders.plant_id', $scope['plant_id'])->where('orders.order_type', 'SALES');
+            ->where('orders.company_id', $scope['company_id'])
+            ->where('orders.plant_id', $scope['plant_id'])
+            ->where('orders.order_type', 'SALES');
+
         if ($q = trim((string) ($filters['q'] ?? ''))) {
-            $query->where(function ($inner) use ($q): void { $inner->where('orders.order_number', 'like', "%{$q}%")->orWhere('customer.display_name', 'like', "%{$q}%"); });
-        }
-        if ($from = $filters['date_from'] ?? null) $query->whereDate('orders.order_date', '>=', $from);
-        if ($to = $filters['date_to'] ?? null) $query->whereDate('orders.order_date', '<=', $to);
-        $rows = $query->groupBy('orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id', 'customer.code', 'customer.display_name')
-            ->orderByDesc('orders.order_date')->limit(500)->get([
-                'orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id as customer_id',
-                'customer.code as customer_code', 'customer.display_name as customer_name',
-                DB::raw('SUM(line.net_amount) as revenue'), DB::raw('SUM(line.ordered_quantity * line.unit_cost_snapshot) as cost'),
-            ])->map(function ($row): array {
-                $revenue = $this->decimal($row->revenue); $cost = $this->decimal($row->cost); $margin = bcsub($revenue, $cost, 6);
-                $costAvailable = bccomp($cost, '0', 6) > 0;
-                return ['id' => (string) $row->id, 'order_number' => $row->order_number, 'order_date' => (string) $row->order_date,
-                    'status' => $row->status, 'customer' => ['id' => (string) $row->customer_id, 'code' => $row->customer_code, 'name' => $row->customer_name],
-                    'revenue' => $revenue, 'cost' => $costAvailable ? $cost : null, 'gross_margin' => $costAvailable ? $margin : null,
-                    'margin_percent' => $costAvailable && bccomp($revenue, '0', 6) > 0 ? bcmul(bcdiv($margin, $revenue, 8), '100', 4) : null,
-                    'cost_status' => $costAvailable ? 'AVAILABLE' : 'MISSING_COST_SNAPSHOT'];
+            $query->where(function ($inner) use ($q): void {
+                $inner->where('orders.order_number', 'like', "%{$q}%")
+                    ->orWhere('customer.display_name', 'like', "%{$q}%");
             });
-        return ['data' => $rows->all(), 'meta' => ['total' => $rows->count()],
-            'summary' => ['revenue' => $this->decimal($rows->sum(fn ($row) => $row['revenue'])),
-                'cost' => $this->decimal($rows->sum(fn ($row) => $row['cost'] ?? 0)),
-                'gross_margin' => $this->decimal($rows->sum(fn ($row) => $row['gross_margin'] ?? 0)),
-                'missing_cost_snapshots' => $rows->where('cost_status', 'MISSING_COST_SNAPSHOT')->count()],
-            'lookups' => ['customers' => $this->customers($scope)], 'allowed_actions' => []];
+        }
+        if ($from = $filters['date_from'] ?? null) {
+            $query->whereDate('orders.order_date', '>=', $from);
+        }
+        if ($to = $filters['date_to'] ?? null) {
+            $query->whereDate('orders.order_date', '<=', $to);
+        }
+
+        $statusSql = "'".implode("','", $recognizedStatuses)."'";
+        $rows = $query
+            ->groupBy('orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id', 'customer.code', 'customer.display_name')
+            ->orderByDesc('orders.order_date')
+            ->limit(500)
+            ->get([
+                'orders.id',
+                'orders.order_number',
+                'orders.order_date',
+                'orders.status',
+                'customer.id as customer_id',
+                'customer.code as customer_code',
+                'customer.display_name as customer_name',
+                DB::raw('SUM(line.net_amount) as booked_revenue'),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$statusSql}) THEN line.net_amount ELSE 0 END) as recognized_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$statusSql}) AND line.unit_cost_snapshot IS NOT NULL THEN line.net_amount ELSE 0 END) as costed_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$statusSql}) AND line.unit_cost_snapshot IS NULL THEN line.net_amount ELSE 0 END) as uncosted_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$statusSql}) AND line.unit_cost_snapshot IS NOT NULL THEN line.ordered_quantity * line.unit_cost_snapshot ELSE 0 END) as known_cost"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$statusSql}) AND line.unit_cost_snapshot IS NULL THEN 1 ELSE 0 END) as missing_cost_line_count"),
+            ])
+            ->map(function ($row): array {
+                $bookedRevenue = $this->decimal($row->booked_revenue);
+                $recognizedRevenue = $this->decimal($row->recognized_revenue);
+                $costedRevenue = $this->decimal($row->costed_revenue);
+                $uncostedRevenue = $this->decimal($row->uncosted_revenue);
+                $knownCost = $this->decimal($row->known_cost);
+                $missingCostLines = (int) $row->missing_cost_line_count;
+                $recognized = bccomp($recognizedRevenue, '0', 6) > 0;
+                $costComplete = $recognized && $missingCostLines === 0;
+                $knownMargin = bcsub($costedRevenue, $knownCost, 6);
+
+                return [
+                    'id' => (string) $row->id,
+                    'order_number' => $row->order_number,
+                    'order_date' => (string) $row->order_date,
+                    'status' => $row->status,
+                    'customer' => [
+                        'id' => (string) $row->customer_id,
+                        'code' => $row->customer_code,
+                        'name' => $row->customer_name,
+                    ],
+                    'booked_revenue' => $bookedRevenue,
+                    'recognized_revenue' => $recognizedRevenue,
+                    // Compatibility alias: "revenue" is now recognized revenue, never draft/cancelled booked value.
+                    'revenue' => $recognizedRevenue,
+                    'costed_revenue' => $costedRevenue,
+                    'uncosted_revenue' => $uncostedRevenue,
+                    'cost' => $recognized ? $knownCost : null,
+                    'gross_margin' => $costComplete ? bcsub($recognizedRevenue, $knownCost, 6) : ($recognized ? $knownMargin : null),
+                    'margin_percent' => $costComplete && bccomp($recognizedRevenue, '0', 6) > 0
+                        ? bcmul(bcdiv(bcsub($recognizedRevenue, $knownCost, 6), $recognizedRevenue, 8), '100', 4)
+                        : null,
+                    'cost_coverage_percent' => $recognized && bccomp($recognizedRevenue, '0', 6) > 0
+                        ? bcmul(bcdiv($costedRevenue, $recognizedRevenue, 8), '100', 2)
+                        : null,
+                    'missing_cost_lines' => $missingCostLines,
+                    'cost_status' => ! $recognized ? 'NOT_RECOGNIZED'
+                        : ($costComplete ? 'COMPLETE' : 'PARTIAL'),
+                    'margin_status' => ! $recognized ? 'NOT_APPLICABLE'
+                        : ($costComplete ? 'COMPLETE' : 'PARTIAL'),
+                ];
+            });
+
+        $recognizedRevenue = $this->decimal($rows->sum(fn ($row) => $row['recognized_revenue']));
+        $costedRevenue = $this->decimal($rows->sum(fn ($row) => $row['costed_revenue']));
+        $uncostedRevenue = $this->decimal($rows->sum(fn ($row) => $row['uncosted_revenue']));
+        $knownCost = $this->decimal($rows->sum(fn ($row) => $row['cost'] ?? 0));
+        $knownMargin = $this->decimal($rows->sum(fn ($row) => $row['gross_margin'] ?? 0));
+        $incomplete = $rows->where('cost_status', 'PARTIAL')->count();
+
+        return [
+            'data' => $rows->all(),
+            'meta' => ['total' => $rows->count()],
+            'summary' => [
+                'booked_revenue' => $this->decimal($rows->sum(fn ($row) => $row['booked_revenue'])),
+                'recognized_revenue' => $recognizedRevenue,
+                'revenue' => $recognizedRevenue,
+                'costed_revenue' => $costedRevenue,
+                'uncosted_revenue' => $uncostedRevenue,
+                'cost_coverage_percent' => bccomp($recognizedRevenue, '0', 6) > 0
+                    ? bcmul(bcdiv($costedRevenue, $recognizedRevenue, 8), '100', 2)
+                    : null,
+                'cost' => $knownCost,
+                'gross_margin' => $knownMargin,
+                'margin_percent' => $incomplete === 0 && bccomp($recognizedRevenue, '0', 6) > 0
+                    ? bcmul(bcdiv($knownMargin, $recognizedRevenue, 8), '100', 4)
+                    : null,
+                'margin_status' => $incomplete === 0 ? 'COMPLETE' : 'PARTIAL',
+                'missing_cost_snapshots' => $incomplete,
+            ],
+            'lookups' => ['customers' => $this->customers($scope)],
+            'allowed_actions' => [],
+        ];
     }
 
     public function detail(string $resource, string $id, array $scope, array $permissions): array
