@@ -4,6 +4,7 @@ const roleNames: Record<string, string> = {
   FINANCE_REVIEWER: 'Finance Manager',
   ERP_ADMIN: 'ERP Administrator',
   PARTNER_PORTAL: 'Partner User',
+  BI_ANALYST: 'BI Analyst',
 };
 
 const screenNames: Record<string, string> = {
