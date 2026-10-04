@@ -32,7 +32,7 @@ describe('identity access flows', () => {
 
     await userEvent.setup().type(screen.getByLabelText('Authenticator or recovery code'), '123456');
     await userEvent.setup().click(screen.getByRole('button', { name: 'Verify and sign in' }));
-    expect(onMfa).toHaveBeenCalledWith('123456');
+    expect(onMfa).toHaveBeenCalledWith('123456', 'TOTP');
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
