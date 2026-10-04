@@ -20,7 +20,7 @@ return new class extends Migration {
         }
 
         $userIds = DB::table('users')
-            ->whereIn(DB::raw('LOWER(email)'), $emails)
+            ->whereIn('email', $emails)
             ->pluck('id')
             ->all();
 
