@@ -59,6 +59,9 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, ! in_array($this->config->get('session.same_site'), ['lax', 'strict'], true), 'SESSION_SAME_SITE must be lax or strict.');
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_seeders'), 'QT_ALLOW_DEMO_SEEDERS must be false.');
         $this->reject($violations, (bool) $this->config->get('qtfoods.identity.preview_links'), 'QT_IDENTITY_PREVIEW_LINKS must be false.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.identity.enforce_privileged_mfa'), 'QT_ENFORCE_PRIVILEGED_MFA must be true.');
+        $requiredMfaRoles = (array) $this->config->get('qtfoods.identity.mfa_required_roles', []);
+        $this->reject($violations, ! in_array('ERP_ADMIN', $requiredMfaRoles, true), 'QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.');
 
         $this->reject($violations, $this->config->get('database.default') !== 'pgsql', 'DB_CONNECTION must be pgsql.');
         $this->reject($violations, $this->unsafeSecret($this->config->get('database.connections.pgsql.password')), 'DB_PASSWORD must be a non-placeholder secret of at least 16 characters.');
@@ -86,6 +89,16 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, $this->config->get('queue.default') !== 'redis', 'QUEUE_CONNECTION must be redis.');
         $this->reject($violations, $this->config->get('session.driver') !== 'redis', 'SESSION_DRIVER must be redis.');
         $this->reject($violations, $this->config->get('queue.failed.driver') !== 'database-uuids', 'QUEUE_FAILED_DRIVER must persist failed jobs with UUIDs.');
+
+        $outboxTransport = strtolower((string) $this->config->get('qtfoods.outbox.transport'));
+        $outboxEndpoint = trim((string) $this->config->get('qtfoods.outbox.http_endpoint'));
+        $outboxEndpointParts = parse_url($outboxEndpoint);
+        $this->reject($violations, $outboxTransport !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $this->reject($violations,
+            ! is_array($outboxEndpointParts) || ($outboxEndpointParts['scheme'] ?? null) !== 'https' || empty($outboxEndpointParts['host']),
+            'QT_OUTBOX_HTTP_ENDPOINT must be an absolute HTTPS receiver endpoint.');
+        $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must be true.');
 
         $this->reject($violations, $this->unsafeSecret($this->config->get('observability.metrics.token'), 32), 'QT_METRICS_TOKEN must be a non-placeholder secret of at least 32 characters.');
         foreach (['database', 'redis', 'object_storage'] as $dependency) {
