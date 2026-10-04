@@ -601,7 +601,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                 <div className="routing-warning" role="alert">
                   <b>No eligible return-quarantine destination is configured for one or more lines.</b>
                   <span>Configure an active RETURN_QUARANTINE stock position for the same plant, SKU, lot and inventory owner, then refresh this case. Receipt posting is disabled until routing is valid.</span>
-                  <button className="secondary compact-button" type="button" onClick={() => void loadPositions(detail)}>Retry routing lookup</button>
+                  <button className="secondary compact-button" type="button" onClick={() => void loadCase()}>Retry routing lookup</button>
                 </div>
               )}
               {remainingLines.map((line) => {
