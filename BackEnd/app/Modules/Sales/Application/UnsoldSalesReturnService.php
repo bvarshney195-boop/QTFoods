@@ -608,9 +608,10 @@ final class UnsoldSalesReturnService
         }
 
         $owner = DB::table('inventory_owners')
-            ->where('id', $companyId)
             ->where('company_id', $companyId)
+            ->where('owner_type', 'COMPANY')
             ->where('status', 'ACTIVE')
+            ->orderBy('code')
             ->first(['id']);
         if (! $owner) {
             throw ValidationException::withMessages([
@@ -624,7 +625,7 @@ final class UnsoldSalesReturnService
             ->where('company_id', $companyId)
             ->where('plant_id', $plantId)
             ->where('item_id', $skuId)
-            ->where('inventory_owner_id', $companyId)
+            ->where('inventory_owner_id', $owner->id)
             ->where('location_id', $location->id)
             ->where('quality_status', 'RETURN_QUARANTINE')
             ->where('uom_code', $uomCode);
@@ -642,7 +643,7 @@ final class UnsoldSalesReturnService
             'item_id' => $skuId,
             'lot_id' => $lotId,
             'owner_party_id' => null,
-            'inventory_owner_id' => $companyId,
+            'inventory_owner_id' => $owner->id,
             'location_id' => $location->id,
             'quality_status' => 'RETURN_QUARANTINE',
             'quantity_base' => '0',
