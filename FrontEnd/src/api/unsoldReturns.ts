@@ -487,7 +487,7 @@ export async function receiveUnsoldReturn(
     lines: Array<{
       line_id: string;
       received_quantity: string;
-      return_position_id: string;
+      return_position_id?: string;
     }>;
   },
   expectedVersion: number,
