@@ -147,6 +147,41 @@ final class OrderToCashEndpointTest extends TestCase
         $this->assertDatabaseHas('outbox_events', ['event_type' => 'finance.customer-receipt.posted']);
     }
 
+    public function test_draft_and_cancelled_orders_never_contribute_recognized_profitability(): void
+    {
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-UAT-CANCEL-REVENUE',
+            'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null,
+            'sales_contract_id' => self::CONTRACT_ID,
+            'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(),
+            'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Recognition regression test.',
+            'lines' => [[
+                'item_id' => self::ITEM_ID,
+                'uom_code' => 'PACK',
+                'quantity' => '2',
+                'discount_percent' => '0',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+
+        $orderId = (string) $order->json('data.id');
+        $draft = $this->getJson('/api/v1/reports/profitability?q=SO-UAT-CANCEL-REVENUE')->assertOk();
+        $draft->assertJsonPath('meta.total', 0)
+            ->assertJsonPath('summary.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.booked_revenue', '190.000000');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/cancel', [
+            'reason' => 'Disposable audit order cancelled before recognition.',
+        ])->assertOk()->assertJsonPath('data.status', 'CANCELLED');
+
+        $cancelled = $this->getJson('/api/v1/reports/profitability?q=SO-UAT-CANCEL-REVENUE')->assertOk();
+        $cancelled->assertJsonPath('meta.total', 0)
+            ->assertJsonPath('summary.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.booked_revenue', '0.000000');
+    }
+
     public function test_pricing_contract_work_credit_scope_and_permissions_are_enforced(): void
     {
         $price = $this->command()->postJson('/api/v1/sales/price-lists', [
