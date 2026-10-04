@@ -24,16 +24,16 @@ final class PartnerPortalQuery
             ? $this->documents($scope, $partyId, $internal, $entitlements, $permissions, $filters)
             : [];
         $orders = $partyId !== null && ($internal || in_array('ORDERS_VIEW', $entitlements, true))
-            ? $this->orders($scope, $partyId, $filters)
+            ? $this->orders($scope, $partyId, $filters, $internal)
             : [];
         $shipments = $partyId !== null && ($internal || in_array('SHIPMENTS_VIEW', $entitlements, true))
-            ? $this->shipments($scope, $partyId, $filters)
+            ? $this->shipments($scope, $partyId, $filters, $internal)
             : [];
         $invoices = $partyId !== null && ($internal || in_array('INVOICES_VIEW', $entitlements, true))
-            ? $this->invoices($scope, $partyId, $filters)
+            ? $this->invoices($scope, $partyId, $filters, $internal)
             : [];
         $claims = $partyId !== null && ($internal || in_array('CLAIMS_VIEW', $entitlements, true))
-            ? $this->claims($scope, $partyId, $filters)
+            ? $this->claims($scope, $partyId, $filters, $internal)
             : [];
 
         return [
@@ -43,9 +43,6 @@ final class PartnerPortalQuery
                 'user_id' => $actorId,
                 'access_boundary' => 'INTERNAL_PORTAL_ADMINISTRATION',
             ] : [
-                'user_id' => $actorId,
-                'grant_id' => (string) $grant->id,
-                'party_id' => (string) $grant->party_id,
                 'party_code' => (string) $grant->party_code,
                 'party_name' => (string) $grant->party_name,
                 'access_boundary' => 'EXACT_PARTY_TENANT',
@@ -211,7 +208,7 @@ final class PartnerPortalQuery
             ->all();
     }
 
-    private function orders(array $scope, string $partyId, array $filters): array
+    private function orders(array $scope, string $partyId, array $filters, bool $internal): array
     {
         return DB::table('sales_orders as sales_order')
             ->where('sales_order.company_id', $scope['company_id'])
@@ -226,10 +223,10 @@ final class PartnerPortalQuery
                 'sales_order.id', 'sales_order.order_number', 'sales_order.order_date',
                 'sales_order.requested_delivery_date', 'sales_order.currency', 'sales_order.total_amount',
                 'sales_order.status', 'sales_order.record_version', 'sales_order.confirmed_at', 'sales_order.updated_at',
-            ])->map(fn (object $row): array => $this->row($row))->all();
+            ])->map(fn (object $row): array => $this->externalProjection($this->row($row), $internal, ['id','order_number','order_date','requested_delivery_date','currency','total_amount','status','record_version','confirmed_at','updated_at']))->all();
     }
 
-    private function shipments(array $scope, string $partyId, array $filters): array
+    private function shipments(array $scope, string $partyId, array $filters, bool $internal): array
     {
         return DB::table('shipments as shipment')
             ->leftJoin('sales_orders as sales_order', 'sales_order.id', '=', 'shipment.sales_order_id')
@@ -250,10 +247,13 @@ final class PartnerPortalQuery
                 'shipment.carrier_name', 'shipment.vehicle_number', 'shipment.status', 'shipment.record_version',
                 'shipment.dispatched_at', 'shipment.delivered_at', 'shipment.updated_at',
                 'sales_order.order_number', 'invoice.invoice_id', 'invoice.invoice_number',
-            ])->map(fn (object $row): array => $this->row($row))->all();
+            ])->map(fn (object $row): array => $this->externalProjection($this->row($row), $internal, [
+                'id','shipment_number','shipment_type','carrier_name','vehicle_number','status','record_version',
+                'dispatched_at','delivered_at','updated_at','order_number','invoice_number',
+            ]))->all();
     }
 
-    private function invoices(array $scope, string $partyId, array $filters): array
+    private function invoices(array $scope, string $partyId, array $filters, bool $internal): array
     {
         return DB::table('sales_invoice_financials as invoice')
             ->join('invoices as invoice_record', 'invoice_record.id', '=', 'invoice.invoice_id')
@@ -276,10 +276,14 @@ final class PartnerPortalQuery
                 'invoice.outstanding_amount', 'invoice.paid_amount', 'invoice.credited_amount', 'invoice.issued_at',
                 'invoice.due_date', 'invoice.record_version', 'invoice.updated_at', 'invoice_record.status',
                 'shipment.shipment_number', 'sales_order.order_number',
-            ])->map(fn (object $row): array => $this->moneyRow($row))->all();
+            ])->map(fn (object $row): array => $this->externalProjection($this->moneyRow($row), $internal, [
+                'id','invoice_number','currency','net_amount','tax_amount','gross_amount','outstanding_amount',
+                'paid_amount','credited_amount','issued_at','due_date','record_version','updated_at','status',
+                'shipment_number','order_number',
+            ]))->all();
     }
 
-    private function claims(array $scope, string $partyId, array $filters): array
+    private function claims(array $scope, string $partyId, array $filters, bool $internal): array
     {
         return DB::table('customer_claims as claim')
             ->join('shipments as shipment', 'shipment.id', '=', 'claim.shipment_id')
@@ -300,7 +304,9 @@ final class PartnerPortalQuery
                 'claim.requested_resolution', 'claim.reason', 'claim.status', 'claim.record_version',
                 'claim.resolution_type', 'claim.credit_amount', 'claim.created_at', 'claim.updated_at',
                 'shipment.shipment_number', 'invoice.invoice_number',
-            ])->map(fn (object $row): array => $this->moneyRow($row))->all();
+            ])->map(fn (object $row): array => $this->externalProjection($this->moneyRow($row), $internal, [
+                'id','claim_number','shipment_id','invoice_id','claim_type','requested_resolution','status','currency','credit_amount','record_version','created_at','updated_at',
+            ]))->all();
     }
 
     private function grantDetail(string $id, array $scope, array $permissions, bool $internal): array
@@ -333,6 +339,14 @@ final class PartnerPortalQuery
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
             ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
+        if (! $internal) {
+            $payload = $this->externalProjection($payload, false, [
+                'id','order_number','order_date','requested_delivery_date','currency','subtotal_amount','discount_amount',
+                'tax_amount','total_amount','status','record_version','confirmed_at','cancelled_at','lines',
+            ]);
+            $payload['lines'] = array_map(fn (array $line): array => $this->safeLine($line), $payload['lines'] ?? []);
+        }
+
         return $payload;
     }
 
@@ -355,6 +369,16 @@ final class PartnerPortalQuery
         $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
         $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
 
+        if (! $internal) {
+            $payload = $this->externalProjection($payload, false, [
+                'id','shipment_number','shipment_type','carrier_name','vehicle_number','status','record_version',
+                'dispatched_at','delivered_at','lines','proof','invoice',
+            ]);
+            $payload['lines'] = array_map(fn (array $line): array => $this->safeLine($line), $payload['lines'] ?? []);
+            $payload['proof'] = is_array($payload['proof'] ?? null) ? $this->keep($payload['proof'], ['proof_number','outcome','receiver_name','event_at','failure_reason']) : null;
+            $payload['invoice'] = is_array($payload['invoice'] ?? null) ? $this->keep($payload['invoice'], ['invoice_number','currency','net_amount','tax_amount','gross_amount','outstanding_amount','paid_amount','credited_amount','issued_at','due_date']) : null;
+        }
+
         return $payload;
     }
 
@@ -373,6 +397,16 @@ final class PartnerPortalQuery
         $payload = $this->moneyRow($row);
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
+
+        if (! $internal) {
+            $payload = $this->externalProjection($payload, false, [
+                'invoice_number','currency','net_amount','tax_amount','gross_amount','outstanding_amount','paid_amount',
+                'credited_amount','issued_at','due_date','record_version','status','transactions',
+            ]);
+            $payload['transactions'] = array_map(fn (array $row): array => $this->keep($row, [
+                'transaction_type','reference_number','amount','balance_before','balance_after','currency','posted_at',
+            ]), $payload['transactions'] ?? []);
+        }
 
         return $payload;
     }
@@ -393,6 +427,16 @@ final class PartnerPortalQuery
             ->leftJoin('lots as lot', 'lot.id', '=', 'line.lot_id')->where('line.customer_claim_id', $id)
             ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
+
+        if (! $internal) {
+            $payload = $this->externalProjection($payload, false, [
+                'id','claim_number','claim_type','requested_resolution','resolution','status','currency','credit_amount',
+                'reason','record_version','created_at','updated_at','lines',
+            ]);
+            $payload['lines'] = array_map(fn (array $line): array => $this->keep($line, [
+                'line_number','item_code','item_name','internal_lot_code','quantity','uom_code','status',
+            ]), $payload['lines'] ?? []);
+        }
 
         return $payload;
     }
@@ -433,6 +477,17 @@ final class PartnerPortalQuery
             ->where('partner_document_id', $id)->orderBy('occurred_at')
             ->get(['id', 'event_type', 'reference', 'metadata_json', 'occurred_at'])
             ->map(fn (object $event): array => $this->row($event))->all();
+
+        if (! $internal) {
+            $payload = $this->externalProjection($payload, false, [
+                'id','document_number','direction','document_type','title','description','original_name','mime_type',
+                'size_bytes','sha256_checksum','status','record_version','available_at','acknowledged_at',
+                'acknowledgement_reference','created_at','updated_at','party_code','party_name','allowed_actions','events',
+            ]);
+            $payload['events'] = array_map(fn (array $event): array => $this->keep($event, [
+                'event_type','reference','occurred_at',
+            ]), $payload['events'] ?? []);
+        }
 
         return $payload;
     }
@@ -574,6 +629,24 @@ final class PartnerPortalQuery
         }
 
         return $payload;
+    }
+
+    private function externalProjection(array $payload, bool $internal, array $allowed): array
+    {
+        return $internal ? $payload : $this->keep($payload, $allowed);
+    }
+
+    private function keep(array $payload, array $allowed): array
+    {
+        return array_intersect_key($payload, array_flip($allowed));
+    }
+
+    private function safeLine(array $line): array
+    {
+        return $this->keep($line, [
+            'line_number','item_code','item_name','internal_lot_code','ordered_quantity','shipped_quantity',
+            'returned_quantity','quantity','uom_code','unit_price','net_amount','tax_amount','gross_amount','status',
+        ]);
     }
 
     private function row(object $row): array
