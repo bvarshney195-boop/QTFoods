@@ -5,10 +5,17 @@ import {
   isApiError,
   isMfaChallenge,
   login,
+  loginWithAuthenticator,
+  loginWithEmailOtp,
   logout,
+  requestEmailOtp,
+  requestMfaEmailOtp,
   resetAuthenticationClient,
   selectContext,
+  type AuthMethod,
+  type EmailOtpChallenge,
   type MfaChallenge,
+  type MfaMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -22,6 +29,7 @@ export default function App() {
   const [choosingContext, setChoosingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [emailOtpChallenge, setEmailOtpChallenge] = useState<EmailOtpChallenge | null>(null);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -70,19 +78,29 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  function acceptAuthentication(authenticated: Awaited<ReturnType<typeof login>>) {
+    if (isMfaChallenge(authenticated)) {
+      setMfaChallenge(authenticated);
+      setEmailOtpChallenge(null);
+      return;
+    }
+    setMfaChallenge(null);
+    setEmailOtpChallenge(null);
+    setSession(authenticated);
+    setChoosingContext(true);
+  }
+
+  async function handlePrimaryAuth(method: AuthMethod, email: string, credential: string) {
     setBusy(true);
     setError(null);
-
     try {
-      const authenticated = await login(email, password);
-      if (isMfaChallenge(authenticated)) {
-        setMfaChallenge(authenticated);
-        return;
+      if (method === 'PASSWORD') {
+        acceptAuthentication(await login(email, credential));
+      } else if (method === 'AUTHENTICATOR') {
+        acceptAuthentication(await loginWithAuthenticator(email, credential));
+      } else if (emailOtpChallenge) {
+        acceptAuthentication(await loginWithEmailOtp(emailOtpChallenge.challenge_id, credential));
       }
-      setMfaChallenge(null);
-      setSession(authenticated);
-      setChoosingContext(true);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Sign in failed.');
     } finally {
@@ -90,17 +108,43 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handleEmailOtpRequest(email: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      setEmailOtpChallenge(await requestEmailOtp(email));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email sign-in code.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfa(method: MfaMethod, code: string) {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, method, code);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Two-step verification failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfaEmailOtpRequest() {
+    if (!mfaChallenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await requestMfaEmailOtp(mfaChallenge.challenge_id);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the verification code.');
     } finally {
       setBusy(false);
     }
@@ -144,9 +188,12 @@ export default function App() {
   if (!session) {
     return (
       <ACC_LOGIN
-        onLogin={handleLogin}
+        onPrimaryAuth={handlePrimaryAuth}
+        onRequestEmailOtp={handleEmailOtpRequest}
+        emailOtpChallenge={emailOtpChallenge}
         onMfa={handleMfa}
-        onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
+        onRequestMfaEmailOtp={handleMfaEmailOtpRequest}
+        onCancelMfa={() => { setMfaChallenge(null); setEmailOtpChallenge(null); setError(null); }}
         mfaChallenge={mfaChallenge}
         busy={busy}
         error={error}
