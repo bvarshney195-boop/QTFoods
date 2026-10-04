@@ -333,6 +333,17 @@ final class PartnerPortalQuery
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
             ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
+        if (! $internal) {
+            $payload = $this->external($payload, [
+                'id', 'order_number', 'order_date', 'requested_delivery_date', 'currency',
+                'subtotal_amount', 'tax_amount', 'total_amount', 'status', 'confirmed_at', 'updated_at', 'record_version', 'lines',
+            ]);
+            $payload['lines'] = collect($payload['lines'])->map(fn (array $line): array => $this->external($line, [
+                'id', 'line_number', 'item_code', 'item_name', 'ordered_quantity', 'uom_code',
+                'unit_price', 'discount_amount', 'net_amount', 'tax_amount', 'gross_amount',
+            ]))->all();
+        }
+
         return $payload;
     }
 
@@ -355,6 +366,23 @@ final class PartnerPortalQuery
         $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
         $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
 
+        if (! $internal) {
+            $payload = $this->external($payload, [
+                'id', 'shipment_number', 'carrier_name', 'vehicle_number', 'status', 'record_version',
+                'dispatched_at', 'delivered_at', 'updated_at', 'lines', 'proof', 'invoice',
+            ]);
+            $payload['lines'] = collect($payload['lines'])->map(fn (array $line): array => $this->external($line, [
+                'id', 'item_code', 'item_name', 'internal_lot_code', 'shipped_quantity', 'returned_quantity', 'uom_code',
+            ]))->all();
+            $payload['proof'] = is_array($payload['proof']) ? $this->external($payload['proof'], [
+                'proof_number', 'outcome', 'receiver_name', 'event_at', 'failure_reason',
+            ]) : null;
+            $payload['invoice'] = is_array($payload['invoice']) ? $this->external($payload['invoice'], [
+                'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount', 'paid_amount', 'credited_amount',
+                'outstanding_amount', 'issued_at', 'due_date',
+            ]) : null;
+        }
+
         return $payload;
     }
 
@@ -373,6 +401,19 @@ final class PartnerPortalQuery
         $payload = $this->moneyRow($row);
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
+
+        if (! $internal) {
+            $payload = $this->external($payload, [
+                'invoice_id', 'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount',
+                'outstanding_amount', 'paid_amount', 'credited_amount', 'issued_at', 'due_date', 'status',
+                'record_version', 'updated_at', 'transactions',
+            ]);
+            $payload['id'] = $payload['invoice_id'] ?? $id;
+            unset($payload['invoice_id']);
+            $payload['transactions'] = collect($payload['transactions'])->map(fn (array $transaction): array => $this->external($transaction, [
+                'transaction_type', 'amount', 'currency', 'reference_number', 'posted_at',
+            ]))->all();
+        }
 
         return $payload;
     }
@@ -393,6 +434,16 @@ final class PartnerPortalQuery
             ->leftJoin('lots as lot', 'lot.id', '=', 'line.lot_id')->where('line.customer_claim_id', $id)
             ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
+
+        if (! $internal) {
+            $payload = $this->external($payload, [
+                'id', 'claim_number', 'claim_type', 'requested_resolution', 'reason', 'status', 'record_version',
+                'resolution_type', 'credit_amount', 'created_at', 'updated_at', 'lines',
+            ]);
+            $payload['lines'] = collect($payload['lines'])->map(fn (array $line): array => $this->external($line, [
+                'id', 'line_number', 'item_code', 'item_name', 'internal_lot_code', 'claimed_quantity', 'received_quantity', 'uom_code',
+            ]))->all();
+        }
 
         return $payload;
     }
@@ -496,6 +547,11 @@ final class PartnerPortalQuery
         }
 
         return $lookups;
+    }
+
+    private function external(array $payload, array $allowed): array
+    {
+        return array_intersect_key($payload, array_flip($allowed));
     }
 
     private function workspaceActions(bool $internal, array $entitlements, array $permissions): array
