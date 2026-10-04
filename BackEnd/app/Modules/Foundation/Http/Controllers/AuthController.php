@@ -74,13 +74,13 @@ final class AuthController
     public function requestEmailOtp(Request $request): JsonResponse
     {
         $validated = $request->validate(['email' => ['required', 'email']]);
-        $user = $this->activeVerifiedUser($validated['email']);
+        $user = $this->activeVerifiedUser($validated['email'], false);
         $response = [
             'accepted' => true,
             'message' => 'If an eligible account matches that email, a sign-in code has been sent.',
         ];
 
-        if (! $user) {
+        if (! $user || $user->email_verified_at === null) {
             return response()->json(['data' => $response], 202);
         }
 
@@ -121,8 +121,8 @@ final class AuthController
             ]);
         }
 
-        $user = $this->activeVerifiedUser($validated['email']);
-        $validUser = $user && (string) $user->id === (string) ($challenge['user_id'] ?? '');
+        $user = $this->activeVerifiedUser($validated['email'], false);
+        $validUser = $user && $user->email_verified_at !== null && $user && (string) $user->id === (string) ($challenge['user_id'] ?? '');
         $validCode = hash_equals((string) ($challenge['code_hash'] ?? ''), hash('sha256', $validated['code']));
         if (! $validUser || ! $validCode) {
             $this->incrementOtpAttempts($request, 'identity.email_login_otp', $challenge);
@@ -286,7 +286,7 @@ final class AuthController
             ->exists();
     }
 
-    private function activeVerifiedUser(string $email): ?User
+    private function activeVerifiedUser(string $email, bool $enforceVerified = true): ?User
     {
         $user = User::query()
             ->where('email', mb_strtolower(trim($email)))
@@ -296,7 +296,7 @@ final class AuthController
         if (! $user) {
             return null;
         }
-        if ($user->email_verified_at === null) {
+        if ($enforceVerified && $user->email_verified_at === null) {
             abort(response()->json(['error' => [
                 'code' => 'EMAIL_VERIFICATION_REQUIRED',
                 'message' => 'Verify this email address before signing in.',
