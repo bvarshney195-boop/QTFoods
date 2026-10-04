@@ -31,6 +31,23 @@ return [
         'verification_minutes' => (int) env('QT_EMAIL_VERIFICATION_MINUTES', 60),
         'mfa_setup_minutes' => (int) env('QT_MFA_SETUP_MINUTES', 10),
         'mfa_challenge_minutes' => (int) env('QT_MFA_CHALLENGE_MINUTES', 5),
+        'login_otp_minutes' => (int) env('QT_LOGIN_OTP_MINUTES', 5),
+        'mfa_required_roles' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('QT_MFA_REQUIRED_ROLES', 'ERP_ADMIN'))
+        ))),
+        'allow_demo_login' => filter_var(
+            env('QT_ALLOW_DEMO_LOGIN', env('APP_ENV', 'production') !== 'production'),
+            FILTER_VALIDATE_BOOL
+        ),
+        'demo_emails' => [
+            'demo.user@qtfoods.local',
+            'operations.user@qtfoods.local',
+            'finance.user@qtfoods.local',
+            'admin.user@qtfoods.local',
+            'partner.user@qtfoods.local',
+            'bi.user@qtfoods.local',
+        ],
         'session_lifetime_minutes' => (int) env('SESSION_LIFETIME', 120),
     ],
 
