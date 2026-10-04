@@ -37,6 +37,7 @@ export default function App() {
       setSession(null);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setError('Your ERP session expired. Sign in again to continue.');
     };
     const handleContextRequired = () => {
@@ -73,6 +74,7 @@ export default function App() {
         setError(isApiError(caught) ? caught.message : 'Unable to contact the ERP service.');
       }
       setSession(null);
+      setEmailOtpChallenge(null);
     } finally {
       setLoading(false);
     }
@@ -176,6 +178,8 @@ export default function App() {
     } finally {
       setSession(null);
       setChoosingContext(false);
+      setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setBusy(false);
       window.location.hash = '';
     }
