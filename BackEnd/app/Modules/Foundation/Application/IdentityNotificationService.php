@@ -37,6 +37,15 @@ final class IdentityNotificationService
         return $this->deliver($email, 'Verify your Q & T Foods ERP email', $body, $url);
     }
 
+    public function loginOtp(string $email, string $name, string $code, string $expiresAt): array
+    {
+        $body = "Hello {$name},\n\nYour Q & T Foods ERP sign-in code is {$code}. "
+            ."It expires at {$expiresAt}. Never share this code.\n\n"
+            .'If you did not request this sign-in, review your account security and contact an administrator.';
+
+        return $this->deliver($email, 'Your Q & T Foods ERP sign-in code', $body, '');
+    }
+
     private function deliver(string $email, string $subject, string $body, string $previewUrl): array
     {
         try {
