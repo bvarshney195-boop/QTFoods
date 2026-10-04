@@ -107,7 +107,7 @@ final class UnsoldSalesReturnController
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.line_id' => ['required', 'uuid', 'distinct'],
             'lines.*.received_quantity' => ['required', 'decimal:0,6', 'gt:0'],
-            'lines.*.return_position_id' => ['required', 'uuid'],
+            'lines.*.return_position_id' => ['nullable', 'uuid'],
         ]);
         $this->applySelectedContext($request, $validated);
         $validated['actor_id'] = (string) $request->user()->id;
