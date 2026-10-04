@@ -220,10 +220,6 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
         setActionError(`Receipt for ${line.sku.code ?? line.sku.id} must be positive and no more than the remaining quantity.`);
         return;
       }
-      if (!draft.positionId) {
-        setActionError(`Select a return-quarantine position for ${line.sku.code ?? line.sku.id}.`);
-        return;
-      }
     }
 
     setSubmitting('receive');
@@ -236,7 +232,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
         { lines: lines.map(({ line, draft }) => ({
           line_id: line.id,
           received_quantity: draft.quantity,
-          return_position_id: draft.positionId,
+          ...(draft.positionId ? { return_position_id: draft.positionId } : {}),
         })) },
         detail.record_version,
         receiptKey.current
@@ -604,7 +600,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                   <div className="action-line" key={line.id}>
                     <b>{line.sku.code ?? line.sku.id}<small>{formatQuantityValue(remainingQuantity(line))} {line.uom_code} remaining</small></b>
                     <label>Received<input type="number" min="0" max={remainingQuantity(line)} step="0.000001" value={draft.quantity} onChange={(event) => changeReceipt(line.id, { quantity: event.target.value })} /></label>
-                    <label>Quarantine position<select value={draft.positionId} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })}><option value="">Select destination</option>{routes.map((position) => <option key={position.id} value={position.id}>{position.location.code} · {position.location.name}</option>)}</select></label>
+                    <label>Quarantine destination<select value={draft.positionId} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })}><option value="">{routes.length ? 'Automatic eligible destination' : 'Automatic plant quarantine'}</option>{routes.map((position) => <option key={position.id} value={position.id}>{position.location.code} · {position.location.name}</option>)}</select>{!routes.length && <small className="field-help">A matching quarantine stock position will be created in the plant's active return-quarantine location when the receipt is posted.</small>}</label>
                   </div>
                 );
               })}
