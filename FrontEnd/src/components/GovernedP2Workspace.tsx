@@ -4,6 +4,7 @@ import { commandP2, downloadP2, getP2, listP2, type P2Record, type P2Workspace }
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { SuccessToast } from './SuccessToast';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
 import { StructuredCommandForm, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
 
@@ -74,6 +75,15 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
+  useEffect(() => {
+    if (selected && records.length > 0 && !records.some((record) => record.id === selected.id)) {
+      setSelected(null);
+    }
+    if (selected && workspace && records.length === 0) {
+      setSelected(null);
+    }
+  }, [records, selected, workspace]);
+
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
 
@@ -135,7 +145,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       <i />
       {availableCreators.map((creator) => <button key={`${creator.action}:${creator.label}`} className="p2-create-command" onClick={() => startCreator(creator)}>+ {creator.label}</button>)}
     </div> : null}
-    <div className="module-grid requisition-workspace p2-workspace">
+    <div className={`module-grid requisition-workspace p2-workspace ${selected || editor ? 'has-detail' : 'register-only'}`}>
       <section className="panel">
         <div className="requisition-toolbar p2-toolbar">
           <label>Search<input aria-label={`${config.title} search`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Number, customer, reference or description" /></label>
@@ -146,8 +156,8 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       </section>
       <aside className="panel requisition-editor"><div className="requisition-detail-body">
         {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
-        {feedback.success ? <div className="form-success" role="status"><span />{feedback.success}</div> : null}
-        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => setEditor(null)} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
+        <SuccessToast message={feedback.success} onDismiss={() => setFeedback((value) => ({ ...value, success: null }))} />
+        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
       </div></aside>
     </div>
   </>;
@@ -155,7 +165,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
 
 function Register({ records, columns, showStatus, selectedId, onOpen }: { records: P2Record[]; columns: P2Column[]; showStatus: boolean; selectedId?: string; onOpen: (record: P2Record) => void }) {
   if (!records.length) return <Empty text="No live records match the selected context and filters." />;
-  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th /></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td key={column.key}>{renderValue(read(record, column.key), column.format)}</td>)}{showStatus ? <td><StatusBadge status={String(record.status ?? 'ARCHIVED')} /></td> : null}<td><button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th /></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td key={column.key} className={column.format === 'money' || column.format === 'number' ? 'numeric-cell' : undefined}>{renderValue(read(record, column.key), column.format, String(record.currency ?? 'INR'))}</td>)}{showStatus ? <td><StatusBadge status={String(record.status ?? 'ARCHIVED')} /></td> : null}<td><button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
 }
 
 function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string> }) {
@@ -211,12 +221,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {
-  const facts = Object.entries(record).filter(([key, value]) => !['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const hidden = new Set(['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json']);
+  const technical = new Set(['id', 'company_id', 'plant_id', 'created_by', 'updated_by', 'actor_id', 'record_version']);
+  const facts = Object.entries(record).filter(([key, value]) => !hidden.has(key) && !technical.has(key) && !key.endsWith('_id') && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const technicalFacts = Object.entries(record).filter(([key, value]) => (technical.has(key) || key.endsWith('_id')) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)));
   const collections = Object.entries(record).filter(([, value]) => Array.isArray(value)) as [string, unknown[]][];
   const objects = Object.entries(record).filter(([key, value]) => !['allowed_actions'].includes(key) && value && typeof value === 'object' && !Array.isArray(value));
-  return <div className="requisition-detail p2-detail"><div className="detail-status"><StatusBadge status={String(record.status ?? 'ARCHIVED')} />{record.record_version ? <span>record version {record.record_version}</span> : null}</div><dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(value, moneyKey(key) ? 'money' : key.includes('date') || key.endsWith('_at') ? 'date' : 'text')}</dd></div>)}</dl>
+  const currency = String(record.currency ?? 'INR');
+
+  return <div className="requisition-detail p2-detail">
+    <div className="detail-status"><StatusBadge status={String(record.status ?? 'ARCHIVED')} />{record.record_version ? <span>record version {record.record_version}</span> : null}</div>
+    <dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd className={moneyKey(key) ? 'numeric-cell' : undefined}>{renderValue(value, moneyKey(key) ? 'money' : key.includes('date') || key.endsWith('_at') ? 'date' : 'text', currency)}</dd></div>)}</dl>
     {objects.map(([key, value]) => <section className="p2-object-evidence" key={key}><h4>{label(key)}</h4><ObjectFacts value={value as Record<string, unknown>} /></section>)}
     {collections.map(([key, values]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={values} /></section>)}
+    {technicalFacts.length ? <details className="technical-details"><summary>Technical details</summary><dl className="control-definition">{technicalFacts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd className="mono">{String(value ?? '—')}</dd></div>)}</dl></details> : null}
     {(record.allowed_actions?.length ?? 0) > 0 ? <div className="p2-action-grid">{record.allowed_actions!.map((action) => <button className={action.includes('CANCEL') || action.includes('REJECT') || action === 'CLOSE' ? 'secondary' : 'primary'} type="button" disabled={busy} key={action} onClick={() => onAction(action)}>{label(action)}</button>)}</div> : <div className="callout">{record._kind === 'claim' ? 'No action is available for this claim in its current state and your assigned role. Sales users create and resolve claims; Operations users receive goods after a claim reaches Return Required.' : 'This record is read-only in its current state or for your assigned role.'}</div>}
   </div>;
 }
@@ -238,7 +256,26 @@ function read(record: P2Record, path: string): unknown { return path.split('.').
 function workspacePath(workspace: P2Workspace | null, path: string): unknown { return path.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, workspace); }
 function label(value: string) { return value.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ').replace(/\b\w/g, (character) => character.toUpperCase()); }
 function moneyKey(key: string) { return /(amount|cost|price|value|revenue|margin|debit|credit|rate)$/i.test(key); }
-function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 6 }).format(Number(value) || 0); if (format === 'date') { const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text); return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed); } if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
+function renderValue(value: unknown, format: P2Column['format'] = 'text', currency = 'INR'): ReactNode {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · ');
+  if (format === 'money') {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return String(value);
+    try { return new Intl.NumberFormat('en-IN', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount); }
+    catch { return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount); }
+  }
+  if (format === 'number') {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 }).format(amount) : String(value);
+  }
+  if (format === 'date') {
+    const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text);
+    return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', ...(text.length === 10 ? { timeZone: 'UTC' } : {}) }).format(parsed);
+  }
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return String(value);
+}
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
 function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = values[0] ?? ''; }); setter({ error: api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); }
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }
