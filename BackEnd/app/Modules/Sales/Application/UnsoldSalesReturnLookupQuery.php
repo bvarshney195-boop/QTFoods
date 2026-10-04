@@ -281,7 +281,8 @@ final class UnsoldSalesReturnLookupQuery
             return [];
         }
 
-        return DB::table('stock_positions as position')
+        $lotId = $filters['lot_id'] ?? null;
+        $positions = DB::table('stock_positions as position')
             ->leftJoin('locations as location', function (JoinClause $join) {
                 $join
                     ->on('location.id', '=', 'position.location_id')
@@ -297,8 +298,9 @@ final class UnsoldSalesReturnLookupQuery
             ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('position.plant_id', $plantId))
             ->where('position.item_id', $skuId)
             ->where('position.quality_status', 'RETURN_QUARANTINE')
+            ->where('location.location_type', 'RETURN_QUARANTINE')
             ->where('location.status', 'ACTIVE')
-            ->when($filters['lot_id'] ?? null, fn (Builder $query, string $id) => $query->where('position.lot_id', $id))
+            ->when($lotId, fn (Builder $query, string $id) => $query->where('position.lot_id', $id))
             ->orderBy('location.code')
             ->orderBy('lot.internal_lot_code')
             ->limit($limit)
@@ -317,20 +319,47 @@ final class UnsoldSalesReturnLookupQuery
             ->map(fn (object $position) => [
                 'id' => (string) $position->id,
                 'sku_id' => (string) $position->item_id,
-                'lot' => [
-                    'id' => (string) $position->lot_id,
-                    'code' => $position->lot_code,
-                ],
-                'location' => [
-                    'id' => (string) $position->location_id,
-                    'code' => $position->location_code,
-                    'name' => $position->location_name,
-                ],
+                'lot' => ['id' => (string) $position->lot_id, 'code' => $position->lot_code],
+                'location' => ['id' => (string) $position->location_id, 'code' => $position->location_code, 'name' => $position->location_name],
                 'quality_status' => $position->quality_status,
                 'quantity' => (string) $position->quantity_base,
                 'uom_code' => $position->uom_code,
+                'provision_on_receipt' => false,
             ])
-            ->values()
+            ->values();
+
+        if ($positions->isNotEmpty() || ! $lotId) {
+            return $positions->all();
+        }
+
+        $lot = DB::table('lots')->where('company_id', $scope['company_id'])->where('id', $lotId)
+            ->where('item_id', $skuId)->first(['id', 'internal_lot_code']);
+        $item = DB::table('items')->where('company_id', $scope['company_id'])->where('id', $skuId)
+            ->where('status', 'ACTIVE')->first(['id', 'base_uom']);
+        if (! $lot || ! $item) {
+            return [];
+        }
+
+        return DB::table('locations')
+            ->where('company_id', $scope['company_id'])
+            ->where('plant_id', $scope['plant_id'])
+            ->where('location_type', 'RETURN_QUARANTINE')
+            ->where('status', 'ACTIVE')
+            ->orderBy('code')
+            ->limit($limit)
+            ->get(['id', 'code', 'name'])
+            ->map(fn (object $location) => [
+                // A location UUID is accepted as a provisionable destination. The receipt command
+                // creates/reuses the exact zero-balance position atomically before posting movement.
+                'id' => (string) $location->id,
+                'sku_id' => (string) $skuId,
+                'lot' => ['id' => (string) $lot->id, 'code' => $lot->internal_lot_code],
+                'location' => ['id' => (string) $location->id, 'code' => $location->code, 'name' => $location->name],
+                'quality_status' => 'RETURN_QUARANTINE',
+                'quantity' => '0.000000',
+                'uom_code' => $item->base_uom,
+                'provision_on_receipt' => true,
+            ])
             ->all();
     }
 
