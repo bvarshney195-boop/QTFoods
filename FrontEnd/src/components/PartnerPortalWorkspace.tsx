@@ -5,6 +5,7 @@ import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
+import { SuccessToast } from './SuccessToast';
 
 type PortalWorkspace = P2Workspace & {
   mode: 'INTERNAL' | 'PARTNER';
@@ -75,6 +76,11 @@ export function PartnerPortalWorkspace() {
   const tab = tabs.find((candidate) => candidate.key === tabKey) ?? tabs[0];
   const records = tab && workspace ? collection(workspace, tab.key) : [];
   const actions = workspace?.allowed_actions ?? [];
+
+  useEffect(() => {
+    if (!selected) return;
+    if (!records.some((record) => String(record.id) === String(selected.id))) setSelected(null);
+  }, [records, selected]);
 
   async function open(record: P2Record) {
     if (!tab) return;
@@ -232,8 +238,8 @@ export function PartnerPortalWorkspace() {
       </section>
       <aside className="panel requisition-editor"><div className="requisition-detail-body">
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {editor ? <PortalEditor editor={editor} workspace={workspace} file={file} setFile={setFile} update={updateDraft} submit={submit} close={() => { setEditor(null); setFile(null); }} busy={busy} />
+        <SuccessToast message={success} onDismiss={() => setSuccess(null)} />
+        {editor ? <PortalEditor editor={editor} workspace={workspace} file={file} setFile={setFile} update={updateDraft} submit={submit} close={() => { setEditor(null); setFile(null); setError(null); }} busy={busy} />
           : selected ? <PortalDetail record={selected} tabKey={tabKey} canClaim={Boolean(!internal && actions.includes('CLAIM-CREATE'))} action={recordAction} claim={() => startClaim(selected)} busy={busy} />
             : <Empty text={internal ? 'Choose an access grant or document, or start a new portal entry.' : 'Choose one of your available records or start a document or claim exchange.'} />}
       </div></aside>
