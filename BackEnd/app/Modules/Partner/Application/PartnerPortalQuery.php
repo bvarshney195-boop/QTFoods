@@ -333,7 +333,7 @@ final class PartnerPortalQuery
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
             ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalProjection('order', $payload);
     }
 
     private function shipmentDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -355,7 +355,7 @@ final class PartnerPortalQuery
         $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
         $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
 
-        return $payload;
+        return $internal ? $payload : $this->externalProjection('shipment', $payload);
     }
 
     private function invoiceDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -374,7 +374,7 @@ final class PartnerPortalQuery
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalProjection('invoice', $payload);
     }
 
     private function claimDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -394,7 +394,7 @@ final class PartnerPortalQuery
             ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalProjection('claim', $payload);
     }
 
     private function documentDetail(
@@ -435,6 +435,48 @@ final class PartnerPortalQuery
             ->map(fn (object $event): array => $this->row($event))->all();
 
         return $payload;
+    }
+
+    private function externalProjection(string $resource, array $payload): array
+    {
+        $topLevel = [
+            'order' => ['id', 'order_number', 'order_date', 'requested_delivery_date', 'currency', 'subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'status', 'confirmed_at', 'updated_at', 'lines'],
+            'shipment' => ['id', 'shipment_number', 'shipment_type', 'carrier_name', 'vehicle_number', 'status', 'dispatched_at', 'delivered_at', 'updated_at', 'lines', 'proof', 'invoice'],
+            'invoice' => ['id', 'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount', 'outstanding_amount', 'paid_amount', 'credited_amount', 'issued_at', 'due_date', 'status', 'updated_at', 'transactions'],
+            'claim' => ['id', 'claim_number', 'claim_type', 'requested_resolution', 'reason', 'status', 'resolution_type', 'credit_amount', 'created_at', 'updated_at', 'lines'],
+        ][$resource] ?? ['id', 'status'];
+
+        $safe = array_intersect_key($payload, array_flip($topLevel));
+        foreach (['lines', 'transactions'] as $collection) {
+            if (! isset($safe[$collection]) || ! is_array($safe[$collection])) {
+                continue;
+            }
+            $safe[$collection] = array_map(fn (array $row): array => $this->externalLineProjection($row), $safe[$collection]);
+        }
+        if (isset($safe['proof']) && is_array($safe['proof'])) {
+            $safe['proof'] = array_intersect_key($safe['proof'], array_flip([
+                'proof_number', 'outcome', 'receiver_name', 'event_at', 'failure_reason', 'notes', 'created_at',
+            ]));
+        }
+        if (isset($safe['invoice']) && is_array($safe['invoice'])) {
+            $safe['invoice'] = array_intersect_key($safe['invoice'], array_flip([
+                'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount',
+                'outstanding_amount', 'paid_amount', 'credited_amount', 'issued_at', 'due_date', 'status',
+            ]));
+        }
+
+        return $safe;
+    }
+
+    private function externalLineProjection(array $row): array
+    {
+        return array_intersect_key($row, array_flip([
+            'id', 'line_number', 'item_code', 'item_name', 'internal_lot_code',
+            'ordered_quantity', 'shipped_quantity', 'returned_quantity', 'quantity', 'uom_code',
+            'unit_price', 'discount_percent', 'tax_rate', 'net_amount', 'tax_amount', 'gross_amount',
+            'transaction_type', 'amount', 'currency', 'reference', 'posted_at',
+            'claim_quantity', 'approved_quantity', 'resolution_type', 'status',
+        ]));
     }
 
     private function lookups(array $scope, ?string $partyId, bool $internal): array
