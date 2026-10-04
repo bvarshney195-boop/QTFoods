@@ -5,7 +5,8 @@ import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
-import { StructuredCommandForm, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
+import { StructuredCommandForm, friendlyFieldLabel, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
+import { SuccessToast } from './SuccessToast';
 
 export type P2Column = { label: string; key: string; format?: 'date' | 'money' | 'number' | 'text' };
 export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean };
@@ -77,6 +78,13 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
 
+  useEffect(() => {
+    if (!selected) return;
+    if (!records.some((record) => String(record.id) === String(selected.id))) {
+      setSelected(null);
+    }
+  }, [records, selected]);
+
   async function open(record: P2Record) {
     setEditor(null); setFeedback(clear());
     if (!collection?.detailPath) { setSelected(record); return; }
@@ -95,13 +103,20 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!editor) return;
     const fields = validateStructuredCommand(editor.body, editor.schema);
-    if (Object.keys(fields).length) { setFeedback({ error: 'Please correct the highlighted fields before saving.', success: null, fields }); return; }
+    if (Object.keys(fields).length) {
+      setFeedback({ error: 'Check the highlighted field.', success: null, fields });
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
     setBusy(true);
     try {
       const result = await commandP2(editor.path, editor.body, editor.expectedVersion);
       setEditor(null); setSelected(null); setFeedback({ error: null, success: `${editor.label} saved successfully. Current status: ${label(result.status)}.`, fields: {} });
       await refresh();
-    } catch (error) { setFailure(setFeedback, error, `Unable to complete ${editor.label.toLowerCase()}.`); }
+    } catch (error) {
+      setFailure(setFeedback, error, `Unable to complete ${editor.label.toLowerCase()}.`);
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+    }
     finally { setBusy(false); }
   }
 
@@ -146,8 +161,8 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       </section>
       <aside className="panel requisition-editor"><div className="requisition-detail-body">
         {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
-        {feedback.success ? <div className="form-success" role="status"><span />{feedback.success}</div> : null}
-        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => setEditor(null)} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
+        <SuccessToast message={feedback.success} onDismiss={() => setFeedback((value) => ({ ...value, success: null }))} />
+        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
       </div></aside>
     </div>
   </>;
@@ -240,5 +255,21 @@ function label(value: string) { return value.toLowerCase().replaceAll('_', ' ').
 function moneyKey(key: string) { return /(amount|cost|price|value|revenue|margin|debit|credit|rate)$/i.test(key); }
 function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 6 }).format(Number(value) || 0); if (format === 'date') { const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text); return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed); } if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
-function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = values[0] ?? ''; }); setter({ error: api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); }
+function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) {
+  const api = isApiError(error) ? error : null;
+  const fields: Record<string, string> = {};
+  Object.entries(api?.fields ?? {}).forEach(([key, values]) => {
+    const fieldName = String(key).split('.').filter((part) => !/^\d+$/.test(part)).at(-1) ?? String(key);
+    const friendly = friendlyFieldLabel(fieldName);
+    const raw = values[0] ?? '';
+    fields[key] = /greater than 0/i.test(raw)
+      ? `${friendly} must be greater than 0.`
+      : raw.replace(/^The [^.]+ field /i, `${friendly} `);
+  });
+  setter({
+    error: Object.keys(fields).length ? 'Check the highlighted field.' : (api?.message ?? (error instanceof Error ? error.message : fallback)),
+    success: null,
+    fields,
+  });
+}
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }
