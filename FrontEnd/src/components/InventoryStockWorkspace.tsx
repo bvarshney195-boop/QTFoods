@@ -556,11 +556,14 @@ function InventoryKpis({ tab, stock, owners, lots, movements, loading }: {
   movements: InventoryMovementWorkspace | null; loading: boolean;
 }) {
   const empty = loading && !(tab === 'stock' ? stock : tab === 'owners' ? owners : tab === 'lots' ? lots : movements);
+  const stockByUom = stock?.summary.by_uom ?? [];
+  const stockSummaryText = (field: 'available' | 'blocked' | 'reserved') =>
+    stockByUom.length ? stockByUom.map((row) => `${quantity(row[field])} ${row.uom_code}`).join(' · ') : 'Unavailable';
   const values = tab === 'stock' ? [
-    ['Stock UOMs', stock?.summary.uom_count ?? 0, 'physical quantities stay separated'],
-    ['Available', stock ? stock.summary.by_uom.map((row) => `${quantity(row.available)} ${row.uom_code}`).join(' · ') : '-', 'unreserved and released by UOM'],
-    ['Blocked', stock ? stock.summary.by_uom.map((row) => `${quantity(row.blocked)} ${row.uom_code}`).join(' · ') : '-', 'quality, lot, or expiry hold by UOM'],
-    ['Reserved', stock ? stock.summary.by_uom.map((row) => `${quantity(row.reserved)} ${row.uom_code}`).join(' · ') : '-', 'active reservations by UOM'],
+    ['Stock UOMs', stock?.summary.uom_count ?? stockByUom.length, 'physical quantities stay separated'],
+    ['Available', stockSummaryText('available'), 'unreserved and released by UOM'],
+    ['Blocked', stockSummaryText('blocked'), 'quality, lot, or expiry hold by UOM'],
+    ['Reserved', stockSummaryText('reserved'), 'active reservations by UOM'],
   ] : tab === 'owners' ? [
     ['Owners', owners?.summary.total ?? 0, 'company scoped'],
     ['Active', owners?.summary.active ?? 0, 'available for stock'],
