@@ -187,8 +187,12 @@ final class OrderToCashQuery
         $invoices = collect($page->items())->map(function ($row) use ($today): array {
             $payload = $this->receivableRow($row);
             $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date)) ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : 0;
-            $payload['ageing_bucket'] = bccomp((string) $row->outstanding_amount, '0', 4) === 0 ? 'SETTLED'
+            $settled = bccomp((string) $row->outstanding_amount, '0', 4) === 0;
+            $partiallyPaid = ! $settled && bccomp((string) $row->paid_amount, '0', 4) > 0;
+            $payload['ageing_bucket'] = $settled ? 'SETTLED'
                 : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'))));
+            $payload['payment_status'] = $settled ? 'SETTLED' : ($days > 0 ? 'OVERDUE' : ($partiallyPaid ? 'PARTIALLY_PAID' : 'OPEN'));
+            $payload['document_retention_status'] = 'ARCHIVED';
             $payload['days_overdue'] = $days;
             return $payload;
         })->all();
