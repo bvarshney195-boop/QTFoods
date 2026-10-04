@@ -32,7 +32,7 @@ return [
         'mfa_setup_minutes' => (int) env('QT_MFA_SETUP_MINUTES', 10),
         'mfa_challenge_minutes' => (int) env('QT_MFA_CHALLENGE_MINUTES', 5),
         'login_otp_minutes' => (int) env('QT_LOGIN_OTP_MINUTES', 5),
-        'mfa_required_roles' => array_values(array_filter(array_map('trim', explode(',', env('QT_MFA_REQUIRED_ROLES', 'ERP_ADMIN,FINANCE_REVIEWER'))))),
+        'mfa_required_roles' => array_values(array_filter(array_map('trim', explode(',', env('QT_MFA_REQUIRED_ROLES', ''))))),
         'session_lifetime_minutes' => (int) env('SESSION_LIFETIME', 120),
     ],
 
