@@ -73,6 +73,11 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     return Array.isArray(values) ? values.map((value) => ({ ...(value as P2Record), _kind: collection?.kind ?? collection?.key })) : [];
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
+  useEffect(() => {
+    if (selected && !records.some((record) => record.id === selected.id)) {
+      setSelected(null);
+    }
+  }, [records, selected]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
@@ -147,7 +152,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       <aside className="panel requisition-editor"><div className="requisition-detail-body">
         {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
         {feedback.success ? <div className="form-success" role="status"><span />{feedback.success}</div> : null}
-        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => setEditor(null)} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
+        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
       </div></aside>
     </div>
   </>;
@@ -238,7 +243,7 @@ function read(record: P2Record, path: string): unknown { return path.split('.').
 function workspacePath(workspace: P2Workspace | null, path: string): unknown { return path.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, workspace); }
 function label(value: string) { return value.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ').replace(/\b\w/g, (character) => character.toUpperCase()); }
 function moneyKey(key: string) { return /(amount|cost|price|value|revenue|margin|debit|credit|rate)$/i.test(key); }
-function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 6 }).format(Number(value) || 0); if (format === 'date') { const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text); return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed); } if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
+function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0); if (format === 'date') { const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text); return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed); } if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
 function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = values[0] ?? ''; }); setter({ error: api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); }
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }
