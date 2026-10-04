@@ -131,6 +131,9 @@ async function throwResponseError(path: string, response: Response): Promise<nev
     code: `HTTP_${response.status}`,
     message: 'Request failed.',
   };
+  if (/\b(?:lines|items|allocations|entries)\.\d+\.[a-z0-9_]+\b/i.test(error.message)) {
+    error.message = 'Check the highlighted field and correct the value before continuing.';
+  }
 
   if (typeof window !== 'undefined' && path !== '/api/v1/me') {
     if (error.code === 'UNAUTHENTICATED') {
