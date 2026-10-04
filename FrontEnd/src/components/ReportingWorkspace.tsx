@@ -14,6 +14,7 @@ import { isApiError } from '../api/client';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { SuccessToast } from './SuccessToast';
 
 type RunDraft = {
   run_number: string;
@@ -59,6 +60,11 @@ export function ReportingWorkspace() {
   const canRun = Boolean(workspace?.allowed_actions.includes('RUN'));
   const summary = workspace?.summary;
 
+  useEffect(() => {
+    if (!selected || !workspace) return;
+    if (!workspace.data.some((run) => run.id === selected.id)) setSelected(null);
+  }, [workspace, selected]);
+
   function startRun() {
     const definition = definitions[0];
     if (!definition) return;
@@ -88,7 +94,11 @@ export function ReportingWorkspace() {
     if (!draft.run_number.trim()) fields.run_number = 'Run number is required.';
     if (!draft.report_code) fields.report_code = 'Choose a report definition.';
     if (!draft.as_of_date) fields.as_of_date = 'Choose a cutoff date.';
-    if (Object.keys(fields).length) { setFieldErrors(fields); setError('Correct the highlighted report fields.'); return; }
+    if (Object.keys(fields).length) {
+      setFieldErrors(fields); setError('Check the highlighted report field.');
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
     setBusy(true); setError(null); setSuccess(null); setFieldErrors({});
     try {
       runKey.current ??= crypto.randomUUID();
@@ -150,8 +160,8 @@ export function ReportingWorkspace() {
       </section>
       <aside className="panel requisition-editor reporting-editor"><div className="requisition-detail-body">
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); runKey.current = null; }} />
+        <SuccessToast message={success} onDismiss={() => setSuccess(null)} />
+        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); runKey.current = null; setError(null); setFieldErrors({}); }} />
           : selected ? <ReportDetail run={selected} busy={busy} exportRun={exportRun} />
             : <Empty text={canRun ? 'Choose a run to inspect its stored rows, or generate a new controlled snapshot.' : 'Choose a run to inspect its controlled evidence.'} />}
       </div></aside>
@@ -168,9 +178,9 @@ function ReportRunForm({ draft, definitions, busy, errors, setDraft, selectDefin
   return <form className="requisition-form reporting-form" onSubmit={submit}><fieldset disabled={busy}>
     <div className="detail-status"><StatusBadge status="NEW SNAPSHOT" /><span>Immutable after generation</span></div>
     <div className="requisition-field-grid">
-      <label>Run number<input aria-label="Report run number" value={draft.run_number} onChange={(event) => setDraft({ ...draft, run_number: event.target.value.toUpperCase() })} /><FieldError value={errors.run_number} /></label>
-      <label>Report definition<select aria-label="Report definition" value={draft.report_code} onChange={(event) => selectDefinition(event.target.value)}>{definitions.map((item) => <option key={item.code} value={item.code}>{item.title}</option>)}</select><FieldError value={errors.report_code} /></label>
-      <label>As-of cutoff<input aria-label="Report cutoff date" type="date" max={today()} value={draft.as_of_date} disabled={definition?.historical_cutoff === false} onChange={(event) => setDraft({ ...draft, as_of_date: event.target.value })} /><FieldError value={errors.as_of_date} /></label>
+      <label>Run number<input aria-label="Report run number" aria-invalid={Boolean(errors.run_number)} aria-describedby={errors.run_number ? 'report-run-number-error' : undefined} value={draft.run_number} onChange={(event) => setDraft({ ...draft, run_number: event.target.value.toUpperCase() })} /><FieldError id="report-run-number-error" value={errors.run_number} /></label>
+      <label>Report definition<select aria-label="Report definition" aria-invalid={Boolean(errors.report_code)} aria-describedby={errors.report_code ? 'report-definition-error' : undefined} value={draft.report_code} onChange={(event) => selectDefinition(event.target.value)}>{definitions.map((item) => <option key={item.code} value={item.code}>{item.title}</option>)}</select><FieldError id="report-definition-error" value={errors.report_code} /></label>
+      <label>As-of cutoff<input aria-label="Report cutoff date" aria-invalid={Boolean(errors.as_of_date)} aria-describedby={errors.as_of_date ? 'report-cutoff-error' : undefined} type="date" max={today()} value={draft.as_of_date} disabled={definition?.historical_cutoff === false} onChange={(event) => setDraft({ ...draft, as_of_date: event.target.value })} /><FieldError id="report-cutoff-error" value={errors.as_of_date} /></label>
       <div className="report-freshness-source"><span>Freshness source</span><b>{definition?.freshness_source ?? '—'}</b></div>
     </div>
     {definition ? <div className="callout reporting-definition-note"><b>{definition.title}</b>{definition.description}{!definition.historical_cutoff ? ' This read model is current-only and requires today.' : ''}</div> : null}
@@ -183,25 +193,27 @@ function ReportDetail({ run, busy, exportRun }: { run: ReportRun; busy: boolean;
   const rows = run.rows ?? [];
   const columns = run.columns ?? [];
   return <div className="requisition-detail reporting-detail">
-    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div>
-    <dl className="control-definition">
-      <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
-      <Datum label="Cutoff" value={dateTime(run.as_of_at)} />
-      <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
-      <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
-      <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
-      <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
-    </dl>
+    <header className="report-detail-head"><div><div className="detail-status"><StatusBadge status={run.status} /><span>{run.row_count} rows</span></div><h2>{run.report_title}</h2><p>{run.run_number} · cutoff {dateTime(run.as_of_at)}</p></div>
+      {run.allowed_actions?.includes('EXPORT') ? <div className="form-actions"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
+    </header>
     <section className="report-totals"><h4>Stored totals</h4><div>{Object.entries(run.totals).map(([key, value]) => <span key={key}>{label(key)}<b>{formatTotal(key, value)}</b></span>)}</div></section>
     <section className="report-rows"><h4>Immutable snapshot rows</h4>{rows.length ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{columns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
-    {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
-    {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    <details className="report-integrity-details"><summary>Export details & integrity metadata</summary>
+      <dl className="control-definition">
+        <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
+        <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
+        <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
+        <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
+        <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
+      </dl>
+      {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    </details>
   </div>;
 }
 
 function Metric({ label: text, value }: { label: string; value: string | number }) { return <div><span>{text}</span><b>{value}</b></div>; }
 function Datum({ label: text, value, wide, mono }: { label: string; value: string; wide?: boolean; mono?: boolean }) { return <div className={wide ? 'wide' : ''}><dt>{text}</dt><dd className={mono ? 'report-checksum full' : ''}>{value}</dd></div>; }
-function FieldError({ value }: { value?: string }) { return value ? <span className="field-error">{value}</span> : null; }
+function FieldError({ id, value }: { id?: string; value?: string }) { return value ? <span id={id} className="field-error">{value}</span> : null; }
 function Empty({ text }: { text: string }) { return <div className="empty-state">{text}</div>; }
 function defaultParameters(definition: ReportDefinition) { return Object.fromEntries(definition.parameters.map((parameter) => [parameter.key, parameter.default])); }
 function today() { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
