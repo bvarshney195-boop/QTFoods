@@ -294,8 +294,11 @@ function DocumentFields({ editor, workspace, file, setFile, update }: { editor: 
     <label>Document type<select aria-label="Partner document type" value={text(editor.draft.document_type)} onChange={(event) => update('document_type', event.target.value)}>{lookupStrings(workspace, 'document_types').map((type) => <option key={type}>{type}</option>)}</select></label>
     <label className="full-span">Title<input aria-label="Partner document title" value={text(editor.draft.title)} onChange={(event) => update('title', event.target.value)} required minLength={3} /></label>
     <label className="full-span">Description<textarea aria-label="Partner document description" rows={3} value={text(editor.draft.description)} onChange={(event) => update('description', event.target.value)} /></label>
-    <label>Business link<select aria-label="Partner document link type" value={text(editor.draft.reference_type)} onChange={(event) => update('reference_type', event.target.value)}><option value="NONE">No link</option><option value="sales_order_id">Sales order</option><option value="shipment_id">Shipment</option><option value="invoice_id">Invoice</option><option value="customer_claim_id">Claim</option></select></label>
-    <label>Linked record ID<input aria-label="Partner document linked record ID" value={text(editor.draft.reference_id)} onChange={(event) => update('reference_id', event.target.value)} disabled={text(editor.draft.reference_type) === 'NONE'} placeholder="UUID" /></label>
+    <label>Business link<select aria-label="Partner document link type" value={text(editor.draft.reference_type)} onChange={(event) => { update('reference_type', event.target.value); update('reference_id', ''); }}><option value="NONE">No link</option><option value="sales_order_id">Sales order</option><option value="shipment_id">Shipment</option><option value="invoice_id">Invoice</option><option value="customer_claim_id">Claim</option></select></label>
+    <label>Linked business record<select aria-label="Partner document linked business record" value={text(editor.draft.reference_id)} onChange={(event) => update('reference_id', event.target.value)} disabled={text(editor.draft.reference_type) === 'NONE'}>
+      <option value="">{text(editor.draft.reference_type) === 'NONE' ? 'No business link' : 'Select an entitled record'}</option>
+      {linkedRecordOptions(workspace, text(editor.draft.reference_type)).map((record) => <option key={record.id} value={record.id}>{record.label}</option>)}
+    </select></label>
     <label className="full-span">Private document<input aria-label="Partner private document" type="file" accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)} /></label>
     {file ? <div className="callout full-span">Selected {file.name} · {formatBytes(file.size)}. SHA-256 and private object metadata will be calculated by the server.</div> : null}
   </div>;
@@ -320,6 +323,16 @@ function visibleTabs(workspace: PortalWorkspace): Tab[] {
   if (workspace.mode === 'INTERNAL') return internalTabs;
   const required: Record<string, string> = { orders: 'ORDERS_VIEW', shipments: 'SHIPMENTS_VIEW', invoices: 'INVOICES_VIEW', claims: 'CLAIMS_VIEW', documents: 'DOCUMENTS_VIEW' };
   return partnerTabs.filter((tab) => workspace.entitlements.includes(required[tab.key]));
+}
+
+function linkedRecordOptions(workspace: PortalWorkspace | null, referenceType: string): Array<{ id: string; label: string }> {
+  if (!workspace || referenceType === 'NONE') return [];
+  const key = ({ sales_order_id: 'orders', shipment_id: 'shipments', invoice_id: 'invoices', customer_claim_id: 'claims' } as Record<string, string>)[referenceType];
+  if (!key) return [];
+  return collection(workspace, key).map((record) => ({
+    id: String(record.id),
+    label: String(record.order_number ?? record.shipment_number ?? record.invoice_number ?? record.claim_number ?? 'Entitled record'),
+  }));
 }
 
 function collection(workspace: PortalWorkspace, key: string): P2Record[] {
