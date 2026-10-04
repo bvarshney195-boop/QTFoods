@@ -556,11 +556,20 @@ function InventoryKpis({ tab, stock, owners, lots, movements, loading }: {
   movements: InventoryMovementWorkspace | null; loading: boolean;
 }) {
   const empty = loading && !(tab === 'stock' ? stock : tab === 'owners' ? owners : tab === 'lots' ? lots : movements);
+  const stockValue = (key: 'total' | 'available' | 'blocked' | 'reserved') => {
+    if (!stock) return ['0', 'loading stock'];
+    if (stock.summary.mixed_uom) {
+      const breakdown = stock.summary.uom_totals.map((row) => `${quantity(row[key])} ${row.uom_code}`).join(' · ');
+      return [`${stock.summary.uom_count} UOMs`, breakdown];
+    }
+    const row = stock.summary.uom_totals[0];
+    return [row ? `${quantity(row[key])} ${row.uom_code}` : '0', key === 'available' ? 'unreserved and released' : key === 'blocked' ? 'quality, lot, or expiry hold' : key === 'reserved' ? 'active reservations' : 'all quality states'];
+  };
   const values = tab === 'stock' ? [
-    ['Total stock', stock?.summary.total ?? '0', 'all quality states'],
-    ['Available', stock?.summary.available ?? '0', 'unreserved and released'],
-    ['Blocked', stock?.summary.blocked ?? '0', 'quality, lot, or expiry hold'],
-    ['Reserved', stock?.summary.reserved ?? '0', 'active reservations'],
+    ['Total stock', ...stockValue('total')],
+    ['Available', ...stockValue('available')],
+    ['Blocked', ...stockValue('blocked')],
+    ['Reserved', ...stockValue('reserved')],
   ] : tab === 'owners' ? [
     ['Owners', owners?.summary.total ?? 0, 'company scoped'],
     ['Active', owners?.summary.active ?? 0, 'available for stock'],
@@ -577,7 +586,7 @@ function InventoryKpis({ tab, stock, owners, lots, movements, loading }: {
     ['Inbound', movements?.summary.inbound ?? 0, 'returns and gains'],
     ['Transfers', movements?.summary.transfer ?? 0, 'position-to-position'],
   ];
-  return <div className="kpi-grid inventory-kpis">{values.map(([label, value, note]) => <div className="kpi" key={label}><span>{label}</span><b className={tab === 'stock' ? 'compact' : ''}>{empty ? '-' : tab === 'stock' ? quantity(String(value)) : value}</b><small>{note}</small></div>)}</div>;
+  return <div className="kpi-grid inventory-kpis">{values.map(([label, value, note]) => <div className="kpi" key={label}><span>{label}</span><b className={tab === 'stock' ? 'compact' : ''}>{empty ? '-' : value}</b><small>{note}</small></div>)}</div>;
 }
 
 function InventoryFilters(props: {
