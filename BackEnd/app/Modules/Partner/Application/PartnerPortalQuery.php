@@ -71,7 +71,7 @@ final class PartnerPortalQuery
                     'open_claims' => collect($claims)->whereIn('status', ['OPEN', 'RETURN_REQUIRED', 'RECEIVED'])->count(),
                     'available_documents' => collect($documents)->where('status', 'AVAILABLE')->count(),
                 ],
-            'lookups' => $this->lookups($scope, $partyId, $internal),
+            'lookups' => $this->lookups($scope, $partyId, $internal, $entitlements),
             'allowed_actions' => $this->workspaceActions($internal, $entitlements, $permissions),
             'scope' => $scope + ['party_id' => $partyId],
             'meta' => [
@@ -437,7 +437,7 @@ final class PartnerPortalQuery
         return $payload;
     }
 
-    private function lookups(array $scope, ?string $partyId, bool $internal): array
+    private function lookups(array $scope, ?string $partyId, bool $internal, array $entitlements): array
     {
         $customers = DB::table('parties as party')->join('party_roles as party_role', function ($join): void {
             $join->on('party_role.party_id', '=', 'party.id')->where('party_role.role_code', 'CUSTOMER');
@@ -462,6 +462,25 @@ final class PartnerPortalQuery
             $lookups['users'] = $users;
         }
         if ($partyId !== null) {
+            $lookups['document_links'] = [
+                'sales_order_id' => ($internal || in_array('ORDERS_VIEW', $entitlements, true))
+                    ? DB::table('sales_orders')->where($scope)->where('customer_party_id', $partyId)->where('order_type', 'SALES')
+                        ->orderByDesc('order_date')->limit(100)->get(['id', 'order_number as number', 'status'])->map(fn (object $row) => $this->row($row))->all()
+                    : [],
+                'shipment_id' => ($internal || in_array('SHIPMENTS_VIEW', $entitlements, true))
+                    ? DB::table('shipments')->where($scope)->where('party_id', $partyId)
+                        ->orderByDesc('updated_at')->limit(100)->get(['id', 'shipment_number as number', 'status'])->map(fn (object $row) => $this->row($row))->all()
+                    : [],
+                'invoice_id' => ($internal || in_array('INVOICES_VIEW', $entitlements, true))
+                    ? DB::table('sales_invoice_financials')->where($scope)->where('party_id', $partyId)
+                        ->orderByDesc('issued_at')->limit(100)->get(['invoice_id as id', 'invoice_number as number'])->map(fn (object $row) => $this->row($row))->all()
+                    : [],
+                'customer_claim_id' => ($internal || in_array('CLAIMS_VIEW', $entitlements, true))
+                    ? DB::table('customer_claims')->where($scope)->where('customer_party_id', $partyId)
+                        ->orderByDesc('updated_at')->limit(100)->get(['id', 'claim_number as number', 'status'])->map(fn (object $row) => $this->row($row))->all()
+                    : [],
+            ];
+
             $lookups['claimable_shipments'] = DB::table('shipments as shipment')
                 ->where('shipment.company_id', $scope['company_id'])->where('shipment.plant_id', $scope['plant_id'])
                 ->where('shipment.party_id', $partyId)->whereIn('shipment.status', ['DISPATCHED', 'DELIVERED'])
