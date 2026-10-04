@@ -55,6 +55,14 @@ final class UnsoldSalesReturnService
             ]);
 
             foreach ($data['lines'] as $line) {
+                $returnPositionId = $this->ensureReturnPosition(
+                    (string) $data['company_id'],
+                    (string) $data['plant_id'],
+                    (string) $line['sku_id'],
+                    isset($line['fg_lot_id']) ? (string) $line['fg_lot_id'] : null,
+                    (string) $line['uom_code'],
+                    (string) $data['actor_id'],
+                );
                 DB::table('unsold_return_lines')->insert([
                     'id' => (string) Str::uuid(),
                     'return_case_id' => $id,
@@ -67,6 +75,7 @@ final class UnsoldSalesReturnService
                     'requested_quantity' => $line['requested_quantity'],
                     'uom_code' => $line['uom_code'],
                     'received_quantity' => '0',
+                    'return_position_id' => $returnPositionId,
                     'restock_quantity' => '0',
                     'repack_quantity' => '0',
                     'rework_quantity' => '0',
@@ -155,6 +164,17 @@ final class UnsoldSalesReturnService
                     throw ValidationException::withMessages(['quantity' => ['Received quantity exceeds requested return quantity.']]);
                 }
 
+                $lineInput['return_position_id'] = $lineInput['return_position_id'] ?? $line->return_position_id;
+                if (! $lineInput['return_position_id']) {
+                    $lineInput['return_position_id'] = $this->ensureReturnPosition(
+                        (string) $case->company_id,
+                        (string) $case->plant_id,
+                        (string) $line->sku_id,
+                        $line->fg_lot_id ? (string) $line->fg_lot_id : null,
+                        (string) $line->uom_code,
+                        (string) $data['actor_id'],
+                    );
+                }
                 $position = $this->validatedReturnPosition($line, $lineInput, $case, $index);
                 $this->recordShipmentReturn($line, $lineInput, $case, $index);
                 $movementIds[] = $this->postQuarantineReceipt(
@@ -561,6 +581,82 @@ final class UnsoldSalesReturnService
                 "The return case changed from version {$expectedVersion} to {$case->record_version}. Refresh it before retrying."
             );
         }
+    }
+
+    private function ensureReturnPosition(
+        string $companyId,
+        string $plantId,
+        string $skuId,
+        ?string $lotId,
+        string $uomCode,
+        string $actorId,
+    ): string {
+        $location = DB::table('locations')
+            ->where('company_id', $companyId)
+            ->where('plant_id', $plantId)
+            ->where('location_type', 'RETURN_QUARANTINE')
+            ->where('status', 'ACTIVE')
+            ->orderBy('code')
+            ->first(['id', 'code', 'name']);
+
+        if (! $location) {
+            throw ValidationException::withMessages([
+                'return_quarantine' => [
+                    'No active Return Quarantine location is configured for this plant. Configure one in Locations before receiving unsold returns.',
+                ],
+            ]);
+        }
+
+        $owner = DB::table('inventory_owners')
+            ->where('id', $companyId)
+            ->where('company_id', $companyId)
+            ->where('status', 'ACTIVE')
+            ->first(['id']);
+        if (! $owner) {
+            throw ValidationException::withMessages([
+                'return_quarantine' => [
+                    'The company inventory owner is not active. Restore the owner master before receiving unsold returns.',
+                ],
+            ]);
+        }
+
+        $query = DB::table('stock_positions')
+            ->where('company_id', $companyId)
+            ->where('plant_id', $plantId)
+            ->where('item_id', $skuId)
+            ->where('inventory_owner_id', $companyId)
+            ->where('location_id', $location->id)
+            ->where('quality_status', 'RETURN_QUARANTINE')
+            ->where('uom_code', $uomCode);
+        $lotId === null ? $query->whereNull('lot_id') : $query->where('lot_id', $lotId);
+        $existing = $query->lockForUpdate()->first(['id']);
+        if ($existing) {
+            return (string) $existing->id;
+        }
+
+        $id = (string) Str::uuid();
+        DB::table('stock_positions')->insert([
+            'id' => $id,
+            'company_id' => $companyId,
+            'plant_id' => $plantId,
+            'item_id' => $skuId,
+            'lot_id' => $lotId,
+            'owner_party_id' => null,
+            'inventory_owner_id' => $companyId,
+            'location_id' => $location->id,
+            'quality_status' => 'RETURN_QUARANTINE',
+            'quantity_base' => '0',
+            'reserved_quantity_base' => '0',
+            'uom_code' => $uomCode,
+            'record_version' => 1,
+            'status_reason' => 'Provisioned for an unsold-return quarantine receipt.',
+            'status_changed_at' => now(),
+            'status_changed_by' => $actorId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $id;
     }
 
     private function validatedReturnPosition(
