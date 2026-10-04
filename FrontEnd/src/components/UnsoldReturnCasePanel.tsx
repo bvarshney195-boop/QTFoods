@@ -157,6 +157,12 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
     () => detail?.lines.filter((line) => remainingQuantity(line) > 0) ?? [],
     [detail]
   );
+  const missingReceiptRoutes = useMemo(
+    () => remainingLines.filter((line) => (positions[line.id] ?? []).length === 0),
+    [remainingLines, positions],
+  );
+  const receiptRoutingReady = remainingLines.length > 0 && missingReceiptRoutes.length === 0;
+
   const lossUom = useMemo(() => {
     if (!detail) return '';
     const destroyed = detail.lines.filter((line) => Number(line.destroy_quantity) > 0);
@@ -604,11 +610,12 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                   <div className="action-line" key={line.id}>
                     <b>{line.sku.code ?? line.sku.id}<small>{formatQuantityValue(remainingQuantity(line))} {line.uom_code} remaining</small></b>
                     <label>Received<input type="number" min="0" max={remainingQuantity(line)} step="0.000001" value={draft.quantity} onChange={(event) => changeReceipt(line.id, { quantity: event.target.value })} /></label>
-                    <label>Quarantine position<select value={draft.positionId} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })}><option value="">Select destination</option>{routes.map((position) => <option key={position.id} value={position.id}>{position.location.code} · {position.location.name}</option>)}</select></label>
+                    <label>Quarantine position<select aria-describedby={routes.length ? undefined : `route-help-${line.id}`} value={draft.positionId} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })} disabled={routes.length === 0}><option value="">{routes.length ? 'Select destination' : 'No eligible destination'}</option>{routes.map((position) => <option key={position.id} value={position.id}>{position.location.code} · {position.location.name}</option>)}</select></label>
+                    {routes.length === 0 && <div id={`route-help-${line.id}`} className="lookup-route route-warning" role="alert"><b>No return quarantine location is configured for this lot/owner.</b><span>Ask Operations to configure an active RETURN_QUARANTINE route for this plant, SKU, lot and inventory owner, then retry.</span><button type="button" className="secondary" disabled={loading} onClick={() => void loadCase()}>Retry routing lookup</button></div>}
                   </div>
                 );
               })}
-              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
+              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !receiptRoutingReady} title={!receiptRoutingReady ? 'Configure an eligible return quarantine destination before posting.' : undefined}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
             </form>
           ) : <ActionWait role="STORES ACTION" title="Physical receipt" message={`Available only while a return is requested, in transit, or partially received. Current state: ${displayStatus(detail.status)}.`} />)}
 
