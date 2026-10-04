@@ -211,8 +211,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           <div><b>Q & T FOODS LTD</b><small>Business workspace</small></div>
         </div>
         <div className="side-search">
-          <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu" aria-label="Search menu" />
-          <kbd>Ctrl K</kbd>
+          <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter menu" aria-label="Filter menu" />
         </div>
         <nav aria-label="Main menu">
           {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
@@ -221,7 +220,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
                 const item = navigation.find((screen) => screen.code === code);
                 return item ? <button type="button" key={code} onClick={() => go(code)}><span>★</span>{screenLabel(code, item.title)}</button> : null;
               })}</div>}
-              {recent.length > 0 && <div><b>Recent</b>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
+              {recent.length > 0 && <div><span className="smart-nav-heading"><b>Recent</b><button type="button" onClick={() => { setRecent([]); localStorage.removeItem('qtfoods:recent-screens'); }}>Clear</button></span>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
                 const item = navigation.find((screen) => screen.code === code);
                 return item ? <button type="button" key={code} onClick={() => go(code)}><span>↗</span>{screenLabel(code, item.title)}</button> : null;
               })}</div>}
