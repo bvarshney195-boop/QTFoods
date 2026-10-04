@@ -182,6 +182,45 @@ final class OrderToCashEndpointTest extends TestCase
             ->assertJsonPath('summary.booked_revenue', '0.000000');
     }
 
+    public function test_incomplete_cost_coverage_is_explicit_and_does_not_publish_definitive_margin(): void
+    {
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-UAT-MISSING-COST',
+            'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null,
+            'sales_contract_id' => self::CONTRACT_ID,
+            'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(),
+            'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Cost completeness regression test.',
+            'lines' => [[
+                'item_id' => self::ITEM_ID,
+                'uom_code' => 'PACK',
+                'quantity' => '2',
+                'discount_percent' => '0',
+            ]],
+        ])->assertCreated();
+        $orderId = (string) $order->json('data.id');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+
+        DB::table('sales_order_lines')->where('sales_order_id', $orderId)->update(['unit_cost_snapshot' => '0']);
+
+        $response = $this->getJson('/api/v1/reports/profitability?q=SO-UAT-MISSING-COST')->assertOk();
+        $response->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.cost_status', 'PARTIAL')
+            ->assertJsonPath('data.0.gross_margin', null)
+            ->assertJsonPath('data.0.margin_percent', null)
+            ->assertJsonPath('summary.recognized_revenue', '190.000000')
+            ->assertJsonPath('summary.costed_revenue', '0.000000')
+            ->assertJsonPath('summary.uncosted_revenue', '190.000000')
+            ->assertJsonPath('summary.cost_coverage_percent', '0.00')
+            ->assertJsonPath('summary.margin_status', 'PARTIAL')
+            ->assertJsonPath('summary.gross_margin', null)
+            ->assertJsonPath('summary.gross_margin_percent', null);
+    }
+
     public function test_pricing_contract_work_credit_scope_and_permissions_are_enforced(): void
     {
         $price = $this->command()->postJson('/api/v1/sales/price-lists', [
