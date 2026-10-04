@@ -446,11 +446,18 @@ final class OrderToCashQuery
             'PICK' => ['ACTION:DSP-PICK:PICK', ['RESERVED']], 'CANCEL' => ['ACTION:DSP-PICK:CANCEL', ['RESERVED', 'PICKED']],
             'CREATE_SHIPMENT' => ['ACTION:DSP-LOAD:CREATE', ['PICKED']],
         ], $row->status);
-        if ($lines) $payload['lines'] = DB::table('sales_allocation_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
-            ->join('lots as lot', 'lot.id', '=', 'line.lot_id')->join('stock_positions as position', 'position.id', '=', 'line.stock_position_id')
-            ->join('locations as location', 'location.id', '=', 'position.location_id')->where('line.sales_allocation_id', $row->id)->orderBy('line.line_number')
-            ->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code', 'lot.expiry_date', 'location.code as location_code'])
-            ->map(fn ($record) => $this->row($record))->all();
+        if ($lines) {
+            $allocationLines = DB::table('sales_allocation_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+                ->join('lots as lot', 'lot.id', '=', 'line.lot_id')->join('stock_positions as position', 'position.id', '=', 'line.stock_position_id')
+                ->join('locations as location', 'location.id', '=', 'position.location_id')->where('line.sales_allocation_id', $row->id)->orderBy('line.line_number')
+                ->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code', 'lot.expiry_date', 'location.code as location_code']);
+            $payload['lines'] = $allocationLines->map(fn ($record) => $this->row($record))->all();
+            $payload['allocated_quantity'] = $this->decimal($allocationLines->sum(fn ($line) => $line->allocated_quantity));
+            $payload['picked_quantity'] = $this->decimal($allocationLines->sum(fn ($line) => $line->picked_quantity));
+            // Allocation is server-selected in expiry order and the model has no override path.
+            // Therefore zero is a known FEFO-exception count, not an unavailable value.
+            $payload['fefo_break_count'] = 0;
+        }
         return $payload;
     }
 
