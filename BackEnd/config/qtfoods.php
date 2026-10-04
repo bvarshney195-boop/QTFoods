@@ -31,6 +31,10 @@ return [
         'verification_minutes' => (int) env('QT_EMAIL_VERIFICATION_MINUTES', 60),
         'mfa_setup_minutes' => (int) env('QT_MFA_SETUP_MINUTES', 10),
         'mfa_challenge_minutes' => (int) env('QT_MFA_CHALLENGE_MINUTES', 5),
+        'email_otp_minutes' => (int) env('QT_EMAIL_OTP_MINUTES', 10),
+        'email_otp_attempts' => (int) env('QT_EMAIL_OTP_ATTEMPTS', 5),
+        'mfa_required_roles' => env('QT_MFA_REQUIRED_ROLES', ''),
+        'block_demo_principals' => env('QT_BLOCK_DEMO_PRINCIPALS', false),
         'session_lifetime_minutes' => (int) env('SESSION_LIFETIME', 120),
     ],
 
