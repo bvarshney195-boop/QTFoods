@@ -27,6 +27,21 @@ final class IdentityNotificationService
         return $this->deliver($email, 'Reset your Q & T Foods ERP password', $body, $url);
     }
 
+    public function loginOtp(string $email, string $name, string $code, string $expiresAt): array
+    {
+        $body = "Hello {$name},\n\nYour Q & T Foods ERP sign-in code is {$code}. "
+            ."It expires at {$expiresAt}.\n\n"
+            .'Do not share this code. If you did not request it, you can ignore this message and review your account security.';
+
+        $result = $this->deliver($email, 'Your Q & T Foods ERP sign-in code', $body, '');
+        if (config('qtfoods.identity.preview_links', false)) {
+            $result['preview_code'] = $code;
+            unset($result['preview_url']);
+        }
+
+        return $result;
+    }
+
     public function emailVerification(string $email, string $name, string $token, string $expiresAt): array
     {
         $url = $this->url('verify', $email, $token);
