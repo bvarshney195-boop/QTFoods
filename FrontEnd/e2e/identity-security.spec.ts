@@ -67,7 +67,7 @@ async function loginWithMfa(page: Page, email: string, password: string, code: s
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible();
-  await page.getByLabel('Authenticator or recovery code').fill(code);
+  await page.getByLabel('Authenticator code').fill(code);
   await page.getByRole('button', { name: 'Verify and sign in' }).click();
 }
 
