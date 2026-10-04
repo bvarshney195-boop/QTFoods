@@ -333,7 +333,7 @@ final class PartnerPortalQuery
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
             ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalOrderPayload($payload);
     }
 
     private function shipmentDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -355,7 +355,7 @@ final class PartnerPortalQuery
         $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
         $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
 
-        return $payload;
+        return $internal ? $payload : $this->externalShipmentPayload($payload);
     }
 
     private function invoiceDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -374,7 +374,7 @@ final class PartnerPortalQuery
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalInvoicePayload($payload);
     }
 
     private function claimDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -394,7 +394,7 @@ final class PartnerPortalQuery
             ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalClaimPayload($payload);
     }
 
     private function documentDetail(
@@ -435,6 +435,80 @@ final class PartnerPortalQuery
             ->map(fn (object $event): array => $this->row($event))->all();
 
         return $payload;
+    }
+
+    private function externalOrderPayload(array $payload): array
+    {
+        $safe = $this->only($payload, [
+            'id', 'order_number', 'order_date', 'requested_delivery_date', 'currency', 'subtotal',
+            'discount_amount', 'tax_amount', 'total_amount', 'status', 'confirmed_at', 'cancelled_at',
+            'cancellation_reason', 'record_version', 'updated_at',
+        ]);
+        $safe['lines'] = collect($payload['lines'] ?? [])->map(fn (array $line): array => $this->only($line, [
+            'id', 'line_number', 'item_code', 'item_name', 'uom_code', 'ordered_quantity',
+            'allocated_quantity', 'dispatched_quantity', 'invoiced_quantity', 'unit_price',
+            'discount_percent', 'tax_rate', 'net_amount', 'tax_amount', 'gross_amount',
+        ]))->all();
+
+        return $safe;
+    }
+
+    private function externalShipmentPayload(array $payload): array
+    {
+        $safe = $this->only($payload, [
+            'id', 'shipment_number', 'sales_order_id', 'carrier_name', 'vehicle_number', 'driver_name',
+            'status', 'record_version', 'dispatched_at', 'delivered_at', 'updated_at',
+        ]);
+        $safe['lines'] = collect($payload['lines'] ?? [])->map(fn (array $line): array => $this->only($line, [
+            'id', 'line_number', 'item_code', 'item_name', 'internal_lot_code', 'uom_code',
+            'shipped_quantity', 'returned_quantity',
+        ]))->all();
+        if (is_array($payload['proof'] ?? null)) {
+            $safe['proof'] = $this->only($payload['proof'], [
+                'proof_number', 'outcome', 'receiver_name', 'event_at', 'failure_reason',
+            ]);
+        }
+        if (is_array($payload['invoice'] ?? null)) {
+            $safe['invoice'] = $this->only($payload['invoice'], [
+                'invoice_id', 'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount',
+                'outstanding_amount', 'paid_amount', 'credited_amount', 'issued_at', 'due_date',
+            ]);
+        }
+
+        return $safe;
+    }
+
+    private function externalInvoicePayload(array $payload): array
+    {
+        $safe = $this->only($payload, [
+            'id', 'invoice_number', 'shipment_id', 'sales_order_id', 'currency', 'net_amount',
+            'tax_amount', 'gross_amount', 'outstanding_amount', 'paid_amount', 'credited_amount',
+            'issued_at', 'due_date', 'status', 'record_version', 'updated_at',
+        ]);
+        $safe['transactions'] = collect($payload['transactions'] ?? [])->map(fn (array $transaction): array => $this->only($transaction, [
+            'transaction_type', 'reference_number', 'amount', 'currency', 'posted_at',
+        ]))->all();
+
+        return $safe;
+    }
+
+    private function externalClaimPayload(array $payload): array
+    {
+        $safe = $this->only($payload, [
+            'id', 'claim_number', 'shipment_id', 'invoice_id', 'claim_type', 'requested_resolution',
+            'reason', 'status', 'resolution_type', 'credit_amount', 'record_version', 'created_at', 'updated_at',
+        ]);
+        $safe['lines'] = collect($payload['lines'] ?? [])->map(fn (array $line): array => $this->only($line, [
+            'id', 'line_number', 'item_code', 'item_name', 'internal_lot_code', 'uom_code',
+            'claimed_quantity', 'received_quantity',
+        ]))->all();
+
+        return $safe;
+    }
+
+    private function only(array $payload, array $keys): array
+    {
+        return array_intersect_key($payload, array_fill_keys($keys, true));
     }
 
     private function lookups(array $scope, ?string $partyId, bool $internal): array
