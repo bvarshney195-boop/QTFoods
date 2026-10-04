@@ -56,6 +56,9 @@ export function ReportingWorkspace() {
   }, [contextKey]);
 
   const definitions = workspace?.definitions ?? [];
+  useEffect(() => {
+    if (selected && workspace && !workspace.data.some((run) => run.id === selected.id)) setSelected(null);
+  }, [selected, workspace]);
   const canRun = Boolean(workspace?.allowed_actions.includes('RUN'));
   const summary = workspace?.summary;
 
@@ -148,13 +151,13 @@ export function ReportingWorkspace() {
           <td className="report-checksum">{run.sha256.slice(0, 14)}…</td><td><button type="button" className="secondary compact-button" onClick={() => void open(run)}>Open</button></td>
         </tr>)}</tbody></table></div> : <Empty text="No immutable report runs match this scope and filter." />}
       </section>
-      <aside className="panel requisition-editor reporting-editor"><div className="requisition-detail-body">
+      {(draft || selected || error || success) ? <aside className="panel requisition-editor reporting-editor p2-detail-on-demand"><div className="requisition-detail-body">
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); runKey.current = null; }} />
+        {success ? <div className="form-success" role="status" aria-live="polite"><span />{success}</div> : null}
+        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); setError(null); setFieldErrors({}); runKey.current = null; }} />
           : selected ? <ReportDetail run={selected} busy={busy} exportRun={exportRun} />
-            : <Empty text={canRun ? 'Choose a run to inspect its stored rows, or generate a new controlled snapshot.' : 'Choose a run to inspect its controlled evidence.'} />}
-      </div></aside>
+            : null}
+      </div></aside> : null}
     </div>
   </>;
 }
@@ -183,19 +186,21 @@ function ReportDetail({ run, busy, exportRun }: { run: ReportRun; busy: boolean;
   const rows = run.rows ?? [];
   const columns = run.columns ?? [];
   return <div className="requisition-detail reporting-detail">
-    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div>
-    <dl className="control-definition">
-      <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
-      <Datum label="Cutoff" value={dateTime(run.as_of_at)} />
-      <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
-      <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
-      <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
-      <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
-    </dl>
+    <div className="report-title-actions">
+      <div><div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div><h2>{run.report_title}</h2><p>Cutoff {dateTime(run.as_of_at)} · source freshness {dateTime(run.source_freshness_at)}</p></div>
+      {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
+    </div>
     <section className="report-totals"><h4>Stored totals</h4><div>{Object.entries(run.totals).map(([key, value]) => <span key={key}>{label(key)}<b>{formatTotal(key, value)}</b></span>)}</div></section>
     <section className="report-rows"><h4>Immutable snapshot rows</h4>{rows.length ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{columns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
-    {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
-    {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    <details className="technical-details report-integrity"><summary>Export details & integrity metadata</summary>
+      <dl className="control-definition">
+        <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
+        <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
+        <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
+        <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
+      </dl>
+      {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    </details>
   </div>;
 }
 
