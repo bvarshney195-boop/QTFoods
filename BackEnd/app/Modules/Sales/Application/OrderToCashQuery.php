@@ -430,6 +430,13 @@ final class OrderToCashQuery
     private function allocationPayload(object $row, array $permissions, bool $lines): array
     {
         $payload = $this->row($row);
+        $allocationTotals = DB::table('sales_allocation_lines')->where('sales_allocation_id', $row->id)
+            ->selectRaw('COALESCE(SUM(allocated_quantity), 0) as allocated_quantity, COALESCE(SUM(picked_quantity), 0) as picked_quantity')
+            ->first();
+        $payload['allocated_quantity'] = $this->decimal($allocationTotals?->allocated_quantity ?? 0);
+        $payload['picked_quantity'] = $this->decimal($allocationTotals?->picked_quantity ?? 0);
+        // Allocation is server-controlled strict FEFO; there is currently no override path.
+        $payload['fefo_break_count'] = 0;
         $payload['allowed_actions'] = $this->actions($permissions, [
             'PICK' => ['ACTION:DSP-PICK:PICK', ['RESERVED']], 'CANCEL' => ['ACTION:DSP-PICK:CANCEL', ['RESERVED', 'PICKED']],
             'CREATE_SHIPMENT' => ['ACTION:DSP-LOAD:CREATE', ['PICKED']],
