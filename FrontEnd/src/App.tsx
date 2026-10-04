@@ -5,10 +5,16 @@ import {
   isApiError,
   isMfaChallenge,
   login,
+  loginWithTotp,
   logout,
+  requestEmailOtp,
+  requestMfaEmailOtp,
   resetAuthenticationClient,
   selectContext,
+  verifyEmailOtp,
+  type EmailOtpChallenge,
   type MfaChallenge,
+  type SecondFactorMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -22,6 +28,7 @@ export default function App() {
   const [choosingContext, setChoosingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [emailOtpChallenge, setEmailOtpChallenge] = useState<EmailOtpChallenge | null>(null);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -29,6 +36,7 @@ export default function App() {
       setSession(null);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setError('Your ERP session expired. Sign in again to continue.');
     };
     const handleContextRequired = () => {
@@ -70,19 +78,22 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  function acceptLoginResult(authenticated: ErpSession | MfaChallenge) {
+    if (isMfaChallenge(authenticated)) {
+      setMfaChallenge(authenticated);
+      return;
+    }
+    setMfaChallenge(null);
+    setEmailOtpChallenge(null);
+    setSession(authenticated);
+    setChoosingContext(true);
+  }
+
+  async function handlePasswordLogin(email: string, password: string) {
     setBusy(true);
     setError(null);
-
     try {
-      const authenticated = await login(email, password);
-      if (isMfaChallenge(authenticated)) {
-        setMfaChallenge(authenticated);
-        return;
-      }
-      setMfaChallenge(null);
-      setSession(authenticated);
-      setChoosingContext(true);
+      acceptLoginResult(await login(email, password));
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Sign in failed.');
     } finally {
@@ -90,13 +101,51 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handleEmailOtpRequest(email: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      setEmailOtpChallenge(await requestEmailOtp(email));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email sign-in code.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEmailOtpVerify(code: string) {
+    if (!emailOtpChallenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      acceptLoginResult(await verifyEmailOtp(emailOtpChallenge.challenge_id, code));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Email code verification failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleTotpLogin(email: string, code: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      acceptLoginResult(await loginWithTotp(email, code));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Authenticator sign in failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfa(code: string, method?: SecondFactorMethod) {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code, method);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
@@ -104,6 +153,26 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleMfaEmailOtp() {
+    if (!mfaChallenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const sent = await requestMfaEmailOtp(mfaChallenge.challenge_id);
+      setMfaChallenge((current) => current ? { ...current, email_otp_sent: true, preview_code: sent.preview_code } : current);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the second-factor email code.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetLoginChallenges() {
+    setMfaChallenge(null);
+    setEmailOtpChallenge(null);
+    setError(null);
   }
 
   async function handleContext(companyId: string, plantId: string | null) {
@@ -115,6 +184,7 @@ export default function App() {
       setSession(updated);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       window.location.hash = 'WRK-HOME';
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Context selection failed.');
@@ -132,22 +202,29 @@ export default function App() {
     } finally {
       setSession(null);
       setChoosingContext(false);
+      setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setBusy(false);
       window.location.hash = '';
     }
   }
 
   if (loading) {
-    return <div className="app-loading"><span className="loading-mark">Q&T</span><p>Opening secure ERP session…</p></div>;
+    return <div className="app-loading" aria-busy="true"><span className="loading-mark">Q&T</span><p>Opening secure ERP session…</p></div>;
   }
 
   if (!session) {
     return (
       <ACC_LOGIN
-        onLogin={handleLogin}
+        onPasswordLogin={handlePasswordLogin}
+        onEmailOtpRequest={handleEmailOtpRequest}
+        onEmailOtpVerify={handleEmailOtpVerify}
+        onTotpLogin={handleTotpLogin}
         onMfa={handleMfa}
-        onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
+        onMfaEmailOtp={handleMfaEmailOtp}
+        onCancelChallenge={resetLoginChallenges}
         mfaChallenge={mfaChallenge}
+        emailOtpChallenge={emailOtpChallenge}
         busy={busy}
         error={error}
         onRetry={error === 'Unable to contact the ERP service.' ? restoreSession : undefined}
