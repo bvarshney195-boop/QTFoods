@@ -597,6 +597,13 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
             <form className="action-card" onSubmit={submitReceipt} noValidate>
               <div className="action-card-head"><div><span>STORES ACTION</span><h4>Record physical receipt</h4></div><StatusBadge status="AVAILABLE" /></div>
               <p>Only positive quantities are posted. Set a line to zero to leave it open for a later partial receipt.</p>
+              {remainingLines.some((line) => (positions[line.id] ?? []).length === 0) && (
+                <div className="routing-warning" role="alert">
+                  <b>No eligible return-quarantine destination is configured for one or more lines.</b>
+                  <span>Configure an active RETURN_QUARANTINE stock position for the same plant, SKU, lot and inventory owner, then refresh this case. Receipt posting is disabled until routing is valid.</span>
+                  <button className="secondary compact-button" type="button" onClick={() => void loadPositions(detail)}>Retry routing lookup</button>
+                </div>
+              )}
               {remainingLines.map((line) => {
                 const routes = positions[line.id] ?? [];
                 const draft = receiptDraft[line.id] ?? { quantity: '', positionId: '' };
@@ -608,7 +615,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                   </div>
                 );
               })}
-              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
+              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length || remainingLines.some((line) => (positions[line.id] ?? []).length === 0)}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
             </form>
           ) : <ActionWait role="STORES ACTION" title="Physical receipt" message={`Available only while a return is requested, in transit, or partially received. Current state: ${displayStatus(detail.status)}.`} />)}
 
