@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Modules\Foundation\Domain\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 final class AuthenticationMethodsEndpointTest extends TestCase
@@ -89,7 +90,7 @@ final class AuthenticationMethodsEndpointTest extends TestCase
             'email' => 'nobody@qtfoods.local',
         ])->assertAccepted()->json('data');
 
-        DB()->table('users')->where('email', 'demo.user@qtfoods.local')->update(['email_verified_at' => null]);
+        DB::table('users')->where('email', 'demo.user@qtfoods.local')->update(['email_verified_at' => null]);
         $unverified = $this->postJson('/api/v1/auth/email-otp/request', [
             'email' => 'demo.user@qtfoods.local',
         ])->assertAccepted()->json('data');
