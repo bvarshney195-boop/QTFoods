@@ -24,6 +24,8 @@ import {
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { ConfirmDialog } from './ConfirmDialog';
+import { SuccessToast } from './SuccessToast';
 
 type LineForm = {
   item_id: string;
@@ -62,6 +64,7 @@ export function PurchaseRequisitionWorkspace() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [cancellationReason, setCancellationReason] = useState('');
   const [approvalReason, setApprovalReason] = useState('');
+  const [confirmReject, setConfirmReject] = useState(false);
   const selectedId = useRef<string | null>(null);
   const saveKey = useRef<string | null>(null);
   const submitKey = useRef<string | null>(null);
@@ -241,19 +244,18 @@ export function PurchaseRequisitionWorkspace() {
     }
   }
 
-  async function decide(decision: 'approve' | 'reject') {
+  async function decide(decision: 'approve' | 'reject', confirmed = false) {
     if (!selected?.approval) return;
     clearFeedback();
     if (decision === 'reject' && approvalReason.trim().length < 3) {
       setFieldErrors({ approval_reason: 'Explain why the requisition is being rejected.' });
       return;
     }
-    if (decision === 'reject') {
-      const confirmed = window.confirm(
-        `Reject requisition ${selected.requisition_number}?\n\nRequester: ${selected.requested_by.name}\nAmount: ${money(selected.estimated_total, selected.currency)}\nReason: ${approvalReason.trim()}\n\nChoose Cancel to keep reviewing.`
-      );
-      if (!confirmed) return;
+    if (decision === 'reject' && !confirmed) {
+      setConfirmReject(true);
+      return;
     }
+    setConfirmReject(false);
     setBusy(true);
     try {
       const result = await decidePurchaseRequisition(
@@ -318,6 +320,16 @@ export function PurchaseRequisitionWorkspace() {
 
   return (
     <>
+      <SuccessToast message={success} onDismiss={() => setSuccess(null)} />
+      <ConfirmDialog
+        open={confirmReject && Boolean(selected)}
+        title={selected ? `Reject requisition ${selected.requisition_number}?` : 'Reject requisition?'}
+        confirmLabel="Reject requisition"
+        onCancel={() => setConfirmReject(false)}
+        onConfirm={() => void decide('reject', true)}
+      >
+        {selected ? <><p>This sends the requisition back for correction.</p><dl className="control-definition"><Fact label="Requester" value={selected.requested_by.name} /><Fact label="Amount" value={money(selected.estimated_total, selected.currency)} /><Fact label="Reason" value={approvalReason.trim()} wide /></dl></> : null}
+      </ConfirmDialog>
       <PageHeader
         code="PUR-REQ"
         batch="B05-B07"
