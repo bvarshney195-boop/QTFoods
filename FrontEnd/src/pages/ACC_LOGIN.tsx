@@ -71,8 +71,8 @@ export default function ACC_LOGIN({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const showDemoAccounts = import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
 
-  const availableSecondFactors = useMemo(
-    () => mfaChallenge?.methods ?? [],
+  const availableSecondFactors = useMemo<SecondFactorMethod[]>(
+    () => mfaChallenge?.methods ?? (mfaChallenge ? ['TOTP', 'RECOVERY_CODE'] : []),
     [mfaChallenge]
   );
 
@@ -81,9 +81,10 @@ export default function ACC_LOGIN({
       setSecondFactorEmailSent(false);
       return;
     }
-    const preferred = mfaChallenge.methods.includes('TOTP')
+    const methods = mfaChallenge.methods ?? ['TOTP', 'RECOVERY_CODE'];
+    const preferred = methods.includes('TOTP')
       ? 'TOTP'
-      : mfaChallenge.methods[0] ?? 'EMAIL_OTP';
+      : methods[0] ?? 'EMAIL_OTP';
     setSecondFactor(preferred);
     setCode('');
   }, [mfaChallenge]);
