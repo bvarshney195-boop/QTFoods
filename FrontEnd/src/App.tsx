@@ -5,10 +5,16 @@ import {
   isApiError,
   isMfaChallenge,
   login,
+  loginWithTotp,
   logout,
+  requestEmailOtp,
+  requestMfaEmailOtp,
   resetAuthenticationClient,
   selectContext,
+  verifyEmailOtp,
+  type EmailOtpChallenge,
   type MfaChallenge,
+  type SecondFactorMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -22,6 +28,7 @@ export default function App() {
   const [choosingContext, setChoosingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [emailOtpChallenge, setEmailOtpChallenge] = useState<EmailOtpChallenge | null>(null);
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -29,11 +36,10 @@ export default function App() {
       setSession(null);
       setChoosingContext(false);
       setMfaChallenge(null);
+      setEmailOtpChallenge(null);
       setError('Your ERP session expired. Sign in again to continue.');
     };
-    const handleContextRequired = () => {
-      void restoreSession();
-    };
+    const handleContextRequired = () => void restoreSession();
     const handleSessionRefresh = () => {
       currentSession()
         .then((refreshed) => setSession(refreshed))
@@ -55,7 +61,6 @@ export default function App() {
   async function restoreSession() {
     setLoading(true);
     setError(null);
-
     try {
       const restored = await currentSession();
       setSession(restored);
@@ -70,19 +75,41 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  async function handlePasswordLogin(email: string, password: string) {
+    await runPrimary(async () => login(email, password));
+  }
+
+  async function handleTotpLogin(email: string, password: string, code: string) {
+    await runPrimary(async () => loginWithTotp(email, password, code));
+  }
+
+  async function handleEmailOtpRequest(email: string) {
     setBusy(true);
     setError(null);
-
     try {
-      const authenticated = await login(email, password);
+      setEmailOtpChallenge(await requestEmailOtp(email));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email code.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEmailOtpVerify(email: string, challengeId: string, code: string) {
+    await runPrimary(async () => verifyEmailOtp(email, challengeId, code));
+  }
+
+  async function runPrimary(action: () => Promise<ErpSession | MfaChallenge>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const authenticated = await action();
       if (isMfaChallenge(authenticated)) {
         setMfaChallenge(authenticated);
+        setEmailOtpChallenge(null);
         return;
       }
-      setMfaChallenge(null);
-      setSession(authenticated);
-      setChoosingContext(true);
+      finishAuthentication(authenticated);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Sign in failed.');
     } finally {
@@ -90,15 +117,26 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handleMfaEmailOtpRequest() {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
-      setMfaChallenge(null);
-      setSession(authenticated);
-      setChoosingContext(true);
+      setEmailOtpChallenge(await requestMfaEmailOtp(mfaChallenge.challenge_id));
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the second-factor email code.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfa(method: SecondFactorMethod, code: string) {
+    if (!mfaChallenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, method, code);
+      finishAuthentication(authenticated);
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Two-step verification failed.');
     } finally {
@@ -106,10 +144,16 @@ export default function App() {
     }
   }
 
+  function finishAuthentication(authenticated: ErpSession) {
+    setMfaChallenge(null);
+    setEmailOtpChallenge(null);
+    setSession(authenticated);
+    setChoosingContext(true);
+  }
+
   async function handleContext(companyId: string, plantId: string | null) {
     setBusy(true);
     setError(null);
-
     try {
       const updated = await selectContext(companyId, plantId);
       setSession(updated);
@@ -126,7 +170,6 @@ export default function App() {
   async function handleLogout() {
     setBusy(true);
     setError(null);
-
     try {
       await logout();
     } finally {
@@ -138,15 +181,20 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="app-loading"><span className="loading-mark">Q&T</span><p>Opening secure ERP session…</p></div>;
+    return <div className="app-loading" aria-busy="true"><span className="loading-mark">Q&T</span><p>Opening secure ERP session…</p></div>;
   }
 
   if (!session) {
     return (
       <ACC_LOGIN
-        onLogin={handleLogin}
+        onPasswordLogin={handlePasswordLogin}
+        onTotpLogin={handleTotpLogin}
+        onEmailOtpRequest={handleEmailOtpRequest}
+        onEmailOtpVerify={handleEmailOtpVerify}
+        emailOtpChallenge={emailOtpChallenge}
         onMfa={handleMfa}
-        onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
+        onMfaEmailOtpRequest={handleMfaEmailOtpRequest}
+        onCancelMfa={() => { setMfaChallenge(null); setEmailOtpChallenge(null); setError(null); }}
         mfaChallenge={mfaChallenge}
         busy={busy}
         error={error}
