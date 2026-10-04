@@ -5,7 +5,7 @@ import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
-import { StructuredCommandForm, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
+import { StructuredCommandForm, friendlyFieldLabel, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
 
 export type P2Column = { label: string; key: string; format?: 'date' | 'money' | 'number' | 'text' };
 export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean };
