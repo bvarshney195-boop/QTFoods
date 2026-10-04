@@ -7,6 +7,14 @@ use Illuminate\Support\Facades\Mail;
 
 final class IdentityNotificationService
 {
+    public function loginOtp(string $email, string $name, string $code, string $expiresAt): array
+    {
+        $body = "Hello {$name},\n\nYour Q & T Foods ERP sign-in code is {$code}. "
+            ."It expires at {$expiresAt}.\n\nNever share this code. If you did not request it, review your account security.";
+
+        return $this->deliver($email, 'Your Q & T Foods ERP sign-in code', $body, null);
+    }
+
     public function invitation(string $email, string $name, string $token, string $expiresAt): array
     {
         $url = $this->url('invite', $email, $token);
@@ -37,7 +45,7 @@ final class IdentityNotificationService
         return $this->deliver($email, 'Verify your Q & T Foods ERP email', $body, $url);
     }
 
-    private function deliver(string $email, string $subject, string $body, string $previewUrl): array
+    private function deliver(string $email, string $subject, string $body, ?string $previewUrl): array
     {
         try {
             Mail::raw($body, function ($message) use ($email, $subject): void {
@@ -53,7 +61,7 @@ final class IdentityNotificationService
         }
 
         $result = ['channel' => 'EMAIL', 'status' => $status];
-        if (config('qtfoods.identity.preview_links', false)) {
+        if (config('qtfoods.identity.preview_links', false) && $previewUrl !== null) {
             $result['preview_url'] = $previewUrl;
         }
 
