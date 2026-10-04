@@ -59,6 +59,12 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, ! in_array($this->config->get('session.same_site'), ['lax', 'strict'], true), 'SESSION_SAME_SITE must be lax or strict.');
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_seeders'), 'QT_ALLOW_DEMO_SEEDERS must be false.');
         $this->reject($violations, (bool) $this->config->get('qtfoods.identity.preview_links'), 'QT_IDENTITY_PREVIEW_LINKS must be false.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.identity.block_demo_principals'), 'QT_BLOCK_DEMO_PRINCIPALS must be true.');
+        $requiredMfaRoles = array_values(array_filter(array_map(
+            static fn (string $role): string => strtoupper(trim($role)),
+            explode(',', (string) $this->config->get('qtfoods.identity.mfa_required_roles', ''))
+        )));
+        $this->reject($violations, ! in_array('ERP_ADMIN', $requiredMfaRoles, true), 'QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.');
 
         $this->reject($violations, $this->config->get('database.default') !== 'pgsql', 'DB_CONNECTION must be pgsql.');
         $this->reject($violations, $this->unsafeSecret($this->config->get('database.connections.pgsql.password')), 'DB_PASSWORD must be a non-placeholder secret of at least 16 characters.');
@@ -77,6 +83,8 @@ final class ProductionEnvironmentGuard
 
         $this->reject($violations, $this->config->get('mail.default') !== 'smtp', 'MAIL_MAILER must use the configured SMTP delivery transport.');
         $this->reject($violations, $this->unsafeMailConfiguration(), 'SMTP must use a non-placeholder host, authenticated credentials, and required TLS.');
+        $this->reject($violations, strtolower((string) $this->config->get('qtfoods.outbox.transport')) !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $this->reject($violations, $this->unsafeOutboxConfiguration(), 'Production outbox delivery requires an exact HTTPS receiver and a strong signing secret.');
         $mailFrom = (string) $this->config->get('mail.from.address');
         $this->reject($violations, filter_var($mailFrom, FILTER_VALIDATE_EMAIL) === false || $this->placeholder($mailFrom) || str_ends_with(strtolower($mailFrom), '.local'), 'MAIL_FROM_ADDRESS must use a deliverable, non-placeholder production domain.');
         $this->reject($violations, $this->config->get('logging.default') !== 'stderr', 'LOG_CHANNEL must be stderr.');
@@ -243,6 +251,21 @@ final class ProductionEnvironmentGuard
             || ($scheme === 'smtp' && ! (bool) ($smtp['require_tls'] ?? false))
             || $this->unsafeSecret($smtp['username'] ?? null, 4)
             || $this->unsafeSecret($smtp['password'] ?? null);
+    }
+
+    private function unsafeOutboxConfiguration(): bool
+    {
+        $endpoint = trim((string) $this->config->get('qtfoods.outbox.http_endpoint'));
+        $parts = parse_url($endpoint);
+
+        return ! is_array($parts)
+            || ($parts['scheme'] ?? null) !== 'https'
+            || empty($parts['host'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment'])
+            || $this->placeholder($endpoint)
+            || $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32);
     }
 
     private function unsafeAlertConfiguration(): bool
