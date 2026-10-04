@@ -196,6 +196,13 @@ final class MfaService
         return $this->consumeRecoveryCode($user, $code) ? 'RECOVERY_CODE' : null;
     }
 
+    public function verifyAuthenticatorCode(User $user, string $code): bool
+    {
+        return $user->mfa_enabled_at !== null
+            && is_string($user->mfa_secret)
+            && $this->verifyTotp($this->decryptSecret($user), $code);
+    }
+
     public function codeForSecret(string $secret, ?int $timestamp = null): string
     {
         $counter = intdiv($timestamp ?? time(), 30);
