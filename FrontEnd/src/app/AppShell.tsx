@@ -211,7 +211,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           <div><b>Q & T FOODS LTD</b><small>Business workspace</small></div>
         </div>
         <div className="side-search">
-          <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter menu" aria-label="Filter menu" />
+          <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter menu" aria-label="Search menu" />
         </div>
         <nav aria-label="Main menu">
           {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
