@@ -42,6 +42,27 @@ final class AuthenticationMethodFlowTest extends TestCase
         $this->assertAuthenticated();
     }
 
+    public function test_email_otp_fails_closed_when_the_mailer_only_logs_messages(): void
+    {
+        config()->set([
+            'mail.default' => 'log',
+            'qtfoods.identity.preview_links' => false,
+        ]);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'demo.user@qtfoods.local',
+            'method' => 'email_otp',
+        ])->assertServiceUnavailable()
+            ->assertJsonPath('error.code', 'EMAIL_OTP_DELIVERY_FAILED')
+            ->assertJsonPath(
+                'error.message',
+                'We could not send a sign-in code. Try again or contact your organisation administrator.',
+            );
+
+        $this->assertGuest();
+        self::assertNull(session('identity.login_challenge'));
+    }
+
     public function test_unregistered_passwordless_email_has_an_actionable_message_without_issuing_a_challenge(): void
     {
         foreach (['email_otp', 'totp'] as $method) {

@@ -89,6 +89,8 @@ final class ProductionEnvironmentGuard
 
         $this->reject($violations, $this->config->get('mail.default') !== 'smtp', 'MAIL_MAILER must use the configured SMTP delivery transport.');
         $this->reject($violations, $this->unsafeMailConfiguration(), 'SMTP must use a non-placeholder host, authenticated credentials, and required TLS.');
+        $mailTimeout = (float) $this->config->get('mail.mailers.smtp.timeout');
+        $this->reject($violations, $mailTimeout < 1 || $mailTimeout > 30, 'MAIL_TIMEOUT must be between 1 and 30 seconds.');
         $mailFrom = (string) $this->config->get('mail.from.address');
         $this->reject($violations, filter_var($mailFrom, FILTER_VALIDATE_EMAIL) === false || $this->placeholder($mailFrom) || str_ends_with(strtolower($mailFrom), '.local'), 'MAIL_FROM_ADDRESS must use a deliverable, non-placeholder production domain.');
         $this->reject($violations, $this->config->get('logging.default') !== 'stderr', 'LOG_CHANNEL must be stderr.');

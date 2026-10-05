@@ -13,7 +13,10 @@ return [
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
             'require_tls' => env('MAIL_REQUIRE_TLS', false),
-            'timeout' => null,
+            // Keep sign-in requests bounded when the provider or an outbound
+            // SMTP port is unavailable. Symfony otherwise inherits PHP's
+            // default socket timeout (commonly 60 seconds).
+            'timeout' => max(1.0, min(30.0, (float) env('MAIL_TIMEOUT', 10))),
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
         'log' => [

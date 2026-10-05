@@ -53,6 +53,23 @@ final class IdentityNotificationService
 
     private function deliver(string $email, string $subject, string $body, ?string $previewUrl): array
     {
+        $mailer = (string) config('mail.default', 'log');
+        $transport = strtolower((string) config("mail.mailers.{$mailer}.transport", $mailer));
+        $previewEnabled = (bool) config('qtfoods.identity.preview_links', false);
+
+        // Log and array transports accept a message without delivering it. They
+        // are useful for local previews, but must never produce a successful
+        // delivery result when previews are disabled.
+        if (! $previewEnabled && in_array($transport, ['array', 'log'], true)) {
+            Log::error('Identity email delivery is not configured with a delivering transport.', [
+                'mailer' => $mailer,
+                'transport' => $transport,
+                'recipient_domain' => str_contains($email, '@') ? strrchr($email, '@') : null,
+            ]);
+
+            return ['channel' => 'EMAIL', 'status' => 'FAILED'];
+        }
+
         try {
             Mail::raw($body, function ($message) use ($email, $subject): void {
                 $message->to($email)->subject($subject);
@@ -67,7 +84,7 @@ final class IdentityNotificationService
         }
 
         $result = ['channel' => 'EMAIL', 'status' => $status];
-        if (config('qtfoods.identity.preview_links', false) && $previewUrl !== null) {
+        if ($previewEnabled && $previewUrl !== null) {
             $result['preview_url'] = $previewUrl;
         }
 

@@ -48,6 +48,17 @@ final class ProductionConfigurationTest extends TestCase
         self::assertContains('MAIL_FROM_ADDRESS must use a deliverable, non-placeholder production domain.', $violations);
     }
 
+    public function test_production_mail_timeout_must_be_bounded(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set('mail.mailers.smtp.timeout', 60);
+
+        self::assertContains(
+            'MAIL_TIMEOUT must be between 1 and 30 seconds.',
+            app(ProductionEnvironmentGuard::class)->violations('production'),
+        );
+    }
+
     public function test_https_is_required_for_application_routes_but_not_health_checks(): void
     {
         config()->set([
