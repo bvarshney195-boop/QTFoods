@@ -29,13 +29,13 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
     estimated_value: '25000',
     notes: 'Playwright P2 commercial journey.',
   });
-  await expect(page.getByRole('status')).toContainText('New lead saved successfully. Current status: New.');
+  await expect(page.locator('.feedback-toast')).toContainText('New lead saved successfully. Current status: New.');
   await searchAndOpen(page, 'Leads & Enquiries', refs.lead);
   await page.getByRole('button', { name: 'Qualify', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Lead qualified');
+  await expect(page.locator('.feedback-toast')).toContainText('Lead qualified');
   await page.getByRole('button', { name: 'Convert', exact: true }).click();
   await submitForm(page, 'Convert lead', { customer_party_id: CUSTOMER });
-  await expect(page.getByRole('status')).toContainText('Convert lead saved successfully. Current status: Converted.');
+  await expect(page.locator('.feedback-toast')).toContainText('Convert lead saved successfully. Current status: Converted.');
   const lead = first(await apiGet<P2List>(page, `/api/v1/sales/leads?q=${encodeURIComponent(refs.lead)}`));
 
   await openP2Module(page, 'CRM-ORDER', 'Sales orders');
@@ -51,10 +51,10 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
     notes: 'Contract-backed browser order.',
     lines: [{ item_id: ITEM, uom_code: 'PACK', quantity: '2', discount_percent: '0' }],
   });
-  await expect(page.getByRole('status')).toContainText('New sales order saved successfully. Current status: Draft.');
+  await expect(page.locator('.feedback-toast')).toContainText('New sales order saved successfully. Current status: Draft.');
   await searchAndOpen(page, 'Sales Orders', refs.order);
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Sales order confirmed');
+  await expect(page.locator('.feedback-toast')).toContainText('Sales order confirmed');
   const order = first(await apiGet<P2List>(page, `/api/v1/sales/orders?q=${encodeURIComponent(refs.order)}`));
 
   const allocation = await apiPost<P2Command>(page, `/api/v1/dispatch/orders/${order.id}/allocations`, {
@@ -146,10 +146,10 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
       { account_id: EXPENSE_ACCOUNT, description: 'Projected expense', debit_amount: '200', credit_amount: '0', assumption: 'Incremental selling cost.' },
     ],
   });
-  await expect(page.getByRole('status')).toContainText('New simulation saved successfully. Current status: Draft.');
+  await expect(page.locator('.feedback-toast')).toContainText('New simulation saved successfully. Current status: Draft.');
   await searchAndOpen(page, 'Finance Simulation', refs.simulation);
   await page.getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Simulation run completed with no ledger effect');
+  await expect(page.locator('.feedback-toast')).toContainText('Simulation run completed with no ledger effect');
 
   await openP2Module(page, 'FIN-ARCH', 'Bill archive');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
@@ -163,7 +163,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
     buffer: Buffer.from('%PDF-1.4 P2 browser private bill'),
   });
   await page.getByRole('button', { name: 'Upload privately' }).click();
-  await expect(page.getByRole('status')).toContainText('Document archived with verified private metadata (ARCHIVED)');
+  await expect(page.locator('.feedback-toast')).toContainText('Document archived with verified private metadata (ARCHIVED)');
   await page.getByLabel('Archive search').fill(refs.document);
   await openRow(page, refs.document);
   await expect(page.locator('.p2-checksum')).toHaveText(/^[a-f0-9]{64}$/);
@@ -180,15 +180,15 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
     subject: 'P2 browser diagnostic request',
     description: 'Capture finance counters without mutating ledger records.',
   });
-  await expect(page.getByRole('status')).toContainText('New support & diagnostics saved successfully. Current status: Open.');
+  await expect(page.locator('.feedback-toast')).toContainText('New support & diagnostics saved successfully. Current status: Open.');
   await searchAndOpen(page, 'Finance Support & Diagnostics', refs.support);
   await page.getByRole('button', { name: 'Diagnose', exact: true }).click();
   await submitForm(page, 'Capture diagnostic snapshot', { notes: 'Browser verification captured the immutable counters.' });
-  await expect(page.getByRole('status')).toContainText('Capture diagnostic snapshot saved successfully. Current status: Diagnosed.');
+  await expect(page.locator('.feedback-toast')).toContainText('Capture diagnostic snapshot saved successfully. Current status: Diagnosed.');
   await searchAndOpen(page, 'Finance Support & Diagnostics', refs.support);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await submitForm(page, 'Close finance support case', { resolution_notes: 'P2 browser diagnostics verified.' });
-  await expect(page.getByRole('status')).toContainText('Close finance support case saved successfully. Current status: Closed.');
+  await expect(page.locator('.feedback-toast')).toContainText('Close finance support case saved successfully. Current status: Closed.');
 
   const financeScreens: Array<[string, string]> = [
     ['FIN-EXP', 'Expenses'],
@@ -209,7 +209,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await openModule(page, 'FIN-AP', 'Supplier invoices & payments');
   await page.getByRole('button', { name: 'Bank & statutory integrations' }).click();
   await expect(page.getByRole('heading', { name: 'Payables Bank & Statutory Integrations' })).toBeVisible();
-  await expect(page.locator('.p2-live-notice')).toBeVisible();
+  await expect(page.locator('.business-guidance')).toBeVisible();
   await expect(page.getByText('PROTOTYPE / DEMO DATA')).toHaveCount(0);
 });
 
@@ -249,7 +249,7 @@ function first(result: P2List) {
 
 async function openP2Module(page: Page, code: string, heading: string): Promise<void> {
   await openModule(page, code, heading);
-  await expect(page.locator('.p2-live-notice')).toBeVisible();
+  await expect(page.locator('.business-guidance')).toBeVisible();
   await expect(page.getByText('PROTOTYPE / DEMO DATA')).toHaveCount(0);
 }
 

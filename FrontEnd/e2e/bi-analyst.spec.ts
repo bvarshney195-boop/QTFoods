@@ -30,13 +30,13 @@ test('BI Analyst sees only BI workspaces and can run/export reports without tran
   await page.getByRole('button', { name: 'Generate immutable snapshot' }).click();
   await expect(page.getByRole('status')).toContainText('INVENTORY_AVAILABILITY snapshot generated');
 
-  await page.getByRole('button', { name: 'Create & download CSV' }).click();
+  await page.getByRole('button', { name: 'Download CSV' }).click();
   await expect(page.getByRole('status')).toContainText('CSV export created');
   await expect(page.locator('.reporting-detail')).toContainText('CSV');
 
   await navigation.locator('[data-screen-code="BI-PROFIT"]').click();
   await expect(page.getByRole('heading', { name: 'Profitability' })).toBeVisible();
-  await expect(page.locator('.p2-live-notice')).toContainText('never posts or changes the ledger');
+  await expect(page.locator('.business-guidance')).toContainText('never posts or changes the ledger');
 
   expect(await apiPostStatus(page, '/api/v1/sales/leads', {})).toBe(403);
   expect(await apiPostStatus(page, '/api/v1/finance/journals', {})).toBe(403);

@@ -173,7 +173,7 @@ function Register({ records, columns, showStatus, selectedId, onOpen }: { record
 }
 
 function RegisterSkeleton({ columns }: { columns: number }) {
-  return <div className="register-skeleton" aria-label="Loading records">{Array.from({ length: 5 }, (_, row) => <div key={row}>{Array.from({ length: columns + 1 }, (_, cell) => <span key={cell} />)}</div>)}</div>;
+  return <div className="register-skeleton" role="status" aria-label="Loading records">{Array.from({ length: 5 }, (_, row) => <div key={row}>{Array.from({ length: columns + 1 }, (_, cell) => <span key={cell} />)}</div>)}</div>;
 }
 
 function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string> }) {

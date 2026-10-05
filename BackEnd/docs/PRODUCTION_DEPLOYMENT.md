@@ -81,6 +81,24 @@ Startup ordering is deliberate: PostgreSQL and Redis become healthy; the one-sho
 
 The migration service also runs `qt:security:verify-identities` after migrations. It fails deployment if a known demo identity is active or unclassified, a shared `prototype` credential still verifies, a demo session remains active, a known training company/plant is unclassified, or a real user has an active assignment into a synthetic context. Retain its JSON output with the release evidence.
 
+## Bootstrap the first production administrator
+
+Run this controlled command once from the application container or managed-service shell after migrations and approved system definitions are present:
+
+```bash
+php artisan qt:identity:bootstrap-admin bvarshney195@gmail.com \
+  --name="ERP Administrator" \
+  --company-code=QTF-LIVE --company-name="Q & T FOODS LTD" \
+  --plant-code=HQ --plant-name="Head Office" --timezone=Asia/Kolkata \
+  --confirmation=CREATE_PRODUCTION_ADMIN --no-interaction
+```
+
+The command creates only non-demo company/plant records, uses the active `ERP_ADMIN` system role, assigns a random unusable initial secret, records an audit event and sends a password-setup link to the registered mailbox. It never enables demo authentication or stores a shared password. Re-running the exact command is a no-op; add `--send-password-reset` only when an already-provisioned owner needs a replacement setup link.
+
+The administrator can begin with Email OTP or the Google Authenticator path. Because `ERP_ADMIN` is an MFA-required role, Email OTP leads to authenticator enrollment and no authenticated session exists until TOTP succeeds. After using the password-setup link, password authentication also stops at the mandatory Email OTP or TOTP second-factor gate.
+
+Retain the command JSON and then rerun `php artisan qt:security:verify-identities`. The deployment is not accepted if the new user, company or plant is classified as demo, if the role assignment is inactive, if email delivery is not `SENT`, or if the identity verifier fails.
+
 ## Security and integration release probes
 
 The configured event receiver must verify `X-QT-Signature`, use `Idempotency-Key` as the stable event identity, and return both `X-Acknowledgement-ID` and `X-Acknowledged-Event-ID`. The latter must exactly match `X-QT-Event-ID`; an unbound or mismatched acknowledgement is treated as a failed attempt.

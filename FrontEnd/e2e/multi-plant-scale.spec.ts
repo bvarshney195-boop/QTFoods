@@ -26,19 +26,19 @@ test('multi-plant scale separates source dispatch from destination receipt', asy
       notes: 'Three released packs.',
     }],
   });
-  await expect(page.getByRole('status')).toContainText('New transfer saved successfully. Current status: Draft.');
+  await expect(page.locator('.feedback-toast')).toContainText('New transfer saved successfully. Current status: Draft.');
   await searchAndOpen(page, TRANSFER_NUMBER);
   await page.getByRole('button', { name: 'Submit', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Transfer submitted for independent source approval');
+  await expect(page.locator('.feedback-toast')).toContainText('Transfer submitted for independent source approval');
   await logout(page);
 
   await loginAndSelect(page, 'admin.user@qtfoods.local', 'Training Plant');
   await openScale(page);
   await searchAndOpen(page, TRANSFER_NUMBER);
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Transfer independently approved at source');
+  await expect(page.locator('.feedback-toast')).toContainText('Transfer independently approved at source');
   await page.getByRole('button', { name: 'Dispatch', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Source stock dispatched into governed transit');
+  await expect(page.locator('.feedback-toast')).toContainText('Source stock dispatched into governed transit');
 
   const source = await transferDetail(page);
   expect(source.status).toBe('IN_TRANSIT');
@@ -51,7 +51,7 @@ test('multi-plant scale separates source dispatch from destination receipt', asy
   await searchAndOpen(page, TRANSFER_NUMBER);
   await expect(page.getByText('DESTINATION', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Receive', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Destination stock received with linked inbound movement evidence');
+  await expect(page.locator('.feedback-toast')).toContainText('Destination stock received with linked inbound movement evidence');
 
   const received = await transferDetail(page);
   expect(received.status).toBe('RECEIVED');
@@ -76,7 +76,7 @@ async function openScale(page: Page): Promise<void> {
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator('[data-screen-code="SCALE-PLANT"]').click();
   await expect(page.getByRole('heading', { name: 'Multi-plant operations' })).toBeVisible();
-  await expect(page.locator('.p2-live-notice')).toBeVisible();
+  await expect(page.locator('.business-guidance')).toBeVisible();
 }
 
 async function submitForm(page: Page, label: string, body: unknown): Promise<void> {

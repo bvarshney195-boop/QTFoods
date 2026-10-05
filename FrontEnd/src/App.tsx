@@ -153,6 +153,7 @@ export default function App() {
         onLogin={handleLogin}
         onChallenge={handleChallenge}
         onCancelChallenge={() => { setAuthChallenge(null); setError(null); }}
+        onClearError={() => setError(null)}
         authChallenge={authChallenge}
         busy={busy}
         error={error}

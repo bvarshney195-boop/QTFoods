@@ -36,6 +36,22 @@ describe('identity access flows', () => {
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
+  it('submits password credentials and clears stale errors when the method changes', async () => {
+    const onLogin = vi.fn();
+    const onClearError = vi.fn();
+    render(<ACC_LOGIN onLogin={onLogin} onClearError={onClearError} />);
+
+    await userEvent.setup().type(screen.getByLabelText('Email'), 'Admin.User@QTFOODS.LOCAL');
+    await userEvent.setup().type(screen.getByLabelText('Password'), 'prototype');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Continue with password' }));
+
+    expect(onLogin).toHaveBeenCalledWith('admin.user@qtfoods.local', 'password', 'prototype');
+    onClearError.mockClear();
+    await userEvent.setup().click(screen.getByRole('radio', { name: /^Email OTP/ }));
+    expect(onClearError).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
   it('keeps password-reset requests non-enumerating and exposes local preview links when configured', async () => {
     identityMocks.forgotPassword.mockResolvedValue({
       accepted: true,

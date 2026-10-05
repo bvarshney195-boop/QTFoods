@@ -342,3 +342,24 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
 @media(max-width:480px){.content{padding-inline:10px}.kpi-grid{grid-template-columns:1fr}.confirmation-facts{grid-template-columns:1fr}.confirmation-facts .wide{grid-column:auto}.feedback-toast{left:10px;right:10px;width:auto}.routing-warning>div,.report-title-actions{display:grid}.report-title-actions button{width:100%}.mfa-qr,.totp-enrolment img{width:190px;height:190px}}
 .device-name { display: flex; align-items: center; gap: 8px; }
 .current-device-badge { border-radius: 999px; background: #e8f1fb; color: #1b4f72; font-size: 12px; font-weight: 700; padding: 2px 8px; }
+
+/* Keep sign-in compact, readable and fully contained in the viewport. */
+.auth-page.auth-full-page{height:100vh;height:100dvh;min-height:560px;grid-template-columns:minmax(0,1fr) minmax(0,3fr)}
+.auth-full-page .auth-brand{min-width:0;padding:clamp(24px,2.5vw,44px)}
+.auth-full-page .auth-brand h1{font-size:clamp(27px,2.2vw,38px);line-height:1.18}
+.auth-full-page .auth-form{min-width:0;min-height:0;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:clamp(18px,3vh,30px) clamp(24px,4vw,64px)}
+.auth-full-page .auth-card{width:min(780px,100%);margin:auto 0;padding:clamp(20px,2.2vw,28px)}
+.auth-full-page .auth-card h2{margin:6px 0 4px}
+.auth-full-page .auth-intro{margin:0 0 14px}
+.auth-full-page .auth-card>label{margin:12px 0 5px}
+.auth-full-page .auth-card .primary{margin-top:14px}
+.auth-full-page .authentication-methods{margin:14px 0}
+.auth-full-page .auth-card .authentication-method{height:100%;margin:0;cursor:pointer}
+.auth-full-page .authentication-primary-methods{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.auth-full-page .authentication-primary-methods .authentication-method{grid-template-columns:18px minmax(0,1fr);padding:11px}
+.auth-full-page .authentication-primary-methods .authentication-method span{min-width:0}
+.auth-full-page .authentication-primary-methods .authentication-method b{line-height:20px}
+.auth-full-page .authentication-primary-methods .authentication-method small{margin-top:2px}
+
+@media(max-width:820px){.auth-page.auth-full-page{grid-template-columns:1fr}.auth-full-page .auth-form{padding-inline:18px}.auth-full-page .auth-card{width:min(720px,100%)}}
+@media(max-width:640px){.auth-page.auth-full-page{height:auto;min-height:100vh;min-height:100dvh}.auth-full-page .auth-form{overflow:visible;padding:14px 10px}.auth-full-page .authentication-primary-methods{grid-template-columns:1fr;gap:8px}.auth-full-page .auth-card{padding:20px}.auth-full-page .authentication-methods{margin:12px 0}.auth-full-page .authentication-primary-methods .authentication-method{padding:10px 11px}}

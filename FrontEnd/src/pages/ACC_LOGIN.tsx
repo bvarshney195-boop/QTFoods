@@ -22,6 +22,7 @@ type LoginProps = {
   onLogin?: (email: string, method: AuthenticationMethod, password?: string) => Promise<void> | void;
   onChallenge?: (action: AuthenticationAction, code?: string) => Promise<void> | void;
   onCancelChallenge?: () => void;
+  onClearError?: () => void;
   authChallenge?: AuthenticationChallenge | null;
   onRetry?: () => Promise<void> | void;
   busy?: boolean;
@@ -32,6 +33,7 @@ export default function ACC_LOGIN({
   onLogin,
   onChallenge,
   onCancelChallenge,
+  onClearError,
   authChallenge,
   onRetry,
   busy = false,
@@ -164,6 +166,28 @@ export default function ACC_LOGIN({
     setPreviewUrl(null);
   }
 
+  function updateSignInEmail(value: string) {
+    setEmail(value);
+    setLocalError(null);
+    setNotice(null);
+    onClearError?.();
+  }
+
+  function selectAuthenticationMethod(method: AuthenticationMethod) {
+    setAuthMethod(method);
+    if (method !== 'password') setPassword('');
+    setLocalError(null);
+    setNotice(null);
+    onClearError?.();
+  }
+
+  function updateSignInPassword(value: string) {
+    setPassword(value);
+    setLocalError(null);
+    setNotice(null);
+    onClearError?.();
+  }
+
   return (
     <div className="auth-page auth-full-page">
       <section className="auth-brand">
@@ -194,7 +218,7 @@ export default function ACC_LOGIN({
 
             {authChallenge ? <>
               {authChallenge.phase === 'SELECT_SECOND_FACTOR' && (
-                <fieldset className="authentication-methods">
+                <fieldset className="authentication-methods authentication-second-factors">
                   <legend>Choose a required second factor</legend>
                   <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_email_otp')}>
                     <b>Email one-time code</b><span>Send a six-digit code to {authChallenge.email_hint}</span>
@@ -241,8 +265,8 @@ export default function ACC_LOGIN({
               <button className="auth-link centered" type="button" onClick={() => { setCode(''); onCancelChallenge?.(); }}>Start again</button>
             </> : <>
               <label htmlFor="login-email">Email</label>
-              <input id="login-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required />
-              <fieldset className="authentication-methods">
+              <input id="login-email" type="email" value={email} onChange={(event) => updateSignInEmail(event.target.value)} autoComplete="username" required />
+              <fieldset className="authentication-methods authentication-primary-methods">
                 <legend>Authentication method</legend>
                 {([
                   ['password', 'Password', 'Enter your account password'],
@@ -250,14 +274,14 @@ export default function ACC_LOGIN({
                   ['totp', 'Google Authenticator', 'Use or register a time-based code'],
                 ] as const).map(([value, label, description]) => (
                   <label className={`authentication-method ${authMethod === value ? 'selected' : ''}`} key={value}>
-                    <input type="radio" name="authentication-method" value={value} checked={authMethod === value} onChange={() => { setAuthMethod(value); setPassword(''); }} />
+                    <input type="radio" name="authentication-method" value={value} checked={authMethod === value} onChange={() => selectAuthenticationMethod(value)} />
                     <span><b>{label}</b><small>{description}</small></span>
                   </label>
                 ))}
               </fieldset>
               {authMethod === 'password' && <>
                 <label htmlFor="login-password">Password</label>
-                <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+                <input id="login-password" type="password" value={password} onChange={(event) => updateSignInPassword(event.target.value)} autoComplete="current-password" required />
               </>}
               <button className="primary" type="submit" disabled={working || (authMethod === 'password' && !password)}>{working ? 'Starting secure sign-in…' : authMethod === 'email_otp' ? 'Send email code' : authMethod === 'totp' ? 'Continue with authenticator' : 'Continue with password'}</button>
               <div className="auth-links">

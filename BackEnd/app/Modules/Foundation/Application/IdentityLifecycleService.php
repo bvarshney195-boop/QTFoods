@@ -340,7 +340,7 @@ final class IdentityLifecycleService
         });
     }
 
-    public function requestPasswordReset(string $email, ?string $ip): array
+    public function requestPasswordReset(string $email, ?string $ip, bool $includeDeliveryStatus = false): array
     {
         $response = $this->genericPasswordResetResponse();
         $user = User::query()->where('email', $email)->where('status', 'ACTIVE')->first();
@@ -364,6 +364,10 @@ final class IdentityLifecycleService
             $issued['_raw_token'],
             $issued['expires_at']
         );
+
+        if ($includeDeliveryStatus) {
+            return $response + ['delivery' => Arr::only($delivery, ['channel', 'status'])];
+        }
 
         return $this->withDevelopmentDelivery($response, $delivery);
     }

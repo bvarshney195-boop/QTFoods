@@ -62,7 +62,7 @@ test('Sales, Operations, and Finance complete an unsold-return hand-off', async 
   const operationsCase = await openCase(page, caseCode);
   await operationsCase.getByLabel('Received').fill('10');
   await operationsCase
-    .getByLabel('Quarantine position')
+    .getByLabel('Quarantine destination')
     .selectOption(returnPositionId);
   await operationsCase
     .getByRole('button', { name: 'Post quarantine receipt' })

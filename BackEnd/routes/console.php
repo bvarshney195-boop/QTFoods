@@ -1,6 +1,8 @@
 <?php
 
 use App\Jobs\ProcessOutboxBatch;
+use App\Modules\Foundation\Application\IdentityLifecycleService;
+use App\Shared\Deployment\ProductionAdminBootstrapper;
 use App\Shared\Deployment\ProductionEnvironmentGuard;
 use App\Shared\Deployment\ProductionIdentityVerifier;
 use App\Shared\Observability\OperationalMonitor;
@@ -38,6 +40,50 @@ Artisan::command('qt:security:verify-identities', function () {
 
     return $result['status'] === 'pass' ? 0 : 2;
 })->purpose('Fail if demo principals, shared preset credentials, active demo sessions, or synthetic-context leaks remain.');
+
+Artisan::command('qt:identity:bootstrap-admin
+    {email : Registered mailbox for the first real ERP administrator}
+    {--name=ERP Administrator : Administrator display name}
+    {--company-code=QTF-LIVE : New or existing non-demo company code}
+    {--company-name=Q & T FOODS LTD : Legal and display name when creating the company}
+    {--plant-code=HQ : New or existing non-demo plant code}
+    {--plant-name=Head Office : Plant name when creating the plant}
+    {--timezone=Asia/Kolkata : IANA timezone when creating the plant}
+    {--confirmation= : Must equal CREATE_PRODUCTION_ADMIN}
+    {--send-password-reset : Send another password-setup link when the account already exists}',
+    function (ProductionAdminBootstrapper $bootstrapper, IdentityLifecycleService $identity) {
+        try {
+            $result = $bootstrapper->bootstrap([
+                'email' => $this->argument('email'),
+                'name' => $this->option('name'),
+                'company_code' => $this->option('company-code'),
+                'company_name' => $this->option('company-name'),
+                'plant_code' => $this->option('plant-code'),
+                'plant_name' => $this->option('plant-name'),
+                'timezone' => $this->option('timezone'),
+                'confirmation' => $this->option('confirmation'),
+            ]);
+        } catch (\InvalidArgumentException|\RuntimeException $exception) {
+            $this->error($exception->getMessage());
+
+            return 2;
+        }
+
+        if ($result['password_setup_required'] || (bool) $this->option('send-password-reset')) {
+            $delivery = $identity->requestPasswordReset($result['email'], null, true);
+            $result['password_setup_delivery'] = $delivery['delivery'] ?? null;
+        }
+        $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        if (($result['password_setup_delivery']['status'] ?? 'SENT') !== 'SENT') {
+            $this->warn('The administrator was provisioned, but the password-setup email failed. Correct mail delivery and rerun with --send-password-reset.');
+
+            return 1;
+        }
+
+        return 0;
+    }
+)->purpose('One-time, audited provisioning of a real non-demo ERP administrator with mandatory MFA.');
 
 Artisan::command('qt:outbox:process {--limit=}', function () {
     $limit = $this->option('limit');

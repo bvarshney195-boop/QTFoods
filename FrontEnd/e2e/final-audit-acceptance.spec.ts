@@ -4,7 +4,28 @@ import { signInAndSelect } from './support/auth';
 
 test.describe('final audit authentication acceptance', () => {
   test('login exposes all three methods and hides password outside the password branch', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 900 });
     await openLogin(page);
+
+    const layout = await page.evaluate(() => {
+      const pageBox = document.querySelector('.auth-page')!.getBoundingClientRect();
+      const brandBox = document.querySelector('.auth-brand')!.getBoundingClientRect();
+      const formBox = document.querySelector('.auth-form')!.getBoundingClientRect();
+      const cardBox = document.querySelector('.auth-card')!.getBoundingClientRect();
+      return {
+        brandRatio: brandBox.width / pageBox.width,
+        formRatio: formBox.width / pageBox.width,
+        cardTop: cardBox.top,
+        cardBottom: cardBox.bottom,
+        documentHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    expect(layout.brandRatio).toBeCloseTo(0.25, 2);
+    expect(layout.formRatio).toBeCloseTo(0.75, 2);
+    expect(layout.cardTop).toBeGreaterThanOrEqual(0);
+    expect(layout.cardBottom).toBeLessThanOrEqual(layout.viewportHeight);
+    expect(layout.documentHeight).toBeLessThanOrEqual(layout.viewportHeight);
 
     await expect(page.getByRole('radio', { name: /^Password/ })).toBeChecked();
     await expect(page.getByRole('radio', { name: /^Email OTP/ })).toBeVisible();
@@ -35,6 +56,10 @@ test.describe('final audit authentication acceptance', () => {
       );
       await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
     }
+
+    await page.getByRole('radio', { name: /^Password/ }).check();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   });
 
   test('registered user completes passwordless Email OTP sign-in', async ({ page }) => {

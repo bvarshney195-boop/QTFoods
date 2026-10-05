@@ -18,8 +18,9 @@ test('finance reporting and requester-to-manager support handoff are live and go
   await page.getByRole('button', { name: 'Generate immutable snapshot' }).click();
   await expect(page.getByRole('status')).toContainText('TRIAL_BALANCE snapshot generated');
   await expect(page.locator('.reporting-detail')).toContainText(REPORT_RUN);
+  await page.getByText('Export details and integrity', { exact: true }).click();
   await expect(page.getByText(/^[a-f0-9]{64}$/)).toBeVisible();
-  await page.getByRole('button', { name: 'Create & download CSV' }).click();
+  await page.getByRole('button', { name: 'Download CSV' }).click();
   await expect(page.getByRole('status')).toContainText('CSV export created from stored snapshot rows');
   await expect(page.locator('.reporting-detail')).toContainText('CSV');
   await expect(page.getByText('PROTOTYPE / DEMO DATA')).toHaveCount(0);
