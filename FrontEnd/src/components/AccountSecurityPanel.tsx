@@ -29,6 +29,9 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   const [mfaCode, setMfaCode] = useState('');
   const [setup, setSetup] = useState<MfaSetup | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [historyLimit, setHistoryLimit] = useState(10);
+  const [pendingRevoke, setPendingRevoke] = useState<DeviceSession | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -238,17 +241,45 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
           </section>
 
           <section className="security-section">
-            <div className="subsection-head"><div><b>Device sessions</b><small>Logical sessions; no cookie or raw framework session ID is stored</small></div><button className="secondary compact-button" type="button" onClick={() => void revokeOthers()} disabled={busy === 'other-devices'}>Revoke others</button></div>
-            {loadingDevices && <div className="empty-state">Loading device sessions…</div>}
-            {!loadingDevices && devices.map((device) => <div className="device-row" key={device.id}>
-              <div><b>{deviceName(device.user_agent)}</b><small>{device.ip_address ?? 'Unknown IP'} · Last seen {new Date(device.last_seen_at).toLocaleString()}</small><small>{device.current ? 'This device · ' : ''}{device.id.slice(0, 8)}</small></div>
-              <div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={() => void revoke(device)}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
-            </div>)}
+            <div className="subsection-head"><div><b>Active devices</b><small>Review active sessions first. Session identifiers stay in technical details.</small></div><button className="secondary compact-button" type="button" onClick={() => void revokeOthers()} disabled={busy === 'other-devices'}>Revoke others</button></div>
+            {loadingDevices && <div className="empty-state" aria-busy="true">Loading device sessions…</div>}
+            {!loadingDevices && devices.filter((device) => device.status === 'ACTIVE').length === 0 && <div className="empty-state">No active device sessions were returned.</div>}
+            {!loadingDevices && devices.filter((device) => device.status === 'ACTIVE').map((device) => <DeviceRow key={device.id} device={device} busy={busy} onRevoke={() => setPendingRevoke(device)} />)}
+            {!loadingDevices && devices.some((device) => device.status !== 'ACTIVE') && <>
+              <button className="auth-link" type="button" aria-expanded={showSessionHistory} onClick={() => setShowSessionHistory((value) => !value)}>{showSessionHistory ? 'Hide session history' : 'Show session history'}</button>
+              {showSessionHistory && <div className="session-history">
+                {devices.filter((device) => device.status !== 'ACTIVE').slice(0, historyLimit).map((device) => <DeviceRow key={device.id} device={device} busy={busy} onRevoke={() => undefined} historical />)}
+                {devices.filter((device) => device.status !== 'ACTIVE').length > historyLimit && <button className="secondary compact-button" type="button" onClick={() => setHistoryLimit((value) => value + 10)}>Show 10 more</button>}
+              </div>}
+            </>}
           </section>
+
+          {pendingRevoke && <div className="modal-backdrop" role="presentation">
+            <section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="revoke-device-title">
+              <h3 id="revoke-device-title">{pendingRevoke.current ? 'Sign out this device?' : `Revoke ${deviceName(pendingRevoke.user_agent)}?`}</h3>
+              <p>{pendingRevoke.current ? 'This immediately ends the current authenticated session.' : `This immediately revokes access for ${deviceName(pendingRevoke.user_agent)} last seen ${new Date(pendingRevoke.last_seen_at).toLocaleString()}.`}</p>
+              <div className="form-actions">
+                <button className="secondary" type="button" autoFocus onClick={() => setPendingRevoke(null)}>Keep session</button>
+                <button className="danger-button" type="button" disabled={busy === pendingRevoke.id} onClick={() => { const device = pendingRevoke; setPendingRevoke(null); void revoke(device); }}>{pendingRevoke.current ? 'Sign out' : 'Revoke device'}</button>
+              </div>
+            </section>
+          </div>}
+
         </div>
       </section>
     </div>
   );
+}
+
+function DeviceRow({ device, busy, onRevoke, historical = false }: { device: DeviceSession; busy: string | null; onRevoke: () => void; historical?: boolean }) {
+  return <div className="device-row">
+    <div>
+      <b>{deviceName(device.user_agent)}{device.current ? ' · This device' : ''}</b>
+      <small>{device.ip_address ?? 'Unknown IP'} · Last seen {new Date(device.last_seen_at).toLocaleString()}</small>
+      <details className="technical-details compact"><summary>Session details</summary><code>{device.id}</code></details>
+    </div>
+    <div><StatusBadge status={device.status} />{!historical && device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={onRevoke}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
+  </div>;
 }
 
 function apiMessage(error: unknown, fallback: string): string {
