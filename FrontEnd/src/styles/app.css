@@ -444,6 +444,17 @@ td :is(.amount,.money), td[data-number], .numeric { font-variant-numeric: tabula
 .demo-accounts > span { color: var(--qt-muted); }
 .auth-card input { width: 100%; }
 
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 11000; background: rgba(16,44,64,.42);
+  display: grid; place-items: center; padding: 16px;
+}
+.confirmation-dialog {
+  width: min(480px, 100%); max-height: calc(100dvh - 32px); overflow: auto;
+  background: #fff; border: 1px solid var(--qt-border); border-radius: 10px; padding: 24px;
+  box-shadow: 0 18px 48px rgba(16,44,64,.22);
+}
+.danger-button { background: var(--qt-danger); color: #fff; border: 1px solid var(--qt-danger); padding-inline: 16px; }
+
 @media (min-width: 1025px) {
   .form-grid { grid-template-columns: repeat(2, minmax(280px, 1fr)); }
 }
