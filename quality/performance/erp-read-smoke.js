@@ -55,14 +55,56 @@ export function setup() {
   };
   const loginResponse = http.post(
     `${BASE_URL}/api/v1/auth/login`,
-    JSON.stringify({ email: 'admin.user@qtfoods.local', password: 'prototype' }),
+    JSON.stringify({
+      email: 'admin.user@qtfoods.local',
+      method: 'password',
+      password: 'prototype',
+    }),
     { ...mutationParams, tags: { name: 'POST /api/v1/auth/login [setup]' } },
   );
-  requireStatus(loginResponse, 200, 'administrator login');
+  requireOneOfStatuses(loginResponse, [200, 202], 'administrator primary authentication');
 
-  const contexts = loginResponse.json('data.contexts');
+  let authenticatedPayload = loginResponse.json('data');
+  if (!Array.isArray(authenticatedPayload?.contexts)) {
+    if (authenticatedPayload?.phase !== 'SELECT_SECOND_FACTOR'
+      || typeof authenticatedPayload?.challenge_id !== 'string') {
+      fail('Administrator login did not return the required MFA challenge.');
+    }
+
+    const emailChallengeResponse = http.post(
+      `${BASE_URL}/api/v1/auth/challenge`,
+      JSON.stringify({
+        challenge_id: authenticatedPayload.challenge_id,
+        action: 'select_email_otp',
+      }),
+      { ...mutationParams, tags: { name: 'POST /api/v1/auth/challenge [select email OTP]' } },
+    );
+    requireStatus(emailChallengeResponse, 202, 'email OTP second-factor selection');
+    const emailChallenge = emailChallengeResponse.json('data');
+    const previewCode = emailChallenge?.delivery?.preview_code;
+    if (emailChallenge?.phase !== 'EMAIL_OTP_SECOND'
+      || typeof emailChallenge?.challenge_id !== 'string'
+      || typeof previewCode !== 'string'
+      || !/^\d{6}$/.test(previewCode)) {
+      fail('Disposable MFA bootstrap did not return a valid email OTP preview.');
+    }
+
+    const verificationResponse = http.post(
+      `${BASE_URL}/api/v1/auth/challenge`,
+      JSON.stringify({
+        challenge_id: emailChallenge.challenge_id,
+        action: 'verify_email_otp',
+        code: previewCode,
+      }),
+      { ...mutationParams, tags: { name: 'POST /api/v1/auth/challenge [verify email OTP]' } },
+    );
+    requireStatus(verificationResponse, 200, 'administrator email OTP verification');
+    authenticatedPayload = verificationResponse.json('data');
+  }
+
+  const contexts = authenticatedPayload?.contexts;
   if (!Array.isArray(contexts) || contexts.length === 0) {
-    fail('Administrator login returned no authorised contexts.');
+    fail('MFA-authenticated administrator returned no authorised contexts.');
   }
 
   // Laravel rotates the session (and therefore its CSRF token) after login.
@@ -119,5 +161,11 @@ export function authenticatedReadSmoke(data) {
 function requireStatus(response, expected, step) {
   if (response.status !== expected) {
     fail(`${step} returned HTTP ${response.status}; expected ${expected}.`);
+  }
+}
+
+function requireOneOfStatuses(response, expected, step) {
+  if (!expected.includes(response.status)) {
+    fail(`${step} returned HTTP ${response.status}; expected one of ${expected.join(', ')}.`);
   }
 }

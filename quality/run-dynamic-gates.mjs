@@ -117,11 +117,51 @@ async function createAuthenticatedZapConfig() {
   const loginPayload = await requestJson('/api/v1/auth/login', {
     method: 'POST',
     headers: mutationHeaders,
-    body: JSON.stringify({ email: 'admin.user@qtfoods.local', password: 'prototype' }),
+    body: JSON.stringify({
+      email: 'admin.user@qtfoods.local',
+      method: 'password',
+      password: 'prototype',
+    }),
   });
-  const contexts = loginPayload?.data?.contexts;
+  let authenticatedPayload = loginPayload?.data;
+  if (!Array.isArray(authenticatedPayload?.contexts)) {
+    if (authenticatedPayload?.phase !== 'SELECT_SECOND_FACTOR'
+      || typeof authenticatedPayload?.challenge_id !== 'string') {
+      throw new Error('Administrator login did not return the required MFA challenge.');
+    }
+
+    const emailChallengePayload = await requestJson('/api/v1/auth/challenge', {
+      method: 'POST',
+      headers: mutationHeaders,
+      body: JSON.stringify({
+        challenge_id: authenticatedPayload.challenge_id,
+        action: 'select_email_otp',
+      }),
+    });
+    const emailChallenge = emailChallengePayload?.data;
+    const previewCode = emailChallenge?.delivery?.preview_code;
+    if (emailChallenge?.phase !== 'EMAIL_OTP_SECOND'
+      || typeof emailChallenge?.challenge_id !== 'string'
+      || typeof previewCode !== 'string'
+      || !/^\d{6}$/.test(previewCode)) {
+      throw new Error('Disposable MFA bootstrap did not return a valid email OTP preview.');
+    }
+
+    const verifiedPayload = await requestJson('/api/v1/auth/challenge', {
+      method: 'POST',
+      headers: mutationHeaders,
+      body: JSON.stringify({
+        challenge_id: emailChallenge.challenge_id,
+        action: 'verify_email_otp',
+        code: previewCode,
+      }),
+    });
+    authenticatedPayload = verifiedPayload?.data;
+  }
+
+  const contexts = authenticatedPayload?.contexts;
   if (!Array.isArray(contexts) || contexts.length === 0) {
-    throw new Error('Administrator login returned no authorised contexts.');
+    throw new Error('MFA-authenticated administrator returned no authorised contexts.');
   }
 
   // Successful login rotates Laravel's session and invalidates the anonymous token.
