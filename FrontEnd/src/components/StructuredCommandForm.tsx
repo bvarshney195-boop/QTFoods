@@ -68,8 +68,15 @@ export function validateStructuredCommand(value: unknown, schema: StructuredComm
       errors[exactPath] = `Enter ${friendlyFieldLabel(fieldKey).toLowerCase()}.`;
       return;
     }
-    if (current !== null && current !== '' && numericField(fieldKey) && !Number.isFinite(Number(current))) {
-      errors[exactPath] = 'Enter a valid number.';
+    if (current !== null && current !== '' && numericField(fieldKey)) {
+      const number = Number(current);
+      if (!Number.isFinite(number)) {
+        errors[exactPath] = 'Enter a valid number.';
+      } else if (positiveField(fieldKey) && number <= 0) {
+        errors[exactPath] = `${friendlyFieldLabel(fieldKey)} must be greater than 0.`;
+      } else if (nonNegativeField(fieldKey) && number < 0) {
+        errors[exactPath] = `${friendlyFieldLabel(fieldKey)} cannot be negative.`;
+      }
     }
   }
 
@@ -515,6 +522,11 @@ function numericField(fieldKey: string): boolean {
   return tokens(fieldKey).some((token) => ['amount', 'cost', 'price', 'value', 'rate', 'percent', 'quantity', 'day', 'month', 'count', 'gross', 'deduction', 'proceed', 'debit', 'credit'].includes(token));
 }
 function integerField(fieldKey: string): boolean { return /(days|months|count|line_number)$/i.test(fieldKey); }
+function positiveField(fieldKey: string): boolean {
+  return /(^|_)(quantity|amount|unit_price|unit_cost|estimated_unit_cost|monthly_gross)$/.test(fieldKey)
+    && !/(credited|paid|outstanding|reserved|picked|received|returned|destroy|repack|rework|restock)/.test(fieldKey);
+}
+
 function nonNegativeField(fieldKey: string): boolean { return /(amount|cost|price|value|rate|percent|quantity|days|months|count|gross|deductions|proceeds|debit|credit)$/i.test(fieldKey); }
 function longTextField(fieldKey: string): boolean { return /(description|notes|reason|instructions|terms|assumption|resolution|corrective_action)$/i.test(fieldKey); }
 function generatedNumberField(fieldKey: string, path: PathPart[]): boolean { return path.length === 1 && (fieldKey.endsWith('_number') || fieldKey.endsWith('_code') || fieldKey === 'case_number'); }
