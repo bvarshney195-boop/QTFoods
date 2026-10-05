@@ -708,6 +708,14 @@ function RequisitionDetail({
   onDecide: (decision: 'approve' | 'reject') => void;
 }) {
   const approvalActions = requisition.approval?.allowed_actions ?? [];
+  const [confirmReject, setConfirmReject] = useState(false);
+  function requestRejectConfirmation() {
+    if (approvalReason.trim().length < 3) {
+      onDecide('reject');
+      return;
+    }
+    setConfirmReject(true);
+  }
   return (
     <div className="requisition-detail">
       <div className="detail-status"><StatusBadge status={requisition.status} /><b>{money(requisition.estimated_total, requisition.currency)}</b><span>v{requisition.record_version}</span></div>
@@ -785,11 +793,27 @@ function RequisitionDetail({
             <FieldError text={errors.approval_reason} />
           </label>
           <div className="form-actions">
-            <button className="secondary" type="button" disabled={busy} onClick={() => onDecide('reject')}>Reject for correction</button>
+            <button className="secondary" type="button" disabled={busy} onClick={requestRejectConfirmation}>Reject for correction</button>
             <button className="primary" type="button" disabled={busy} onClick={() => onDecide('approve')}>Approve requisition</button>
           </div>
         </div>
       ) : null}
+
+      {confirmReject ? <div className="modal-backdrop" role="presentation">
+        <section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reject-requisition-title">
+          <h3 id="reject-requisition-title">Reject requisition ${requisition.requisition_number}?</h3>
+          <p>This sends the requisition back for correction. Review the exact request before confirming.</p>
+          <dl className="control-definition">
+            <Fact label="Requester" value={requisition.requested_by.name} />
+            <Fact label="Amount" value={money(requisition.estimated_total, requisition.currency)} />
+            <Fact label="Reason" value={approvalReason.trim()} wide />
+          </dl>
+          <div className="form-actions">
+            <button className="secondary" type="button" autoFocus onClick={() => setConfirmReject(false)}>Keep reviewing</button>
+            <button className="danger-button" type="button" disabled={busy} onClick={() => { setConfirmReject(false); onDecide('reject'); }}>Reject requisition</button>
+          </div>
+        </section>
+      </div> : null}
 
       {requisition.allowed_actions.includes('CANCEL') ? (
         <div className="inventory-command destructive-command">
