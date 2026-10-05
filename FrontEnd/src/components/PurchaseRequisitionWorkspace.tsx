@@ -801,7 +801,7 @@ function RequisitionDetail({
 
       {confirmReject ? <div className="modal-backdrop" role="presentation">
         <section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reject-requisition-title">
-          <h3 id="reject-requisition-title">Reject requisition ${requisition.requisition_number}?</h3>
+          <h3 id="reject-requisition-title">Reject requisition {requisition.requisition_number}?</h3>
           <p>This sends the requisition back for correction. Review the exact request before confirming.</p>
           <dl className="control-definition">
             <Fact label="Requester" value={requisition.requested_by.name} />
