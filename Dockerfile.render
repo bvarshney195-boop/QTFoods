@@ -42,7 +42,4 @@ USER www-data
 
 EXPOSE 10000
 
-# Authorised one-time production bootstrap. The command is fail-closed,
-# audited and idempotent: after the real administrator and assignment exist,
-# subsequent container starts return already_provisioned without changing them.
-CMD ["sh", "-c", "php artisan migrate --force && php artisan qt:identity:bootstrap-admin bvarshney195@gmail.com --name='ERP Administrator' --company-code=QTF-LIVE --company-name='Q & T FOODS LTD' --plant-code=HQ --plant-name='Head Office' --timezone=Asia/Kolkata --confirmation=CREATE_PRODUCTION_ADMIN --no-interaction && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD ["sh", "-c", "php artisan migrate --force && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
