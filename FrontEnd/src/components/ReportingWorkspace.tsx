@@ -40,7 +40,9 @@ export function ReportingWorkspace() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setWorkspace(await listReportRuns({ q: search || undefined, report_code: reportCode || undefined }));
+      const next = await listReportRuns({ q: search || undefined, report_code: reportCode || undefined });
+      setWorkspace(next);
+      setSelected((current) => current && next.data.some((run) => run.id === current.id) ? current : null);
       setError(null);
     } catch (caught) {
       setError(message(caught, 'Unable to load report runs.'));
@@ -50,6 +52,11 @@ export function ReportingWorkspace() {
   }, [contextKey, search, reportCode]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => setSuccess(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [success]);
   useEffect(() => {
     setSelected(null); setDraft(null); setSearch(''); setReportCode('');
     setError(null); setSuccess(null); setFieldErrors({}); runKey.current = null;
@@ -134,7 +141,8 @@ export function ReportingWorkspace() {
       <Metric label="Exports" value={summary.exports_created} />
       <Metric label="Latest source freshness" value={summary.latest_freshness_at ? dateTime(summary.latest_freshness_at) : 'No source yet'} />
     </div> : null}
-    <div className="module-grid requisition-workspace reporting-workspace">
+    {success ? <div className="toast success-toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span><div><b>Success</b><p>{success}</p></div><button type="button" aria-label="Dismiss success notification" onClick={() => setSuccess(null)}>×</button></div> : null}
+    <div className={`module-grid requisition-workspace reporting-workspace ${draft || selected || error ? 'has-detail' : 'register-only'}`}>
       <section className="panel">
         <div className="requisition-toolbar reporting-toolbar">
           <label>Search runs<input aria-label="Report search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Run number or report" /></label>
@@ -148,13 +156,12 @@ export function ReportingWorkspace() {
           <td className="report-checksum">{run.sha256.slice(0, 14)}…</td><td><button type="button" className="secondary compact-button" onClick={() => void open(run)}>Open</button></td>
         </tr>)}</tbody></table></div> : <Empty text="No immutable report runs match this scope and filter." />}
       </section>
-      <aside className="panel requisition-editor reporting-editor"><div className="requisition-detail-body">
-        {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); runKey.current = null; }} />
+      {(draft || selected || error) ? <aside className="panel requisition-editor reporting-editor"><div className="requisition-detail-body">
+        {error ? <div className="form-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)}>Dismiss</button></div> : null}
+        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); setError(null); setFieldErrors({}); runKey.current = null; }} />
           : selected ? <ReportDetail run={selected} busy={busy} exportRun={exportRun} />
-            : <Empty text={canRun ? 'Choose a run to inspect its stored rows, or generate a new controlled snapshot.' : 'Choose a run to inspect its controlled evidence.'} />}
-      </div></aside>
+            : null}
+      </div></aside> : null}
     </div>
   </>;
 }
@@ -183,19 +190,23 @@ function ReportDetail({ run, busy, exportRun }: { run: ReportRun; busy: boolean;
   const rows = run.rows ?? [];
   const columns = run.columns ?? [];
   return <div className="requisition-detail reporting-detail">
-    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div>
-    <dl className="control-definition">
-      <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
-      <Datum label="Cutoff" value={dateTime(run.as_of_at)} />
-      <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
-      <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
-      <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
-      <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
-    </dl>
+    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.report_number ?? run.run_number}</b><span>{run.row_count} rows</span></div>
+    <div className="report-primary-actions">
+      <div><b>{run.report_title}</b><small>{dateTime(run.as_of_at)} · {run.row_count} rows</small></div>
+      {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
+    </div>
     <section className="report-totals"><h4>Stored totals</h4><div>{Object.entries(run.totals).map(([key, value]) => <span key={key}>{label(key)}<b>{formatTotal(key, value)}</b></span>)}</div></section>
     <section className="report-rows"><h4>Immutable snapshot rows</h4>{rows.length ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{columns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
-    {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
-    {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    <details className="technical-details report-integrity"><summary>Export & integrity details</summary>
+      <dl className="control-definition">
+        <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
+        <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
+        <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
+        <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
+        <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
+      </dl>
+      {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    </details>
   </div>;
 }
 
