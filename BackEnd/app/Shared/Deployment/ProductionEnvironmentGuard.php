@@ -85,6 +85,16 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, strtolower((string) $this->config->get('deployment.log_level')) !== 'info', 'LOG_LEVEL must be info so successful request and operational events are retained.');
         $this->reject($violations, $this->config->get('cache.default') !== 'redis', 'CACHE_STORE must be redis for durable low-cardinality metrics and alert state.');
         $this->reject($violations, $this->config->get('queue.default') !== 'redis', 'QUEUE_CONNECTION must be redis.');
+        $this->reject($violations, strtolower((string) $this->config->get('qtfoods.outbox.transport')) !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $outboxEndpoint = trim((string) $this->config->get('qtfoods.outbox.http_endpoint'));
+        $outboxParts = parse_url($outboxEndpoint);
+        $this->reject($violations,
+            ! is_array($outboxParts) || ($outboxParts['scheme'] ?? null) !== 'https' || empty($outboxParts['host'])
+                || $this->placeholder($outboxEndpoint),
+            'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS receiver.'
+        );
+        $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a strong secret of at least 32 characters.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACK must remain enabled in production.');
         $this->reject($violations, $this->config->get('session.driver') !== 'redis', 'SESSION_DRIVER must be redis.');
         $this->reject($violations, $this->config->get('queue.failed.driver') !== 'database-uuids', 'QUEUE_FAILED_DRIVER must persist failed jobs with UUIDs.');
 
