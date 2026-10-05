@@ -333,7 +333,7 @@ final class PartnerPortalQuery
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
             ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalDetail('order', $payload);
     }
 
     private function shipmentDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -355,7 +355,7 @@ final class PartnerPortalQuery
         $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
         $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
 
-        return $payload;
+        return $internal ? $payload : $this->externalDetail('shipment', $payload);
     }
 
     private function invoiceDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -374,7 +374,7 @@ final class PartnerPortalQuery
         $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalDetail('invoice', $payload);
     }
 
     private function claimDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
@@ -394,7 +394,7 @@ final class PartnerPortalQuery
             ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
 
-        return $payload;
+        return $internal ? $payload : $this->externalDetail('claim', $payload);
     }
 
     private function documentDetail(
@@ -502,6 +502,43 @@ final class PartnerPortalQuery
         }
 
         return $actions;
+    }
+
+    private function externalDetail(string $resource, array $payload): array
+    {
+        $allow = match ($resource) {
+            'order' => ['id','order_number','order_date','requested_delivery_date','currency','subtotal','tax_amount','total_amount','status','confirmed_at','cancelled_at','cancellation_reason','lines'],
+            'shipment' => ['id','shipment_number','shipment_type','sales_order_id','carrier_name','vehicle_number','driver_name','status','loaded_at','dispatched_at','delivered_at','lines','proof','invoice'],
+            'invoice' => ['id','invoice_id','invoice_number','shipment_id','sales_order_id','currency','net_amount','tax_amount','gross_amount','outstanding_amount','paid_amount','credited_amount','issued_at','due_date','status','transactions'],
+            'claim' => ['id','claim_number','shipment_id','invoice_id','claim_type','requested_resolution','reason','status','resolution_type','credit_amount','created_at','updated_at','lines'],
+            default => [],
+        };
+        $result = array_intersect_key($payload, array_flip($allow));
+        if (isset($result['lines']) && is_array($result['lines'])) {
+            $lineAllow = match ($resource) {
+                'order' => ['id','line_number','item_code','item_name','uom_code','ordered_quantity','unit_price','discount_percent','tax_rate','net_amount','tax_amount','gross_amount'],
+                'shipment' => ['id','item_code','item_name','internal_lot_code','uom_code','shipped_quantity','returned_quantity'],
+                'claim' => ['id','line_number','item_code','item_name','internal_lot_code','quantity','uom_code'],
+                default => [],
+            };
+            $result['lines'] = collect($result['lines'])
+                ->map(fn (array $line) => array_intersect_key($line, array_flip($lineAllow)))
+                ->all();
+        }
+        if (isset($result['transactions']) && is_array($result['transactions'])) {
+            $transactionAllow = ['transaction_type','amount','reference_number','posted_at'];
+            $result['transactions'] = collect($result['transactions'])
+                ->map(fn ($row) => array_intersect_key((array) $row, array_flip($transactionAllow)))
+                ->all();
+        }
+        if (isset($result['proof']) && is_array($result['proof'])) {
+            $result['proof'] = array_intersect_key($result['proof'], array_flip(['proof_number','outcome','receiver_name','event_at','failure_reason']));
+        }
+        if (isset($result['invoice']) && is_array($result['invoice'])) {
+            $result['invoice'] = array_intersect_key($result['invoice'], array_flip(['invoice_id','invoice_number','currency','gross_amount','outstanding_amount','issued_at','due_date']));
+        }
+
+        return $result;
     }
 
     private function documentPayload(object $row, bool $internal, array $entitlements, array $permissions): array
