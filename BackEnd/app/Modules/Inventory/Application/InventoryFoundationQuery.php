@@ -318,10 +318,11 @@ final class InventoryFoundationQuery
     {
         $rows = $this->stockBase($scope)->get([
             'position.id', 'position.item_id', 'position.lot_id', 'position.quantity_base',
-            'position.reserved_quantity_base', 'lot.status as lot_status', 'lot.expiry_date',
+            'position.reserved_quantity_base', 'position.uom_code', 'lot.status as lot_status', 'lot.expiry_date',
             'quality.availability_bucket',
         ]);
         $total = $available = $blocked = $reserved = '0.000000';
+        $byUom = [];
         foreach ($rows as $row) {
             $quantity = $this->decimal($row->quantity_base);
             $rowReserved = $this->decimal($row->reserved_quantity_base);
@@ -334,6 +335,16 @@ final class InventoryFoundationQuery
                 $available = bcadd($available, $unreserved, 6);
             } else {
                 $blocked = bcadd($blocked, $unreserved, 6);
+            }
+
+            $uom = (string) $row->uom_code;
+            $byUom[$uom] ??= ['uom_code' => $uom, 'total' => '0.000000', 'available' => '0.000000', 'blocked' => '0.000000', 'reserved' => '0.000000'];
+            $byUom[$uom]['total'] = bcadd($byUom[$uom]['total'], $quantity, 6);
+            $byUom[$uom]['reserved'] = bcadd($byUom[$uom]['reserved'], $rowReserved, 6);
+            if ($eligible) {
+                $byUom[$uom]['available'] = bcadd($byUom[$uom]['available'], $unreserved, 6);
+            } else {
+                $byUom[$uom]['blocked'] = bcadd($byUom[$uom]['blocked'], $unreserved, 6);
             }
         }
         $today = today()->toDateString();
@@ -348,7 +359,11 @@ final class InventoryFoundationQuery
             'total' => $total,
             'available' => $available,
             'blocked' => $blocked,
+            // Legacy aggregate fields are retained for API compatibility only. Physical UI
+            // totals must use quantities_by_uom and must never add unlike units.
             'reserved' => $reserved,
+            'uom_count' => count($byUom),
+            'quantities_by_uom' => array_values($byUom),
             'expired_lots' => (clone $lotBase)->where('lot.expiry_date', '<', $today)
                 ->distinct()->count('lot.id'),
             'expiring_30_lots' => (clone $lotBase)->whereBetween('lot.expiry_date', [$today, $soon])
