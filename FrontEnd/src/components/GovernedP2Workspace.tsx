@@ -65,6 +65,11 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   }, [config.listPath, config.supportsStatus, config.title, contextKey, search, status]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!feedback.success) return;
+    const timer = window.setTimeout(() => setFeedback((current) => ({ ...current, success: null })), 5000);
+    return () => window.clearTimeout(timer);
+  }, [feedback.success]);
   useEffect(() => { setCollectionKey(config.collections[0]?.key ?? 'data'); setSelected(null); setEditor(null); setSearch(''); setStatus(''); setFeedback(clear()); }, [contextKey, config.code, config.collections]);
 
   const collection = config.collections.find((item) => item.key === collectionKey) ?? config.collections[0];
@@ -73,6 +78,9 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     return Array.isArray(values) ? values.map((value) => ({ ...(value as P2Record), _kind: collection?.kind ?? collection?.key })) : [];
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
+  useEffect(() => {
+    if (selected && !records.some((record) => record.id === selected.id)) setSelected(null);
+  }, [records, selected]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
@@ -135,20 +143,20 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       <i />
       {availableCreators.map((creator) => <button key={`${creator.action}:${creator.label}`} className="p2-create-command" onClick={() => startCreator(creator)}>+ {creator.label}</button>)}
     </div> : null}
-    <div className="module-grid requisition-workspace p2-workspace">
+    {feedback.success ? <div className="toast success-toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span><div><b>Success</b><p>{feedback.success}</p></div><button type="button" aria-label="Dismiss success notification" onClick={() => setFeedback((current) => ({ ...current, success: null }))}>×</button></div> : null}
+    <div className={`module-grid requisition-workspace p2-workspace ${editor || selected || feedback.error ? 'has-detail' : 'register-only'}`}>
       <section className="panel">
         <div className="requisition-toolbar p2-toolbar">
           <label>Search<input aria-label={`${config.title} search`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Number, customer, reference or description" /></label>
           {config.supportsStatus === false ? <div /> : <label>Status<select aria-label={`${config.title} status`} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>}
-          <button className="secondary compact-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
+          <button className="secondary compact-button" type="button" disabled={loading} onClick={() => void refresh()}>{loading ? 'Updating…' : 'Refresh'}</button>
         </div>
-        {loading && !workspace ? <Empty text={`Loading ${config.title.toLowerCase()}...`} /> : <Register records={records} columns={collection?.columns ?? []} showStatus={collection?.showStatus !== false} selectedId={selected?.id} onOpen={open} />}
+        {loading && !workspace ? <div aria-busy="true"><Empty text={`Loading ${config.title.toLowerCase()}…`} /></div> : <Register records={records} columns={collection?.columns ?? []} showStatus={collection?.showStatus !== false} selectedId={selected?.id} onOpen={open} />}
       </section>
-      <aside className="panel requisition-editor"><div className="requisition-detail-body">
-        {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
-        {feedback.success ? <div className="form-success" role="status"><span />{feedback.success}</div> : null}
-        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => setEditor(null)} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
-      </div></aside>
+      {(editor || selected || feedback.error) ? <aside className="panel requisition-editor"><div className="requisition-detail-body">
+        {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span><button type="button" onClick={() => setFeedback((current) => ({ ...current, error: null }))}>Dismiss</button></div> : null}
+        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : null}
+      </div></aside> : null}
     </div>
   </>;
 }
@@ -211,12 +219,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {
-  const facts = Object.entries(record).filter(([key, value]) => !['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const excluded = ['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json', 'id', 'company_id', 'plant_id', 'created_by', 'updated_by'];
+  const facts = Object.entries(record).filter(([key, value]) => !excluded.includes(key) && !key.endsWith('_id') && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const technicalFacts = Object.entries(record).filter(([key, value]) => (key === 'id' || key.endsWith('_id') || ['company_id', 'plant_id', 'created_by', 'updated_by'].includes(key)) && (value === null || ['string', 'number'].includes(typeof value)));
   const collections = Object.entries(record).filter(([, value]) => Array.isArray(value)) as [string, unknown[]][];
   const objects = Object.entries(record).filter(([key, value]) => !['allowed_actions'].includes(key) && value && typeof value === 'object' && !Array.isArray(value));
   return <div className="requisition-detail p2-detail"><div className="detail-status"><StatusBadge status={String(record.status ?? 'ARCHIVED')} />{record.record_version ? <span>record version {record.record_version}</span> : null}</div><dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(value, moneyKey(key) ? 'money' : key.includes('date') || key.endsWith('_at') ? 'date' : 'text')}</dd></div>)}</dl>
     {objects.map(([key, value]) => <section className="p2-object-evidence" key={key}><h4>{label(key)}</h4><ObjectFacts value={value as Record<string, unknown>} /></section>)}
     {collections.map(([key, values]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={values} /></section>)}
+    {technicalFacts.length ? <details className="technical-details"><summary>Technical details</summary><dl className="control-definition">{technicalFacts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{String(value ?? '—')}</dd></div>)}</dl></details> : null}
     {(record.allowed_actions?.length ?? 0) > 0 ? <div className="p2-action-grid">{record.allowed_actions!.map((action) => <button className={action.includes('CANCEL') || action.includes('REJECT') || action === 'CLOSE' ? 'secondary' : 'primary'} type="button" disabled={busy} key={action} onClick={() => onAction(action)}>{label(action)}</button>)}</div> : <div className="callout">{record._kind === 'claim' ? 'No action is available for this claim in its current state and your assigned role. Sales users create and resolve claims; Operations users receive goods after a claim reaches Return Required.' : 'This record is read-only in its current state or for your assigned role.'}</div>}
   </div>;
 }
