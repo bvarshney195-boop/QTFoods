@@ -58,6 +58,7 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, ! (bool) $this->config->get('session.encrypt'), 'SESSION_ENCRYPT must be true.');
         $this->reject($violations, ! in_array($this->config->get('session.same_site'), ['lax', 'strict'], true), 'SESSION_SAME_SITE must be lax or strict.');
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_seeders'), 'QT_ALLOW_DEMO_SEEDERS must be false.');
+        $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_login'), 'QT_ALLOW_DEMO_LOGIN must be false.');
         $this->reject($violations, (bool) $this->config->get('qtfoods.identity.preview_links'), 'QT_IDENTITY_PREVIEW_LINKS must be false.');
 
         $this->reject($violations, $this->config->get('database.default') !== 'pgsql', 'DB_CONNECTION must be pgsql.');
