@@ -190,7 +190,7 @@ function ReportDetail({ run, busy, exportRun }: { run: ReportRun; busy: boolean;
   const rows = run.rows ?? [];
   const columns = run.columns ?? [];
   return <div className="requisition-detail reporting-detail">
-    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.report_number ?? run.run_number}</b><span>{run.row_count} rows</span></div>
+    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div>
     <div className="report-primary-actions">
       <div><b>{run.report_title}</b><small>{dateTime(run.as_of_at)} · {run.row_count} rows</small></div>
       {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
