@@ -25,6 +25,8 @@ return [
         'timeout_seconds' => (int) env('QT_OUTBOX_TIMEOUT_SECONDS', 10),
         'require_acknowledgement' => env('QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT', true),
         'acknowledgement_header' => env('QT_OUTBOX_ACKNOWLEDGEMENT_HEADER', 'X-Acknowledgement-ID'),
+        'require_bound_acknowledgement' => env('QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT', true),
+        'acknowledged_event_header' => env('QT_OUTBOX_ACKNOWLEDGED_EVENT_HEADER', 'X-Acknowledged-Event-ID'),
         'batch_size' => (int) env('QT_OUTBOX_BATCH_SIZE', 50),
         'max_attempts' => (int) env('QT_OUTBOX_MAX_ATTEMPTS', 8),
         'base_retry_seconds' => (int) env('QT_OUTBOX_BASE_RETRY_SECONDS', 30),

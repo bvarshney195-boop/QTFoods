@@ -103,6 +103,9 @@ final class SessionService
             ->leftJoin('plants as p', 'p.id', '=', 'ra.plant_id')
             ->where('c.status', 'ACTIVE')
             ->where(fn (Builder $q) => $q->whereNull('p.id')->orWhere('p.status', 'ACTIVE'))
+            ->when(! config('deployment.allow_demo_authentication', false), fn (Builder $query) => $query
+                ->where('c.is_demo', false)
+                ->where(fn (Builder $plant) => $plant->whereNull('p.id')->orWhere('p.is_demo', false)))
             ->select([
                 'c.id as company_id',
                 'c.display_name as company_name',

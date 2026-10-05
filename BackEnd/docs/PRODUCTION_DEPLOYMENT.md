@@ -34,6 +34,7 @@ Use independent random values for the Laravel key, PostgreSQL password, object-s
 Important relationships:
 
 - `APP_HOST` is a host name only, without a scheme, port, or path.
+- `APP_TIMEZONE=UTC` is mandatory for persisted instants. User-facing date/time rendering uses each plant's explicit IANA timezone, such as `Asia/Kolkata`.
 - `QT_CORS_ALLOWED_ORIGINS` is an exact comma-separated HTTPS origin list without trailing slashes.
 - `QT_FRONTEND_URL` must match the public frontend used in invitation, verification, and reset links.
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT`, and `AWS_USE_PATH_STYLE_ENDPOINT` are provider-neutral S3-compatible settings. `AWS_ENDPOINT` must be the provider's exact HTTPS endpoint; do not put credentials, query parameters, or a bucket path in it.
@@ -43,7 +44,7 @@ Important relationships:
 - `QT_ALERT_TRANSPORT=log` emits alert-ready JSON to stderr. Set it to `http` only with an approved HTTPS `QT_ALERT_HTTP_ENDPOINT` and an independent `QT_ALERT_SIGNING_SECRET` of at least 32 characters.
 - `QT_BACKUP_HOST_PATH` is a protected host path, never a repository directory in production. `QT_BACKUP_RETENTION_DAYS`, `QT_RECOVERY_RPO_MINUTES`, `QT_RECOVERY_RTO_MINUTES`, and `QT_RECOVERY_OBJECT_LIMIT` are bounded and checked at production boot.
 - `LOG_CHANNEL=stderr`, `LOG_LEVEL=info`, and the Monolog JSON formatter are enforced because request-completion and healthy operational events are emitted at info level.
-- Keep `QT_ALLOW_DEMO_SEEDERS=false`, `QT_IDENTITY_PREVIEW_LINKS=false`, and `APP_DEBUG=false`.
+- Keep `QT_ALLOW_DEMO_SEEDERS=false`, `QT_ALLOW_DEMO_AUTHENTICATION=false`, `QT_IDENTITY_PREVIEW_LINKS=false`, and `APP_DEBUG=false`.
 
 The real production environment file is ignored by Git and excluded from the production Docker build context.
 
@@ -77,6 +78,30 @@ curl --fail --header "Authorization: Bearer $QT_METRICS_TOKEN" https://api.erp.c
 ```
 
 Startup ordering is deliberate: PostgreSQL and Redis become healthy; the one-shot migration service re-runs the production guard and applies forward migrations; then PHP-FPM, the queue worker, scheduler, and TLS gateway start. The managed object-storage bucket and identity must already exist, and readiness remains false if that external dependency cannot be reached. The production stack never invokes `DatabaseSeeder`.
+
+The migration service also runs `qt:security:verify-identities` after migrations. It fails deployment if a known demo identity is active or unclassified, a shared `prototype` credential still verifies, a demo session remains active, a known training company/plant is unclassified, or a real user has an active assignment into a synthetic context. Retain its JSON output with the release evidence.
+
+## Security and integration release probes
+
+The configured event receiver must verify `X-QT-Signature`, use `Idempotency-Key` as the stable event identity, and return both `X-Acknowledgement-ID` and `X-Acknowledged-Event-ID`. The latter must exactly match `X-QT-Event-ID`; an unbound or mismatched acknowledgement is treated as a failed attempt.
+
+Create a unique probe only after the real receiver and durable object store are connected:
+
+```bash
+docker compose --env-file /secure/path/qtfoods-production.env -f docker-compose.production.yml \
+  exec app php artisan qt:release:create-outbox-probe
+```
+
+Retain the returned event ID, evidence path and SHA-256. Exercise the receiver's approved synthetic failure mode until the event records RETRY and QUARANTINED, replay it from `ADM-INT`, restart the worker, scheduler and application containers, and deliver/replay the same stable event ID. The receiver must report an idempotent replay without repeating its business side effect. Then run:
+
+```bash
+docker compose --env-file /secure/path/qtfoods-production.env -f docker-compose.production.yml \
+  exec app php artisan qt:release:verify-outbox EVENT_UUID \
+  --require-failure-lifecycle --require-idempotent-replay --require-worker-restart \
+  --evidence-path=RELEASE_READINESS_PATH --evidence-sha256=EXPECTED_SHA256
+```
+
+The command exits non-zero unless retained attempts prove real HTTP delivery, an event-bound receiver ACK, retry, quarantine, idempotent replay, distinct worker instances, active oldest-backlog-age monitoring and unchanged durable evidence after restart. Its JSON output is the release artifact for `OPS-01`; a log-transport acknowledgement cannot pass.
 
 Caddy redirects HTTP to HTTPS and persists ACME state in `caddy_data` and `caddy_config`. The application trusts only the immediate reverse proxy, validates the configured host, rejects insecure protected traffic, and adds HSTS, frame, MIME-sniffing, referrer, and browser-permission headers to secure responses.
 

@@ -41,6 +41,7 @@ final class ProductionEnvironmentGuard
         $origins = (array) $this->config->get('cors.allowed_origins', []);
 
         $this->reject($violations, (bool) $this->config->get('app.debug'), 'APP_DEBUG must be false.');
+        $this->reject($violations, strtoupper((string) $this->config->get('app.timezone')) !== 'UTC', 'APP_TIMEZONE must be UTC; plant-local display must use the explicit plant timezone.');
         $this->reject($violations, ! $this->validApplicationKey($this->config->get('app.key')), 'APP_KEY must be a unique, valid 32-byte key and not the development fallback.');
         $this->reject($violations, parse_url($appUrl, PHP_URL_SCHEME) !== 'https' || ! is_string($appHost), 'APP_URL must be an absolute HTTPS URL.');
         $this->reject($violations, $this->placeholder($appUrl), 'APP_URL must not use an example or placeholder host.');
@@ -65,8 +66,11 @@ final class ProductionEnvironmentGuard
 
         $this->reject($violations, $this->config->get('qtfoods.outbox.transport') !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
         $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must be true.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_bound_acknowledgement'), 'QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT must be true.');
         $this->reject($violations, $this->unsafeHttpEndpoint($this->config->get('qtfoods.outbox.http_endpoint')), 'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS endpoint.');
         $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
+        $outboxAgeThreshold = (int) $this->config->get('observability.monitoring.thresholds.outbox_oldest_due_seconds');
+        $this->reject($violations, $outboxAgeThreshold < 1 || $outboxAgeThreshold > 86400, 'QT_ALERT_OUTBOX_OLDEST_DUE_SECONDS must be between 1 and 86400.');
 
         $this->reject($violations, $this->config->get('database.default') !== 'pgsql', 'DB_CONNECTION must be pgsql.');
         $this->reject($violations, $this->unsafeSecret($this->config->get('database.connections.pgsql.password')), 'DB_PASSWORD must be a non-placeholder secret of at least 16 characters.');

@@ -155,6 +155,30 @@ final class ProductionConfigurationTest extends TestCase
         self::assertSame([], app(ProductionEnvironmentGuard::class)->violations('production'));
     }
 
+    public function test_outbox_acknowledgements_must_be_event_bound_and_backlog_age_must_be_monitored(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'qtfoods.outbox.require_bound_acknowledgement' => false,
+            'observability.monitoring.thresholds.outbox_oldest_due_seconds' => 0,
+        ]);
+
+        $violations = app(ProductionEnvironmentGuard::class)->violations('production');
+        self::assertContains('QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT must be true.', $violations);
+        self::assertContains('QT_ALERT_OUTBOX_OLDEST_DUE_SECONDS must be between 1 and 86400.', $violations);
+    }
+
+    public function test_production_persistence_timezone_must_be_utc(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set('app.timezone', 'Asia/Kolkata');
+
+        self::assertContains(
+            'APP_TIMEZONE must be UTC; plant-local display must use the explicit plant timezone.',
+            app(ProductionEnvironmentGuard::class)->violations('production'),
+        );
+    }
+
     public function test_recovery_policy_requires_bounded_retention_and_objectives(): void
     {
         $this->configureSafeProductionEnvironment();
@@ -191,6 +215,7 @@ final class ProductionConfigurationTest extends TestCase
     {
         config()->set([
             'app.debug' => false,
+            'app.timezone' => 'UTC',
             'app.key' => 'base64:'.base64_encode(hash('sha256', 'production-configuration-test', true)),
             'app.url' => 'https://api.erp.secure.test',
             'deployment.enforce_https' => true,

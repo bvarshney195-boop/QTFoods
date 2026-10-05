@@ -28,14 +28,6 @@ type LoginProps = {
   error?: string | null;
 };
 
-const demoAccounts = [
-  ['Sales', 'demo.user@qtfoods.local'],
-  ['Operations', 'operations.user@qtfoods.local'],
-  ['Finance', 'finance.user@qtfoods.local'],
-  ['ERP Admin', 'admin.user@qtfoods.local'],
-] as const;
-const demoLoginEnabled = import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
-
 export default function ACC_LOGIN({
   onLogin,
   onChallenge,
@@ -273,12 +265,6 @@ export default function ACC_LOGIN({
                 <button type="button" onClick={() => switchFlow('verification')}>Resend verification</button>
               </div>
 
-              {demoLoginEnabled && <div className="demo-accounts">
-                <span>Try a demo role · password: <b>prototype</b></span>
-                <div>{demoAccounts.map(([label, account]) => (
-                  <button type="button" key={account} className={email === account ? 'selected' : ''} onClick={() => { setEmail(account); setAuthMethod('password'); setPassword('prototype'); }}>{label}</button>
-                ))}</div>
-              </div>}
             </>}
           </form>
         )}

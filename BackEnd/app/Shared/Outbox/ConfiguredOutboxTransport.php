@@ -69,13 +69,37 @@ final class ConfiguredOutboxTransport implements OutboxTransport
         }
         $acknowledgement = $acknowledgement !== '' ? $acknowledgement : 'http:'.$event['id'];
 
+        $eventHeader = trim((string) config('qtfoods.outbox.acknowledged_event_header', 'X-Acknowledged-Event-ID'));
+        $acknowledgedEvent = trim((string) $response->header($eventHeader));
+        if ($acknowledgedEvent === '' && is_array($json)) {
+            $acknowledgedEvent = trim((string) ($json['acknowledged_event_id'] ?? $json['event_id'] ?? ''));
+        }
+        if (config('qtfoods.outbox.require_bound_acknowledgement', true)
+            && ($acknowledgedEvent === '' || ! hash_equals((string) $event['id'], $acknowledgedEvent))) {
+            throw new RuntimeException('Outbox receiver acknowledgement was not bound to the delivered event identifier.');
+        }
+
         return [
             'acknowledgement_id' => mb_substr($acknowledgement, 0, 255),
             'response' => [
                 'transport' => 'http',
                 'http_status' => $response->status(),
                 'acknowledgement_received' => true,
+                'acknowledged_event_id' => $acknowledgedEvent,
+                'receiver' => $this->receiverEvidence($json),
             ],
         ];
+    }
+
+    private function receiverEvidence(mixed $json): array
+    {
+        if (! is_array($json)) {
+            return [];
+        }
+
+        return collect($json)
+            ->only(['accepted', 'idempotent_replay', 'receiver', 'processed_at'])
+            ->filter(static fn (mixed $value): bool => is_scalar($value) || $value === null)
+            ->all();
     }
 }

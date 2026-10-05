@@ -4,7 +4,7 @@ x-production-environment: &production-environment
   APP_KEY: "${APP_KEY:?APP_KEY is required}"
   APP_DEBUG: "false"
   APP_URL: "https://${APP_HOST:?APP_HOST is required}"
-  APP_TIMEZONE: "${APP_TIMEZONE:-Asia/Kolkata}"
+  APP_TIMEZONE: "${APP_TIMEZONE:-UTC}"
   LOG_CHANNEL: stderr
   LOG_LEVEL: "${LOG_LEVEL:-info}"
   LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
@@ -53,6 +53,7 @@ x-production-environment: &production-environment
   QT_ENFORCE_HTTPS: "true"
   QT_HSTS_MAX_AGE: 31536000
   QT_ALLOW_DEMO_SEEDERS: "false"
+  QT_ALLOW_DEMO_AUTHENTICATION: "false"
   QT_IDENTITY_PREVIEW_LINKS: "false"
   QT_EVIDENCE_DISK: evidence
   QT_PRIVATE_DOCUMENT_DISK: private
@@ -65,6 +66,8 @@ x-production-environment: &production-environment
   QT_OUTBOX_TIMEOUT_SECONDS: "${QT_OUTBOX_TIMEOUT_SECONDS:-10}"
   QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT: "true"
   QT_OUTBOX_ACKNOWLEDGEMENT_HEADER: X-Acknowledgement-ID
+  QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT: "true"
+  QT_OUTBOX_ACKNOWLEDGED_EVENT_HEADER: X-Acknowledged-Event-ID
   QT_OUTBOX_BATCH_SIZE: "${QT_OUTBOX_BATCH_SIZE:-50}"
   QT_OUTBOX_MAX_ATTEMPTS: "${QT_OUTBOX_MAX_ATTEMPTS:-8}"
   QT_OUTBOX_BASE_RETRY_SECONDS: "${QT_OUTBOX_BASE_RETRY_SECONDS:-30}"
@@ -113,7 +116,7 @@ services:
     command:
       - sh
       - -lc
-      - php artisan qt:deployment:verify && php artisan migrate --force
+      - php artisan qt:deployment:verify && php artisan migrate --force && php artisan qt:security:verify-identities
     environment: *production-environment
     depends_on: *app-dependencies
     restart: "no"

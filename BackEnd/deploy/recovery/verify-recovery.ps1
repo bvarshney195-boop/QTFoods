@@ -152,7 +152,7 @@ try {
     $env:APP_KEY = 'base64:' + [Convert]::ToBase64String($keyBytes)
     $env:APP_HOST = 'api.recovery-drill.invalid'
     $env:ACME_EMAIL = 'platform@recovery-drill.invalid'
-    $env:APP_TIMEZONE = 'Asia/Kolkata'
+    $env:APP_TIMEZONE = 'UTC'
     $env:DB_DATABASE = 'qtfoods_recovery_drill'
     $env:DB_USERNAME = 'qtfoods_recovery'
     $env:DB_PASSWORD = 'D6e9J4m2C8r5V7x1'
