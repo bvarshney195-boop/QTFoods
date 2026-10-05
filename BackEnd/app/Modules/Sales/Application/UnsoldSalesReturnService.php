@@ -168,7 +168,7 @@ final class UnsoldSalesReturnService
 
                 DB::table('unsold_return_lines')->where('id', $line->id)->update([
                     'received_quantity' => $newReceived,
-                    'return_position_id' => $lineInput['return_position_id'],
+                    'return_position_id' => $position->id,
                     'updated_at' => now(),
                 ]);
             }
@@ -571,8 +571,7 @@ final class UnsoldSalesReturnService
     ): object {
         $position = DB::table('stock_positions as position')
             ->join('locations as location', function ($join) {
-                $join
-                    ->on('location.id', '=', 'position.location_id')
+                $join->on('location.id', '=', 'position.location_id')
                     ->on('location.company_id', '=', 'position.company_id')
                     ->on('location.plant_id', '=', 'position.plant_id');
             })
@@ -584,13 +583,52 @@ final class UnsoldSalesReturnService
             ->where('location.status', 'ACTIVE')
             ->lockForUpdate()
             ->first([
-                'position.id',
-                'position.item_id',
-                'position.lot_id',
-                'position.uom_code',
-                'position.quantity_base',
-                'position.record_version',
+                'position.id', 'position.item_id', 'position.lot_id', 'position.uom_code',
+                'position.quantity_base', 'position.record_version',
             ]);
+
+        if (! $position) {
+            $location = DB::table('locations')
+                ->where('id', $lineInput['return_position_id'])
+                ->where('company_id', $case->company_id)
+                ->where('plant_id', $case->plant_id)
+                ->where('location_type', 'RETURN_QUARANTINE')
+                ->where('status', 'ACTIVE')
+                ->lockForUpdate()->first(['id']);
+            if ($location) {
+                $position = DB::table('stock_positions')
+                    ->where('company_id', $case->company_id)
+                    ->where('plant_id', $case->plant_id)
+                    ->where('item_id', $line->sku_id)
+                    ->where('lot_id', $line->fg_lot_id)
+                    ->where('inventory_owner_id', $case->company_id)
+                    ->where('location_id', $location->id)
+                    ->where('quality_status', 'RETURN_QUARANTINE')
+                    ->where('uom_code', $line->uom_code)
+                    ->lockForUpdate()->first();
+                if (! $position) {
+                    $id = (string) Str::uuid();
+                    DB::table('stock_positions')->insert([
+                        'id' => $id,
+                        'company_id' => $case->company_id,
+                        'plant_id' => $case->plant_id,
+                        'item_id' => $line->sku_id,
+                        'lot_id' => $line->fg_lot_id,
+                        'owner_party_id' => null,
+                        'inventory_owner_id' => $case->company_id,
+                        'location_id' => $location->id,
+                        'quality_status' => 'RETURN_QUARANTINE',
+                        'quantity_base' => '0.000000',
+                        'reserved_quantity_base' => '0.000000',
+                        'uom_code' => $line->uom_code,
+                        'record_version' => 1,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    $position = DB::table('stock_positions')->where('id', $id)->lockForUpdate()->first();
+                }
+            }
+        }
 
         if (
             ! $position
@@ -600,7 +638,7 @@ final class UnsoldSalesReturnService
         ) {
             throw ValidationException::withMessages([
                 "lines.{$index}.return_position_id" => [
-                    'Select an active return-quarantine position for this case plant, SKU, lot, and UOM.',
+                    'No eligible return-quarantine route exists for this plant, SKU, lot and UOM. Configure an active Return Quarantine location and retry.',
                 ],
             ]);
         }
