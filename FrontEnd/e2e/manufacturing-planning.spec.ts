@@ -8,7 +8,7 @@ test('manufacturing planning releases demand, runs MRP, schedules capacity, and 
   const editor = page.locator('.requisition-editor');
 
   await navigation.locator('[data-screen-code="PLAN-DEM"]').click();
-  await expect(page.getByRole('heading', { name: 'Demand Planning' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Demand planning' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await editor.getByLabel('Plan number').fill('E2E-PLAN-DEMAND-001');
   await editor.getByLabel('Plan name').fill('E2E apple snack weekly demand');
@@ -24,7 +24,7 @@ test('manufacturing planning releases demand, runs MRP, schedules capacity, and 
   await expect(editor.locator('.status').filter({ hasText: /^Released$/ })).toBeVisible();
 
   await navigation.locator('[data-screen-code="PLAN-MRP"]').click();
-  await expect(page.getByRole('heading', { name: 'Material Requirements Planning' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Material planning' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await editor.getByLabel('MRP run number').fill('E2E-PLAN-MRP-001');
   await selectByText(editor.getByLabel('Released demand plan'), 'E2E-PLAN-DEMAND-001');
@@ -35,7 +35,7 @@ test('manufacturing planning releases demand, runs MRP, schedules capacity, and 
   await expect(editor).toContainText('SKU-APPLE-BASE');
 
   await navigation.locator('[data-screen-code="PLAN-SCH"]').click();
-  await expect(page.getByRole('heading', { name: 'Production Schedule' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Production schedule' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await selectByText(editor.getByLabel('Completed MRP run'), 'E2E-PLAN-MRP-001');
   await editor.getByLabel('Schedule number').fill('E2E-PLAN-SCH-001');

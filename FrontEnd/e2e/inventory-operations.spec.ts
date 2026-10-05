@@ -13,7 +13,7 @@ test('Operations Manager posts the complete controlled inventory operation cycle
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
 
   await navigation.locator('[data-screen-code="INV-ISS"]').click();
-  await expect(page.getByRole('heading', { name: 'Issue / Return' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock issues & returns' })).toBeVisible();
   await createAndPost(page, {
     number: 'E2E-ISS-001', reason: 'PRODUCTION_ISSUE', source: AVAILABLE, quantity: '4',
   });
@@ -22,14 +22,14 @@ test('Operations Manager posts the complete controlled inventory operation cycle
   });
 
   await navigation.locator('[data-screen-code="INV-TRF"]').click();
-  await expect(page.getByRole('heading', { name: 'Stock Transfers' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock transfers' })).toBeVisible();
   await createAndPost(page, {
     number: 'E2E-TRF-001', reason: 'LINE_REPLENISHMENT', source: AVAILABLE,
     target: TRANSFER_TARGET, quantity: '5',
   });
 
   await navigation.locator('[data-screen-code="INV-COUNT"]').click();
-  await expect(page.getByRole('heading', { name: 'Stock Counts & Adjustments' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock counts' })).toBeVisible();
   await createAndPost(page, {
     number: 'E2E-CNT-001', reason: 'CYCLE_COUNT', source: BLOCKED, counted: '14',
   });
@@ -39,7 +39,7 @@ test('Operations Manager posts the complete controlled inventory operation cycle
   });
 
   await navigation.locator('[data-screen-code="INV-EXP"]').click();
-  await expect(page.getByRole('heading', { name: 'Expiry / Disposal' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Expiry & disposal' })).toBeVisible();
   await createAndPost(page, {
     number: 'E2E-EXP-001', reason: 'SHELF_LIFE', source: EXPIRED_SOURCE,
     target: EXPIRED_TARGET, quantity: '8',
@@ -50,7 +50,7 @@ test('Operations Manager posts the complete controlled inventory operation cycle
   });
 
   await navigation.locator('[data-screen-code="INV-STK"]').click();
-  await expect(page.getByRole('heading', { name: 'Stock, Lots & Ownership' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock overview' })).toBeVisible();
   await page.getByRole('button', { name: 'Movement history' }).click();
   await expect(page.getByRole('heading', { name: 'Immutable movement history' })).toBeVisible();
   const ledger = page.locator('.movement-ledger-table');

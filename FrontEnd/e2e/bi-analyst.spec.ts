@@ -23,7 +23,7 @@ test('BI Analyst sees only BI workspaces and can run/export reports without tran
   await expect(navigation.locator('[data-screen-code="ADM-USER"]')).toHaveCount(0);
 
   await navigation.locator('[data-screen-code="BI-REP"]').click();
-  await expect(page.getByRole('heading', { name: 'Controlled Reports' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await page.getByLabel('Report run number').fill(runNumber);
   await page.getByLabel('Report definition', { exact: true }).selectOption('INVENTORY_AVAILABILITY');
@@ -35,7 +35,7 @@ test('BI Analyst sees only BI workspaces and can run/export reports without tran
   await expect(page.locator('.reporting-detail')).toContainText('CSV');
 
   await navigation.locator('[data-screen-code="BI-PROFIT"]').click();
-  await expect(page.getByRole('heading', { name: 'Order Profitability' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Profitability' })).toBeVisible();
   await expect(page.locator('.p2-live-notice')).toContainText('never posts or changes the ledger');
 
   expect(await apiPostStatus(page, '/api/v1/sales/leads', {})).toBe(403);

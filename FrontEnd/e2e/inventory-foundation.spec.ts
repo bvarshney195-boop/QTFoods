@@ -5,7 +5,7 @@ test('Operations Manager governs stock ownership, lots, and reservations', async
   await loginAndSelect(page);
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator('[data-screen-code="INV-STK"]').click();
-  await expect(page.getByRole('heading', { name: 'Stock, Lots & Ownership' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stock overview' })).toBeVisible();
 
   const stockTable = page.locator('.inventory-table');
   const availableRow = stockTable.locator('tbody tr').filter({ hasText: 'RM-APPLE-2609A' })

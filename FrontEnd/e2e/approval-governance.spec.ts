@@ -6,7 +6,7 @@ test('ERP Administrator versions approval policy and delegates scoped authority'
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
 
   await navigation.locator('[data-screen-code="ADM-RULE"]').click();
-  await expect(page.getByRole('heading', { name: 'Approval Rules' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Approval settings' })).toBeVisible();
   await expect(page.getByText('Server-authoritative approval policy')).toBeVisible();
 
   const unsoldReturnRule = page.locator('.approval-rule-table tbody tr').filter({
@@ -53,7 +53,7 @@ test('ERP Administrator versions approval policy and delegates scoped authority'
   await loginAndSelect(page, 'operations.user@qtfoods.local');
   const operationsNavigation = page.getByRole('navigation', { name: 'Main menu' });
   await operationsNavigation.locator('[data-screen-code="RET-UNSOLD"]').click();
-  await expect(page.getByRole('heading', { name: 'Unsold Sales Return & Loss' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Unsold returns' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Loss disposition approval inbox' })).toBeVisible();
   await expect(page.getByText('No pending loss dispositions in this context.')).toBeVisible();
 });

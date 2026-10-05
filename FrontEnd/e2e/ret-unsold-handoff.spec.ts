@@ -100,7 +100,7 @@ test('Sales, Operations, and Finance complete an unsold-return hand-off', async 
   await expect(approvalWork).toContainText('Demo Finance Manager');
   await approvalWork.getByRole('button', { name: 'Open' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Unsold Sales Return & Loss' })
+    page.getByRole('heading', { name: 'Unsold returns' })
   ).toBeVisible();
   await caseWorkspace(page, caseCode);
 
@@ -181,7 +181,7 @@ async function loginAs(page: Page, email: string, openReturns = true): Promise<v
   await signInAndSelect(page, email);
 
   if (!openReturns) {
-    await expect(page.getByRole('heading', { name: 'My ERP workspace' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
     return;
   }
 
@@ -190,7 +190,7 @@ async function loginAs(page: Page, email: string, openReturns = true): Promise<v
   });
   await navigation.locator('[data-screen-code="RET-UNSOLD"]').click();
   await expect(
-    page.getByRole('heading', { name: 'Unsold Sales Return & Loss' })
+    page.getByRole('heading', { name: 'Unsold returns' })
   ).toBeVisible();
 }
 

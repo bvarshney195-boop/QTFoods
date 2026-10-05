@@ -32,7 +32,8 @@ test('named user changes password, enables TOTP, and signs in with both factors'
   const mfaSection = page.locator('.security-section').filter({ hasText: 'Multi-factor authentication' });
   await mfaSection.getByLabel('Current password').fill('SecurityChanged123');
   await mfaSection.getByRole('button', { name: 'Set up MFA' }).click();
-  const secret = (await mfaSection.locator('.mfa-setup > code').textContent())?.trim();
+  await mfaSection.getByRole('group').getByText('Cannot scan the QR code?').click();
+  const secret = (await mfaSection.locator('.mfa-setup details code').textContent())?.trim();
   expect(secret).toBeTruthy();
   await mfaSection.getByLabel('MFA setup code').fill(totp(secret!));
   await mfaSection.getByRole('button', { name: 'Enable MFA' }).click();
@@ -51,7 +52,7 @@ test('named user changes password, enables TOTP, and signs in with both factors'
 
   await loginWithMfa(page, 'e2e.security.admin@qtfoods.local', 'SecurityChanged123', recoveryCode!);
   await page.getByRole('button', { name: /Training Plant/ }).click();
-  await expect(page.getByRole('heading', { name: 'My ERP workspace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My work' })).toBeVisible();
 });
 
 async function loginAndSelect(page: Page, email: string, password: string): Promise<void> {

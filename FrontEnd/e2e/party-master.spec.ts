@@ -6,7 +6,7 @@ test('Operations Manager creates, updates, and places a complete customer party 
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
 
   await navigation.locator('[data-screen-code="MD-PARTY"]').click();
-  await expect(page.getByRole('heading', { name: 'Party Master' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Customers & suppliers' })).toBeVisible();
   await expect(page.getByText('Controlled party aggregate')).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
 

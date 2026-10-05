@@ -16,7 +16,7 @@ test('procure-to-pay receives, inspects, returns, matches, pays, and reconciles 
 
   let navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator('[data-screen-code="INB-GATE"]').click();
-  await expect(page.getByRole('heading', { name: 'Gate Entry' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Supplier arrivals' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   const editor = page.locator('.requisition-editor');
   await editor.getByLabel('Gate-entry number').fill(refs.gate);
@@ -28,7 +28,7 @@ test('procure-to-pay receives, inspects, returns, matches, pays, and reconciles 
   await expect(editor.getByRole('status')).toContainText('Vehicle arrival recorded');
 
   await navigation.locator('[data-screen-code="INB-GRN"]').click();
-  await expect(page.getByRole('heading', { name: 'GRN / Partial Receipt' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Goods receipts' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await selectByText(editor.getByLabel('Arrived gate entry'), refs.gate);
   await editor.getByLabel('GRN number').fill(refs.grn);
@@ -41,7 +41,7 @@ test('procure-to-pay receives, inspects, returns, matches, pays, and reconciles 
   await expect(editor).toContainText('Incoming QC');
 
   await navigation.locator('[data-screen-code="QC-IN"]').click();
-  await expect(page.getByRole('heading', { name: 'Incoming QC' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Incoming quality checks' })).toBeVisible();
   const qcRow = page.locator('.requisition-table tbody tr').filter({ hasText: refs.grn });
   await qcRow.getByRole('button', { name: 'Open' }).click();
   await editor.getByLabel('Line 1 accepted quantity').fill('8');
@@ -52,7 +52,7 @@ test('procure-to-pay receives, inspects, returns, matches, pays, and reconciles 
   await expect(editor.getByRole('status')).toContainText('accepted/rejected stock posted');
 
   await navigation.locator('[data-screen-code="INB-RETURN"]').click();
-  await expect(page.getByRole('heading', { name: 'Supplier Returns' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Supplier returns' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await selectByText(editor.getByLabel('Rejected QC lot'), refs.lot);
   await editor.getByLabel('Return number').fill(refs.returnNumber);
@@ -66,7 +66,7 @@ test('procure-to-pay receives, inspects, returns, matches, pays, and reconciles 
   await loginAndSelect(page, 'finance.user@qtfoods.local');
   navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator('[data-screen-code="FIN-AP"]').click();
-  await expect(page.getByRole('heading', { name: 'Accounts Payable' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Supplier invoices & payments' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await selectByText(editor.getByLabel('Issued purchase order'), refs.po);
   await editor.getByLabel('AP number').fill(refs.ap);

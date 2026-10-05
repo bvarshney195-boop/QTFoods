@@ -11,7 +11,7 @@ test('optimisation versions demand, exposes limitations, requires review, and cl
   const editor = page.locator('.requisition-editor');
 
   await navigation.locator('[data-screen-code="PLAN-DEM"]').click();
-  await expect(page.getByRole('heading', { name: 'Demand Planning' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Demand planning' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await editor.getByLabel('Plan number').fill(DEMAND_NUMBER);
   await editor.getByLabel('Plan name').fill('E2E governed optimisation source');
@@ -26,7 +26,7 @@ test('optimisation versions demand, exposes limitations, requires review, and cl
   await expect(editor.getByRole('status')).toContainText('Demand released to MRP');
 
   await navigation.locator('[data-screen-code="OPT-PLAN"]').click();
-  await expect(page.getByRole('heading', { name: 'Forecast & Optimisation' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Planning recommendations' })).toBeVisible();
   await expect(page.locator('.optimisation-notice')).toContainText('checksum-versioned');
   await page.getByRole('button', { name: '+ New' }).click();
   await editor.getByLabel('Plan number').fill(PLAN_NUMBER);
@@ -78,7 +78,7 @@ test('optimisation versions demand, exposes limitations, requires review, and cl
 async function openOptimisation(page: Page, planNumber: string): Promise<void> {
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator('[data-screen-code="OPT-PLAN"]').click();
-  await expect(page.getByRole('heading', { name: 'Forecast & Optimisation' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Planning recommendations' })).toBeVisible();
   await page.getByLabel('Optimisation search').fill(planNumber);
   const row = page.locator('.optimisation-register tbody tr').filter({ hasText: planNumber });
   await expect(row).toBeVisible();

@@ -14,7 +14,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   const today = isoDate(0);
   await loginAndSelect(page, 'demo.user@qtfoods.local');
 
-  await openP2Module(page, 'CRM-LEAD', 'Leads & Enquiries');
+  await openP2Module(page, 'CRM-LEAD', 'Enquiries & leads');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await submitForm(page, 'New lead', {
     lead_number: refs.lead,
@@ -38,7 +38,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await expect(page.getByRole('status')).toContainText('Convert lead saved successfully. Current status: Converted.');
   const lead = first(await apiGet<P2List>(page, `/api/v1/sales/leads?q=${encodeURIComponent(refs.lead)}`));
 
-  await openP2Module(page, 'CRM-ORDER', 'Sales Orders');
+  await openP2Module(page, 'CRM-ORDER', 'Sales orders');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await submitForm(page, 'New sales order', {
     order_number: refs.order,
@@ -116,16 +116,16 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   });
 
   const commercialScreens: Array<[string, string]> = [
-    ['CRM-LEAD', 'Leads & Enquiries'],
-    ['CRM-PRICE', 'Pricing, Credit & Contracts'],
-    ['CRM-ORDER', 'Sales Orders'],
-    ['CON-WORK', 'Third-party Work'],
-    ['DSP-PICK', 'Allocation & Picking'],
-    ['DSP-LOAD', 'Loading & Dispatch'],
-    ['DSP-POD', 'Proof of Delivery'],
-    ['RET-CASE', 'Customer Claims & Returns'],
-    ['FIN-AR', 'Receivables & Collections'],
-    ['BI-PROFIT', 'Order Profitability'],
+    ['CRM-LEAD', 'Enquiries & leads'],
+    ['CRM-PRICE', 'Pricing & customer credit'],
+    ['CRM-ORDER', 'Sales orders'],
+    ['CON-WORK', 'Contract work'],
+    ['DSP-PICK', 'Order picking'],
+    ['DSP-LOAD', 'Loading & dispatch'],
+    ['DSP-POD', 'Delivery confirmation'],
+    ['RET-CASE', 'Returns & claims'],
+    ['FIN-AR', 'Customer accounts'],
+    ['BI-PROFIT', 'Profitability'],
   ];
   for (const [code, heading] of commercialScreens) await openP2Module(page, code, heading);
   await page.getByLabel('Order Profitability search').fill(refs.order);
@@ -134,7 +134,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await logout(page);
   await loginAndSelect(page, 'finance.user@qtfoods.local');
 
-  await openP2Module(page, 'FIN-SIM', 'Finance Simulation');
+  await openP2Module(page, 'FIN-SIM', 'Financial scenarios');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await submitForm(page, 'New simulation', {
     simulation_number: refs.simulation,
@@ -151,7 +151,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Simulation run completed with no ledger effect');
 
-  await openP2Module(page, 'FIN-ARCH', 'Private Bill Archive');
+  await openP2Module(page, 'FIN-ARCH', 'Bill archive');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await page.getByLabel('Archive document number').fill(refs.document);
   await page.getByLabel('Archive document date').fill(today);
@@ -171,7 +171,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await page.getByRole('button', { name: 'Download private document' }).click();
   expect((await downloadPromise).suggestedFilename()).toBe('e2e-p2-private-bill.pdf');
 
-  await openP2Module(page, 'FIN-SUP', 'Finance Support & Diagnostics');
+  await openP2Module(page, 'FIN-SUP', 'Finance review tools');
   await page.getByRole('button', { name: '+ New', exact: true }).click();
   await submitForm(page, 'New support & diagnostics', {
     case_number: refs.support,
@@ -191,22 +191,22 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
   await expect(page.getByRole('status')).toContainText('Close finance support case saved successfully. Current status: Closed.');
 
   const financeScreens: Array<[string, string]> = [
-    ['FIN-EXP', 'Employee Expenses'],
-    ['FIN-GL', 'General Ledger & Period Close'],
-    ['COST-OH', 'Overhead Allocation'],
-    ['ASSET-REG', 'Fixed Asset Register'],
-    ['HR-PAY', 'Payroll Posting'],
-    ['ENG-MNT', 'Maintenance Accounting'],
-    ['FIN-SIM', 'Finance Simulation'],
-    ['FIN-ADJ', 'Finance Adjustments'],
-    ['FIN-LEGACY', 'Historical Import'],
-    ['FIN-ARCH', 'Private Bill Archive'],
-    ['FIN-OPEN', 'Opening Balance Reconciliation'],
-    ['FIN-SUP', 'Finance Support & Diagnostics'],
+    ['FIN-EXP', 'Expenses'],
+    ['FIN-GL', 'General ledger'],
+    ['COST-OH', 'Overhead costs'],
+    ['ASSET-REG', 'Fixed assets'],
+    ['HR-PAY', 'Employees & payroll'],
+    ['ENG-MNT', 'Equipment maintenance'],
+    ['FIN-SIM', 'Financial scenarios'],
+    ['FIN-ADJ', 'Finance adjustments'],
+    ['FIN-LEGACY', 'Historical data import'],
+    ['FIN-ARCH', 'Bill archive'],
+    ['FIN-OPEN', 'Opening balances'],
+    ['FIN-SUP', 'Finance review tools'],
   ];
   for (const [code, heading] of financeScreens) await openP2Module(page, code, heading);
 
-  await openModule(page, 'FIN-AP', 'Accounts Payable');
+  await openModule(page, 'FIN-AP', 'Supplier invoices & payments');
   await page.getByRole('button', { name: 'Bank & statutory integrations' }).click();
   await expect(page.getByRole('heading', { name: 'Payables Bank & Statutory Integrations' })).toBeVisible();
   await expect(page.locator('.p2-live-notice')).toBeVisible();
