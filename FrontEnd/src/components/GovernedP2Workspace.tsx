@@ -103,7 +103,15 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!editor) return;
     const fields = validateStructuredCommand(editor.body, editor.schema);
-    if (Object.keys(fields).length) { setFeedback({ error: 'Please correct the highlighted fields before saving.', success: null, fields }); return; }
+    if (Object.keys(fields).length) {
+      setFeedback({ error: 'Check the highlighted field and try again.', success: null, fields });
+      const firstPath = Object.keys(fields)[0];
+      window.requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLElement>(`[data-field-path="${CSS.escape(firstPath)}"]`);
+        target?.focus();
+      });
+      return;
+    }
     setBusy(true);
     try {
       const result = await commandP2(editor.path, editor.body, editor.expectedVersion);
