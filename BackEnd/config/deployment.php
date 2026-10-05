@@ -29,5 +29,6 @@ return [
     ),
     'cors_origins_explicit' => $configuredOrigins !== null,
     'allow_demo_seeders' => (bool) env('QT_ALLOW_DEMO_SEEDERS', ! $production),
+    'allow_demo_login' => (bool) env('QT_ALLOW_DEMO_LOGIN', ! $production),
     'log_level' => (string) env('LOG_LEVEL', $production ? 'warning' : 'debug'),
 ];
