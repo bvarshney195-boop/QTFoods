@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { MfaChallenge } from '../api/auth';
+import type {
+  MfaChallenge,
+  OtpRequestResult,
+  PrimaryAuthMethod,
+  SecondFactorMethod,
+} from '../api/auth';
 import { isApiError } from '../api/client';
 import {
   acceptInvitation,
@@ -14,8 +19,10 @@ import {
 type AccessFlow = 'signin' | 'forgot' | 'verification' | 'reset' | 'verify' | 'invite';
 
 type LoginProps = {
-  onLogin?: (email: string, password: string) => Promise<void> | void;
-  onMfa?: (code: string) => Promise<void> | void;
+  onLogin?: (method: PrimaryAuthMethod, email: string, credential: string) => Promise<void> | void;
+  onRequestEmailOtp?: (email: string) => Promise<OtpRequestResult | undefined> | OtpRequestResult | undefined;
+  onMfa?: (method: SecondFactorMethod, code: string) => Promise<void> | void;
+  onRequestMfaEmailOtp?: () => Promise<OtpRequestResult | undefined> | OtpRequestResult | undefined;
   onCancelMfa?: () => void;
   mfaChallenge?: MfaChallenge | null;
   onRetry?: () => Promise<void> | void;
@@ -30,9 +37,13 @@ const demoAccounts = [
   ['ERP Admin', 'admin.user@qtfoods.local'],
 ] as const;
 
+const showDemoAccounts = import.meta.env.DEV || import.meta.env.VITE_ALLOW_DEMO_LOGIN === 'true';
+
 export default function ACC_LOGIN({
   onLogin,
+  onRequestEmailOtp,
   onMfa,
+  onRequestMfaEmailOtp,
   onCancelMfa,
   mfaChallenge,
   onRetry,
@@ -42,16 +53,20 @@ export default function ACC_LOGIN({
   const parameters = new URLSearchParams(window.location.search);
   const initialFlow = validFlow(parameters.get('flow'));
   const [flow, setFlow] = useState<AccessFlow>(initialFlow);
-  const [email, setEmail] = useState(parameters.get('email') ?? 'demo.user@qtfoods.local');
-  const [password, setPassword] = useState('prototype');
+  const [email, setEmail] = useState(parameters.get('email') ?? '');
+  const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [code, setCode] = useState('');
+  const [method, setMethod] = useState<PrimaryAuthMethod>('PASSWORD');
+  const [secondFactor, setSecondFactor] = useState<SecondFactorMethod>('TOTP');
+  const [otpSent, setOtpSent] = useState(false);
   const [token] = useState(parameters.get('token') ?? '');
   const [invitation, setInvitation] = useState<PublicInvitation | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (flow !== 'invite') return;
@@ -69,15 +84,74 @@ export default function ACC_LOGIN({
       .finally(() => setLocalBusy(false));
   }, [flow, token]);
 
+  useEffect(() => {
+    if (!mfaChallenge) return;
+    const preferred = mfaChallenge.allowed_methods.includes('TOTP') ? 'TOTP' : mfaChallenge.allowed_methods[0];
+    if (preferred) setSecondFactor(preferred);
+    setCode('');
+    setOtpSent(false);
+    setNotice(null);
+    setPreviewCode(null);
+  }, [mfaChallenge]);
+
   const working = busy || localBusy;
 
-  function submitSignIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function chooseMethod(next: PrimaryAuthMethod) {
+    setMethod(next);
+    setPassword('');
+    setCode('');
+    setOtpSent(false);
+    setLocalError(null);
     setNotice(null);
+    setPreviewCode(null);
+  }
+
+  async function submitSignIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    clearFeedback();
     if (mfaChallenge) {
-      void onMfa?.(code.trim());
-    } else {
-      void onLogin?.(email.trim(), password);
+      await onMfa?.(secondFactor, code.trim());
+      return;
+    }
+    if (method === 'EMAIL_OTP' && !otpSent) {
+      await sendPrimaryOtp();
+      return;
+    }
+    const credential = method === 'PASSWORD' ? password : code.trim();
+    await onLogin?.(method, email.trim().toLowerCase(), credential);
+  }
+
+  async function sendPrimaryOtp() {
+    if (!email.trim()) {
+      setLocalError('Enter your work email before requesting a one-time code.');
+      return;
+    }
+    setLocalBusy(true);
+    clearFeedback();
+    try {
+      const result = await onRequestEmailOtp?.(email.trim().toLowerCase());
+      setOtpSent(true);
+      setNotice(result?.message ?? 'If the account is eligible, a one-time code has been sent.');
+      setPreviewCode(result?.delivery?.preview_code ?? null);
+    } catch (caught) {
+      setLocalError(message(caught, 'Unable to send the email code.'));
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function sendMfaEmailOtp() {
+    setLocalBusy(true);
+    clearFeedback();
+    try {
+      const result = await onRequestMfaEmailOtp?.();
+      setOtpSent(true);
+      setNotice(result?.message ?? 'A one-time verification code has been sent.');
+      setPreviewCode(result?.delivery?.preview_code ?? null);
+    } catch (caught) {
+      setLocalError(message(caught, 'Unable to send the verification code.'));
+    } finally {
+      setLocalBusy(false);
     }
   }
 
@@ -135,6 +209,7 @@ export default function ACC_LOGIN({
     setLocalError(null);
     setNotice(null);
     setPreviewUrl(null);
+    setPreviewCode(null);
     setCode('');
   }
 
@@ -142,7 +217,10 @@ export default function ACC_LOGIN({
     setLocalError(null);
     setNotice(null);
     setPreviewUrl(null);
+    setPreviewCode(null);
   }
+
+  const challengeMethods = mfaChallenge?.allowed_methods ?? [];
 
   return (
     <div className="auth-page auth-full-page">
@@ -155,14 +233,15 @@ export default function ACC_LOGIN({
         </div>
         <small>Secure sign-in · protected account · role-based access</small>
       </section>
+
       <section className="auth-form">
         {flow === 'signin' && (
           <form className="auth-card" onSubmit={submitSignIn}>
             <div className="eyebrow">SECURE SIGN IN</div>
             <h2>{mfaChallenge ? 'Two-step verification' : 'Welcome back'}</h2>
             <p className="auth-intro">{mfaChallenge
-              ? `Enter an authenticator or recovery code. Challenge expires ${new Date(mfaChallenge.expires_at).toLocaleTimeString()}.`
-              : 'Use your work account to open your assigned workspace.'}</p>
+              ? `Primary sign-in verified with ${methodLabel(mfaChallenge.primary_method)}. Complete a different approved second factor before access is granted.`
+              : 'Choose a sign-in method. Privileged roles always require an approved second factor.'}</p>
 
             {(error || localError) && (
               <div className="form-error" role="alert">
@@ -170,30 +249,65 @@ export default function ACC_LOGIN({
                 {onRetry && <button type="button" onClick={() => void onRetry()}>Retry connection</button>}
               </div>
             )}
-            {notice && <div className="form-success" role="status"><span></span>{notice}</div>}
+            {notice && <div className="form-success stacked-success" role="status"><span /><div>{notice}{previewCode && <code className="otp-preview-code">Development code: {previewCode}</code>}</div></div>}
 
             {mfaChallenge ? <>
-              <label htmlFor="login-code">Authenticator or recovery code</label>
-              <input id="login-code" value={code} onChange={(event) => setCode(event.target.value)} autoComplete="one-time-code" autoFocus required />
-              <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : 'Verify and sign in'}</button>
-              <button className="auth-link centered" type="button" onClick={onCancelMfa}>Back to password</button>
+              <div className="auth-methods" role="group" aria-label="Second-factor method">
+                {challengeMethods.includes('TOTP') && <button type="button" className={secondFactor === 'TOTP' ? 'active' : ''} aria-pressed={secondFactor === 'TOTP'} onClick={() => { setSecondFactor('TOTP'); setCode(''); setOtpSent(false); clearFeedback(); }}>Google Authenticator</button>}
+                {challengeMethods.includes('EMAIL_OTP') && <button type="button" className={secondFactor === 'EMAIL_OTP' ? 'active' : ''} aria-pressed={secondFactor === 'EMAIL_OTP'} onClick={() => { setSecondFactor('EMAIL_OTP'); setCode(''); setOtpSent(false); clearFeedback(); }}>Email OTP</button>}
+              </div>
+              {secondFactor === 'EMAIL_OTP' && !otpSent ? (
+                <button className="secondary auth-full-button" type="button" disabled={working} onClick={() => void sendMfaEmailOtp()}>{working ? 'Sending…' : 'Send verification code'}</button>
+              ) : <>
+                <label htmlFor="login-code">{secondFactor === 'TOTP' ? 'Authenticator or recovery code' : 'Email verification code'}</label>
+                <input id="login-code" inputMode={secondFactor === 'EMAIL_OTP' ? 'numeric' : undefined} value={code} onChange={(event) => setCode(event.target.value)} autoComplete="one-time-code" autoFocus required />
+                <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : 'Verify and sign in'}</button>
+                {secondFactor === 'EMAIL_OTP' && <button className="auth-link centered" type="button" disabled={working} onClick={() => void sendMfaEmailOtp()}>Send a new code</button>}
+              </>}
+              <button className="auth-link centered" type="button" onClick={onCancelMfa}>Back to sign in</button>
             </> : <>
+              <div className="auth-methods" role="group" aria-label="Sign-in method">
+                <button type="button" className={method === 'PASSWORD' ? 'active' : ''} aria-pressed={method === 'PASSWORD'} onClick={() => chooseMethod('PASSWORD')}>Password</button>
+                <button type="button" className={method === 'EMAIL_OTP' ? 'active' : ''} aria-pressed={method === 'EMAIL_OTP'} onClick={() => chooseMethod('EMAIL_OTP')}>Email OTP</button>
+                <button type="button" className={method === 'TOTP' ? 'active' : ''} aria-pressed={method === 'TOTP'} onClick={() => chooseMethod('TOTP')}>Google Authenticator</button>
+              </div>
+
               <label htmlFor="login-email">Email</label>
-              <input id="login-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required />
-              <label htmlFor="login-password">Password</label>
-              <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
-              <button className="primary" type="submit" disabled={working}>{working ? 'Signing in…' : 'Sign in'}</button>
+              <input id="login-email" type="email" value={email} onChange={(event) => { setEmail(event.target.value); if (method === 'EMAIL_OTP') setOtpSent(false); }} autoComplete="username" required />
+
+              {method === 'PASSWORD' && <>
+                <label htmlFor="login-password">Password</label>
+                <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+                <button className="primary" type="submit" disabled={working || !email.trim() || !password}>{working ? 'Signing in…' : 'Continue securely'}</button>
+              </>}
+
+              {method === 'EMAIL_OTP' && (!otpSent ? (
+                <button className="primary" type="submit" disabled={working || !email.trim()}>{working ? 'Sending…' : 'Send one-time code'}</button>
+              ) : <>
+                <label htmlFor="login-email-code">Email one-time code</label>
+                <input id="login-email-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} autoComplete="one-time-code" required />
+                <button className="primary" type="submit" disabled={working || code.length !== 6}>{working ? 'Signing in…' : 'Continue securely'}</button>
+                <button className="auth-link centered" type="button" disabled={working} onClick={() => void sendPrimaryOtp()}>Send a new code</button>
+              </>)}
+
+              {method === 'TOTP' && <>
+                <label htmlFor="login-totp">Google Authenticator code</label>
+                <input id="login-totp" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} autoComplete="one-time-code" required />
+                <p className="fine">This method is available only after Google Authenticator has been enrolled for the account.</p>
+                <button className="primary" type="submit" disabled={working || !email.trim() || code.length !== 6}>{working ? 'Signing in…' : 'Continue securely'}</button>
+              </>}
+
               <div className="auth-links">
                 <button type="button" onClick={() => switchFlow('forgot')}>Forgot password?</button>
                 <button type="button" onClick={() => switchFlow('verification')}>Resend verification</button>
               </div>
 
-              <div className="demo-accounts">
-                <span>Try a demo role · password: <b>prototype</b></span>
+              {showDemoAccounts && <div className="demo-accounts">
+                <span>Development/UAT demo identities only. Production must disable demo login.</span>
                 <div>{demoAccounts.map(([label, account]) => (
                   <button type="button" key={account} className={email === account ? 'selected' : ''} onClick={() => setEmail(account)}>{label}</button>
                 ))}</div>
-              </div>
+              </div>}
             </>}
           </form>
         )}
@@ -204,7 +318,7 @@ export default function ACC_LOGIN({
             <h2>{flow === 'forgot' ? 'Reset password' : 'Verify email'}</h2>
             <p className="auth-intro">For privacy, the response is the same whether or not an eligible account exists.</p>
             {localError && <div className="form-error" role="alert"><span>{localError}</span></div>}
-            {notice && <div className="form-success stacked-success" role="status"><span></span><div>{notice}{previewUrl && <a href={previewUrl}>Open development email link</a>}</div></div>}
+            {notice && <div className="form-success stacked-success" role="status"><span /><div>{notice}{previewUrl && <a href={previewUrl}>Open development email link</a>}</div></div>}
             <label htmlFor="recovery-email">Email</label>
             <input id="recovery-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
             <button className="primary" type="submit" disabled={working}>{working ? 'Sending…' : 'Send secure link'}</button>
@@ -237,6 +351,10 @@ export default function ACC_LOGIN({
 
 function validFlow(value: string | null): AccessFlow {
   return value === 'invite' || value === 'reset' || value === 'verify' ? value : 'signin';
+}
+
+function methodLabel(value: PrimaryAuthMethod): string {
+  return value === 'PASSWORD' ? 'password' : value === 'EMAIL_OTP' ? 'email OTP' : 'Google Authenticator';
 }
 
 function message(error: unknown, fallback: string): string {
