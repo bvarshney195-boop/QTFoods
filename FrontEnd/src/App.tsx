@@ -4,11 +4,17 @@ import {
   currentSession,
   isApiError,
   isMfaChallenge,
-  login,
+  loginWithPassword,
+  loginWithTotp,
+  requestLoginEmailOtp,
+  requestMfaEmailOtp,
+  verifyLoginEmailOtp,
   logout,
   resetAuthenticationClient,
   selectContext,
   type MfaChallenge,
+  type PrimaryAuthMethod,
+  type SecondFactorMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -70,12 +76,16 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  async function handleLogin(method: PrimaryAuthMethod, email: string, credential: string) {
     setBusy(true);
     setError(null);
 
     try {
-      const authenticated = await login(email, password);
+      const authenticated = method === 'PASSWORD'
+        ? await loginWithPassword(email, credential)
+        : method === 'TOTP'
+          ? await loginWithTotp(email, credential)
+          : await verifyLoginEmailOtp(email, credential);
       if (isMfaChallenge(authenticated)) {
         setMfaChallenge(authenticated);
         return;
@@ -90,12 +100,39 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
+  async function handleRequestEmailOtp(email: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      return await requestLoginEmailOtp(email);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the email code.');
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRequestMfaEmailOtp() {
     if (!mfaChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
+      return await requestMfaEmailOtp(mfaChallenge.challenge_id);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to send the verification code.');
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMfa(method: SecondFactorMethod, code: string) {
+    if (!mfaChallenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code, method);
       setMfaChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
@@ -145,7 +182,9 @@ export default function App() {
     return (
       <ACC_LOGIN
         onLogin={handleLogin}
+        onRequestEmailOtp={handleRequestEmailOtp}
         onMfa={handleMfa}
+        onRequestMfaEmailOtp={handleRequestMfaEmailOtp}
         onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
         mfaChallenge={mfaChallenge}
         busy={busy}
