@@ -556,11 +556,22 @@ function InventoryKpis({ tab, stock, owners, lots, movements, loading }: {
   movements: InventoryMovementWorkspace | null; loading: boolean;
 }) {
   const empty = loading && !(tab === 'stock' ? stock : tab === 'owners' ? owners : tab === 'lots' ? lots : movements);
+  const stockBreakdown = stock?.summary.quantities_by_uom ?? [];
+  const stockValue = (key: 'total' | 'available' | 'blocked' | 'reserved') =>
+    stockBreakdown.length === 1
+      ? `${quantity(String(stockBreakdown[0]?.[key] ?? '0'))} ${String(stockBreakdown[0]?.uom_code ?? '')}`
+      : stockBreakdown.length > 1
+        ? `${stockBreakdown.length} UOMs`
+        : '0';
+  const stockNote = (key: 'total' | 'available' | 'blocked' | 'reserved') =>
+    stockBreakdown.length > 1
+      ? stockBreakdown.map((row) => `${quantity(String(row[key] ?? '0'))} ${String(row.uom_code ?? '')}`).join(' · ')
+      : key === 'total' ? 'all quality states' : key === 'available' ? 'unreserved and released' : key === 'blocked' ? 'quality, lot, or expiry hold' : 'active reservations';
   const values = tab === 'stock' ? [
-    ['Total stock', stock?.summary.total ?? '0', 'all quality states'],
-    ['Available', stock?.summary.available ?? '0', 'unreserved and released'],
-    ['Blocked', stock?.summary.blocked ?? '0', 'quality, lot, or expiry hold'],
-    ['Reserved', stock?.summary.reserved ?? '0', 'active reservations'],
+    ['Total stock', stockValue('total'), stockNote('total')],
+    ['Available', stockValue('available'), stockNote('available')],
+    ['Blocked', stockValue('blocked'), stockNote('blocked')],
+    ['Reserved', stockValue('reserved'), stockNote('reserved')],
   ] : tab === 'owners' ? [
     ['Owners', owners?.summary.total ?? 0, 'company scoped'],
     ['Active', owners?.summary.active ?? 0, 'available for stock'],
@@ -577,7 +588,7 @@ function InventoryKpis({ tab, stock, owners, lots, movements, loading }: {
     ['Inbound', movements?.summary.inbound ?? 0, 'returns and gains'],
     ['Transfers', movements?.summary.transfer ?? 0, 'position-to-position'],
   ];
-  return <div className="kpi-grid inventory-kpis">{values.map(([label, value, note]) => <div className="kpi" key={label}><span>{label}</span><b className={tab === 'stock' ? 'compact' : ''}>{empty ? '-' : tab === 'stock' ? quantity(String(value)) : value}</b><small>{note}</small></div>)}</div>;
+  return <div className="kpi-grid inventory-kpis">{values.map(([label, value, note]) => <div className="kpi" key={label}><span>{label}</span><b className={tab === 'stock' ? 'compact' : ''}>{empty ? '-' : value}</b><small>{note}</small></div>)}</div>;
 }
 
 function InventoryFilters(props: {
