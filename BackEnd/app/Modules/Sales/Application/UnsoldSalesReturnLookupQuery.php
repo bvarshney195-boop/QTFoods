@@ -281,57 +281,75 @@ final class UnsoldSalesReturnLookupQuery
             return [];
         }
 
-        return DB::table('stock_positions as position')
+        $base = DB::table('stock_positions as position')
             ->leftJoin('locations as location', function (JoinClause $join) {
-                $join
-                    ->on('location.id', '=', 'position.location_id')
+                $join->on('location.id', '=', 'position.location_id')
                     ->on('location.company_id', '=', 'position.company_id')
                     ->on('location.plant_id', '=', 'position.plant_id');
             })
             ->leftJoin('lots as lot', function (JoinClause $join) {
-                $join
-                    ->on('lot.id', '=', 'position.lot_id')
+                $join->on('lot.id', '=', 'position.lot_id')
                     ->on('lot.company_id', '=', 'position.company_id');
             })
             ->where('position.company_id', $scope['company_id'])
             ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('position.plant_id', $plantId))
             ->where('position.item_id', $skuId)
             ->where('position.quality_status', 'RETURN_QUARANTINE')
+            ->where('location.location_type', 'RETURN_QUARANTINE')
             ->where('location.status', 'ACTIVE')
-            ->when($filters['lot_id'] ?? null, fn (Builder $query, string $id) => $query->where('position.lot_id', $id))
-            ->orderBy('location.code')
-            ->orderBy('lot.internal_lot_code')
-            ->limit($limit)
+            ->when($filters['lot_id'] ?? null, fn (Builder $query, string $id) => $query->where('position.lot_id', $id));
+
+        $positions = $base->orderBy('location.code')->orderBy('lot.internal_lot_code')->limit($limit)
             ->get([
-                'position.id',
-                'position.item_id',
-                'position.lot_id',
-                'lot.internal_lot_code as lot_code',
-                'position.location_id',
-                'location.code as location_code',
-                'location.name as location_name',
-                'position.quality_status',
-                'position.quantity_base',
-                'position.uom_code',
+                'position.id', 'position.item_id', 'position.lot_id', 'lot.internal_lot_code as lot_code',
+                'position.location_id', 'location.code as location_code', 'location.name as location_name',
+                'position.quality_status', 'position.quantity_base', 'position.uom_code',
             ])
             ->map(fn (object $position) => [
                 'id' => (string) $position->id,
+                'route_type' => 'POSITION',
                 'sku_id' => (string) $position->item_id,
-                'lot' => [
-                    'id' => (string) $position->lot_id,
-                    'code' => $position->lot_code,
-                ],
-                'location' => [
-                    'id' => (string) $position->location_id,
-                    'code' => $position->location_code,
-                    'name' => $position->location_name,
-                ],
+                'lot' => ['id' => (string) $position->lot_id, 'code' => $position->lot_code],
+                'location' => ['id' => (string) $position->location_id, 'code' => $position->location_code, 'name' => $position->location_name],
                 'quality_status' => $position->quality_status,
                 'quantity' => (string) $position->quantity_base,
                 'uom_code' => $position->uom_code,
             ])
-            ->values()
-            ->all();
+            ->values()->all();
+
+        if ($positions !== []) {
+            return $positions;
+        }
+
+        // A quarantine location is a valid routing prerequisite even when this exact
+        // SKU/lot has never been returned. The receipt command creates the zero-balance
+        // position atomically rather than forcing an administrator to pre-seed every lot.
+        $lotId = $filters['lot_id'] ?? null;
+        $lot = $lotId ? DB::table('lots')->where('id', $lotId)
+            ->where('company_id', $scope['company_id'])->where('item_id', $skuId)
+            ->first(['id', 'internal_lot_code']) : null;
+        $item = DB::table('items')->where('id', $skuId)->where('company_id', $scope['company_id'])
+            ->first(['id', 'base_uom']);
+        if (! $item || ($lotId && ! $lot)) {
+            return [];
+        }
+
+        return DB::table('locations')
+            ->where('company_id', $scope['company_id'])
+            ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('plant_id', $plantId))
+            ->where('location_type', 'RETURN_QUARANTINE')->where('status', 'ACTIVE')
+            ->orderBy('code')->limit($limit)
+            ->get(['id', 'code', 'name'])
+            ->map(fn (object $location) => [
+                'id' => (string) $location->id,
+                'route_type' => 'LOCATION_ROUTE',
+                'sku_id' => (string) $item->id,
+                'lot' => $lot ? ['id' => (string) $lot->id, 'code' => $lot->internal_lot_code] : null,
+                'location' => ['id' => (string) $location->id, 'code' => $location->code, 'name' => $location->name],
+                'quality_status' => 'RETURN_QUARANTINE',
+                'quantity' => '0.000000',
+                'uom_code' => $item->base_uom,
+            ])->values()->all();
     }
 
     private function scopedShipments(array $scope): Builder
