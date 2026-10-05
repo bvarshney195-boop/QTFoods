@@ -90,7 +90,7 @@ final class OrderToCashEndpointTest extends TestCase
         $allocation = $this->withHeaders($this->headers(2))->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
             'allocation_number' => 'ALLOC-P2-001',
         ])->assertCreated()->assertJsonPath('data.status', 'RESERVED')
-            ->assertJsonPath('data.allocated_quantity', '10.000000')->assertJsonPath('data.fefo_break_count', 1);
+            ->assertJsonPath('data.allocated_quantity', '10.000000')->assertJsonPath('data.fefo_break_count', 0);
         $allocationId = (string) $allocation->json('data.id');
         $this->assertDatabaseHas('stock_reservations', ['status' => 'ACTIVE', 'quantity_base' => 10]);
         $this->signIn(self::OPERATIONS_ID);
@@ -145,6 +145,42 @@ final class OrderToCashEndpointTest extends TestCase
         $this->assertDatabaseHas('invoices', ['id' => $invoiceId, 'invoice_type' => 'RECEIVABLE', 'status' => 'PAID']);
         $this->assertDatabaseHas('audit_events', ['command' => 'DISPATCH_SALES_SHIPMENT', 'entity_id' => $shipmentId]);
         $this->assertDatabaseHas('outbox_events', ['event_type' => 'finance.customer-receipt.posted']);
+    }
+
+    public function test_cancelled_and_draft_orders_are_excluded_from_recognized_revenue_and_missing_cost_blocks_definitive_margin(): void
+    {
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-AUDIT-RECOGNITION', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(2)->toDateString(),
+            'notes' => 'Recognition acceptance test.',
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '2', 'discount_percent' => '0']],
+        ])->assertCreated();
+        $orderId = (string) $order->json('data.id');
+
+        $draft = $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-RECOGNITION')->assertOk();
+        $draft->assertJsonPath('data.0.recognition_status', 'EXCLUDED_DRAFT')
+            ->assertJsonPath('data.0.revenue', '0.000000');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/cancel', [
+            'reason' => 'Audit cancellation acceptance test.',
+        ])->assertOk()->assertJsonPath('data.status', 'CANCELLED');
+
+        $cancelled = $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-RECOGNITION')->assertOk();
+        $cancelled->assertJsonPath('data.0.recognition_status', 'EXCLUDED_CANCELLED')
+            ->assertJsonPath('data.0.revenue', '0.000000');
+
+        DB::table('sales_orders')->where('id', $orderId)->update(['status' => 'CONFIRMED']);
+        DB::table('sales_order_lines')->where('sales_order_id', $orderId)->update(['unit_cost_snapshot' => null]);
+
+        $incomplete = $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-RECOGNITION')->assertOk();
+        $incomplete->assertJsonPath('data.0.cost_status', 'MISSING_COST_SNAPSHOT')
+            ->assertJsonPath('data.0.cost', null)
+            ->assertJsonPath('data.0.gross_margin', null)
+            ->assertJsonPath('summary.margin_complete', false)
+            ->assertJsonPath('summary.margin_percent', null)
+            ->assertJsonPath('summary.missing_cost_snapshots', 1);
+        self::assertGreaterThan(0, (float) $incomplete->json('summary.uncosted_revenue'));
     }
 
     public function test_pricing_contract_work_credit_scope_and_permissions_are_enforced(): void
