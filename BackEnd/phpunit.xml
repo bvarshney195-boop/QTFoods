@@ -20,6 +20,8 @@
         <env name="MAIL_MAILER" value="array" force="true"/>
         <env name="QUEUE_CONNECTION" value="sync" force="true"/>
         <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="QT_MFA_REQUIRED_ROLES" value="" force="true"/>
+        <env name="QT_ALLOW_DEMO_LOGIN" value="true" force="true"/>
         <server name="APP_ENV" value="testing"/>
         <server name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
         <server name="APP_DEBUG" value="true"/>
