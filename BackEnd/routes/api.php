@@ -53,6 +53,8 @@ Route::get('/metrics', [ObservabilityController::class, 'metrics'])
 Route::middleware('web')->prefix('v1')->group(function () {
     Route::get('/auth/csrf', [AuthController::class, 'csrf']);
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:identity-login');
+    Route::post('/auth/challenge', [AuthController::class, 'authenticationChallenge'])
+        ->middleware('throttle:identity-mfa-challenge');
     Route::post('/auth/mfa/challenge', [AuthController::class, 'mfaChallenge'])->middleware('throttle:identity-mfa-challenge');
     Route::get('/auth/invitations/{token}', [IdentityController::class, 'invitation'])
         ->where('token', '[A-Fa-f0-9]{64}')->middleware('throttle:identity-link-read');
@@ -658,6 +660,8 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/sales/customer-claims/{claimId}/receive', [OrderToCashController::class, 'receiveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RECEIVE']);
             Route::post('/sales/customer-claims/{claimId}/resolve', [OrderToCashController::class, 'resolveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RESOLVE']);
             Route::get('/reports/profitability', [OrderToCashController::class, 'profitability'])->middleware('erp.screen:BI-PROFIT');
+            Route::post('/reports/profitability/cost-backfill', [OrderToCashController::class, 'backfillProfitabilityCosts'])
+                ->middleware(['erp.screen:BI-PROFIT', 'erp.permission:ACTION:BI-PROFIT:COST-BACKFILL']);
 
             Route::get('/sales/unsold-returns', [UnsoldSalesReturnController::class, 'index'])
                 ->middleware('erp.screen:RET-UNSOLD');

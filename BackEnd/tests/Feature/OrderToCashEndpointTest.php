@@ -90,12 +90,19 @@ final class OrderToCashEndpointTest extends TestCase
         $allocation = $this->withHeaders($this->headers(2))->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
             'allocation_number' => 'ALLOC-P2-001',
         ])->assertCreated()->assertJsonPath('data.status', 'RESERVED')
-            ->assertJsonPath('data.allocated_quantity', '10.000000')->assertJsonPath('data.fefo_break_count', 1);
+            ->assertJsonPath('data.allocated_quantity', '10.000000')
+            ->assertJsonPath('data.fefo_lot_count', 1)->assertJsonPath('data.fefo_break_count', 0);
         $allocationId = (string) $allocation->json('data.id');
         $this->assertDatabaseHas('stock_reservations', ['status' => 'ACTIVE', 'quantity_base' => 10]);
         $this->signIn(self::OPERATIONS_ID);
         $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
             ->assertOk()->assertJsonPath('data.status', 'PICKED')->assertJsonPath('data.record_version', 2);
+        $this->getJson('/api/v1/dispatch/allocations')->assertOk()
+            ->assertJsonPath('data.0.allocated_quantity', '10.000000')
+            ->assertJsonPath('data.0.picked_quantity', '10.000000')
+            ->assertJsonPath('data.0.fefo_lot_count', 1)
+            ->assertJsonPath('data.0.fefo_break_count', 0)
+            ->assertJsonPath('data.0.allocation_summary_available', true);
 
         $shipment = $this->command()->postJson('/api/v1/dispatch/shipments', [
             'shipment_number' => 'SHP-P2-001', 'sales_allocation_id' => $allocationId,
@@ -134,6 +141,11 @@ final class OrderToCashEndpointTest extends TestCase
             'resolution_type' => 'CREDIT', 'credit_amount' => '118', 'notes' => 'Commercial credit approved for damaged pack.',
         ])->assertOk()->assertJsonPath('data.status', 'RESOLVED')->assertJsonPath('data.credit_amount', '118.0000');
 
+        $this->getJson('/api/v1/finance/receivables?q=INV-P2-001')->assertOk()
+            ->assertJsonPath('data.0.payment_status', 'PARTIALLY_PAID')
+            ->assertJsonPath('data.0.status', 'PARTIALLY_PAID')
+            ->assertJsonPath('data.0.document_retention_status', 'NOT_ARCHIVED');
+
         $this->command()->postJson('/api/v1/finance/receivables/collections', [
             'receipt_number' => 'RCPT-P2-001', 'customer_party_id' => self::CUSTOMER_ID,
             'receipt_date' => now()->toDateString(), 'payment_method' => 'BANK', 'bank_reference' => 'BANK-P2-001',
@@ -141,10 +153,139 @@ final class OrderToCashEndpointTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.status', 'POSTED')->assertJsonPath('data.allocated_amount', '1003.0000');
         $this->getJson('/api/v1/finance/receivables/'.$invoiceId)->assertOk()
             ->assertJsonPath('data.outstanding_amount', '0.0000')->assertJsonCount(3, 'data.transactions');
-        $this->getJson('/api/v1/reports/profitability')->assertOk()->assertJsonPath('data.0.order_number', 'SO-P2-001');
+        $this->getJson('/api/v1/finance/receivables?q=INV-P2-001')->assertOk()
+            ->assertJsonPath('data.0.payment_status', 'SETTLED')
+            ->assertJsonPath('data.0.document_retention_status', 'NOT_ARCHIVED');
+
+        $partialProfitability = $this->getJson('/api/v1/reports/profitability?q=SO-P2-001')->assertOk()
+            ->assertJsonPath('data.0.order_number', 'SO-P2-001')
+            ->assertJsonPath('data.0.recognized_revenue', '950.000000')
+            ->assertJsonPath('data.0.costed_revenue', '0.000000')
+            ->assertJsonPath('data.0.uncosted_revenue', '950.000000')
+            ->assertJsonPath('data.0.cost_coverage_percent', '0.0000')
+            ->assertJsonPath('data.0.cost_status', 'PARTIAL')
+            ->assertJsonPath('data.0.gross_margin', null)
+            ->assertJsonPath('data.0.margin_percent', null)
+            ->assertJsonPath('summary.margin_status', 'PARTIAL_COST_COVERAGE');
+        $this->assertNotNull($partialProfitability->json('data.0.known_gross_margin'));
+
+        $productionOrderId = (string) Str::uuid();
+        DB::table('production_orders')->insert([
+            'id' => $productionOrderId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'status' => 'DRAFT',
+            'record_version' => 1,
+            'created_by' => self::FINANCE_ID,
+            'order_number' => 'PROD-COST-BACKFILL-001',
+            'batch_number' => 'BATCH-COST-BACKFILL-001',
+            'production_schedule_id' => null,
+            'production_schedule_line_id' => null,
+            'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911',
+            'route_id' => '00000000-0000-4000-8000-000000000921',
+            'planned_quantity' => 100,
+            'uom_code' => 'PACK',
+            'planned_start_date' => now()->toDateString(),
+            'planned_end_date' => now()->toDateString(),
+            'quality_status' => 'PENDING',
+            'notes' => 'Controlled finalized cost source for audit acceptance.',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $batchCostId = (string) Str::uuid();
+        DB::table('batch_costs')->insert([
+            'id' => $batchCostId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'cost_number' => 'COST-BACKFILL-001',
+            'production_order_id' => $productionOrderId,
+            'snapshot_version' => 1,
+            'currency' => 'INR',
+            'labour_rate_per_minute' => 1,
+            'overhead_rate_per_minute' => 1,
+            'planned_material_cost' => 300,
+            'actual_material_cost' => 300,
+            'planned_conversion_cost' => 200,
+            'actual_conversion_cost' => 200,
+            'planned_total_cost' => 500,
+            'actual_total_cost' => 500,
+            'total_variance' => 0,
+            'variance_percent' => 0,
+            'good_quantity' => 100,
+            'yield_percent' => 100,
+            'cost_per_good_unit' => 5,
+            'status' => 'FINALIZED',
+            'calculated_by' => self::FINANCE_ID,
+            'calculated_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->signIn(self::FINANCE_ID);
+        $this->command()->postJson('/api/v1/reports/profitability/cost-backfill', ['order_id' => $orderId])
+            ->assertOk()->assertJsonPath('data.updated_count', 1)
+            ->assertJsonPath('data.unavailable_count', 0);
+        $lineId = (string) DB::table('sales_order_lines')->where('sales_order_id', $orderId)->value('id');
+        $this->assertDatabaseHas('sales_order_lines', [
+            'id' => $lineId,
+            'cost_snapshot_status' => 'BACKFILLED',
+            'cost_snapshot_source_type' => 'BATCH_COST',
+            'cost_snapshot_source_id' => $batchCostId,
+            'cost_backfilled_by' => self::FINANCE_ID,
+        ]);
+        $this->assertNotNull(DB::table('sales_order_lines')->where('id', $lineId)->value('cost_snapshot_source_id'));
+        $this->assertDatabaseHas('audit_events', ['command' => 'BACKFILL_PROFITABILITY_COST', 'entity_id' => $lineId]);
+        $this->assertDatabaseHas('outbox_events', ['event_type' => 'sales.profitability-cost.backfilled', 'aggregate_id' => $lineId]);
+        $backfilled = $this->getJson('/api/v1/reports/profitability?q=SO-P2-001')->assertOk()
+            ->assertJsonPath('data.0.cost_status', 'COMPLETE')
+            ->assertJsonPath('data.0.uncosted_revenue', '0.000000')
+            ->assertJsonPath('summary.margin_status', 'DEFINITIVE');
+        $this->assertNotNull($backfilled->json('summary.margin_percent'));
         $this->assertDatabaseHas('invoices', ['id' => $invoiceId, 'invoice_type' => 'RECEIVABLE', 'status' => 'PAID']);
         $this->assertDatabaseHas('audit_events', ['command' => 'DISPATCH_SALES_SHIPMENT', 'entity_id' => $shipmentId]);
         $this->assertDatabaseHas('outbox_events', ['event_type' => 'finance.customer-receipt.posted']);
+    }
+
+    public function test_draft_and_cancelled_orders_never_enter_recognized_revenue(): void
+    {
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-AUDIT-CANCELLED',
+            'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null,
+            'sales_contract_id' => self::CONTRACT_ID,
+            'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(),
+            'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Revenue-recognition cancellation acceptance case.',
+            'lines' => [[
+                'item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '2', 'discount_percent' => '0',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $orderId = (string) $order->json('data.id');
+
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.order_value', '190.000000')
+            ->assertJsonPath('data.0.booked_revenue', '0.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000')
+            ->assertJsonPath('data.0.revenue', '0.000000')
+            ->assertJsonPath('data.0.cost_status', 'NOT_RECOGNIZED');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.booked_revenue', '190.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000');
+
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/orders/'.$orderId.'/cancel', [
+            'reason' => 'Controlled audit cancellation.',
+        ])->assertOk()->assertJsonPath('data.status', 'CANCELLED');
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.status', 'CANCELLED')
+            ->assertJsonPath('data.0.booked_revenue', '0.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.cancelled_orders', 1);
     }
 
     public function test_pricing_contract_work_credit_scope_and_permissions_are_enforced(): void

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const REPORT_RUN = 'E2E-REPORT-001';
 const SUPPORT_SUBJECT = 'E2E reporting evidence needs clarification';
@@ -79,12 +80,7 @@ async function openHelp(page: Page): Promise<void> {
 }
 
 async function loginAndSelect(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
 }
 
 async function logout(page: Page): Promise<void> {

@@ -18,6 +18,7 @@ final class UnsoldReturnCommandEndpointTest extends TestCase
     private const ADMIN_USER_ID = '00000000-0000-4000-8000-000000000204';
     private const FINANCE_USER_ID = '00000000-0000-4000-8000-000000000203';
     private const RETURN_POSITION_ID = '00000000-0000-4000-8000-000000001201';
+    private const RETURN_LOCATION_ID = '00000000-0000-4000-8000-000000000801';
     private const WRONG_SKU_POSITION_ID = '00000000-0000-4000-8000-000000001202';
     private const SHIPMENT_LINE_ID = '00000000-0000-4000-8000-000000001101';
 
@@ -113,6 +114,73 @@ final class UnsoldReturnCommandEndpointTest extends TestCase
         ]);
     }
 
+    public function test_missing_position_is_safely_provisioned_by_location_and_reconciles_through_finance(): void
+    {
+        // Keep the location eligible while making the seeded coordinate ineligible. The receipt
+        // must create the exact plant/lot/SKU/owner/UOM quarantine coordinate, not reuse it loosely.
+        DB::table('stock_positions')->where('id', self::RETURN_POSITION_ID)->update([
+            'quality_status' => 'BLOCKED',
+            'updated_at' => now(),
+        ]);
+        [$caseId, $lineId] = $this->createCase();
+
+        $receipt = ['lines' => [[
+            'line_id' => $lineId,
+            'received_quantity' => '10',
+            'return_location_id' => self::RETURN_LOCATION_ID,
+        ]]];
+        $this->withHeaders(['If-Match' => '1', 'Idempotency-Key' => (string) Str::uuid()])
+            ->postJson("/api/v1/sales/unsold-returns/{$caseId}/receive", $receipt)
+            ->assertOk()->assertJsonPath('data.status', 'RETURN_QUARANTINE');
+
+        $positionId = (string) DB::table('unsold_return_lines')->where('id', $lineId)->value('return_position_id');
+        $this->assertNotSame(self::RETURN_POSITION_ID, $positionId);
+        $this->assertDatabaseHas('stock_positions', [
+            'id' => $positionId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'item_id' => '00000000-0000-4000-8000-000000000601',
+            'lot_id' => '00000000-0000-4000-8000-000000000701',
+            'inventory_owner_id' => self::COMPANY_ID,
+            'location_id' => self::RETURN_LOCATION_ID,
+            'quality_status' => 'RETURN_QUARANTINE',
+            'uom_code' => 'PACK',
+            'quantity_base' => 10,
+        ]);
+
+        $disposition = $this->withHeaders(['If-Match' => '2', 'Idempotency-Key' => (string) Str::uuid()])
+            ->postJson("/api/v1/sales/unsold-returns/{$caseId}/disposition", ['lines' => [[
+                'line_id' => $lineId,
+                'restock_quantity' => '0',
+                'repack_quantity' => '0',
+                'rework_quantity' => '0',
+                'destroy_quantity' => '10',
+                'quality_reason_code' => 'SHORT_SHELF_LIFE',
+            ]]])
+            ->assertOk()->assertJsonPath('data.status', 'DISPOSITION_REVIEW');
+        $this->app->make(ApprovalService::class)->decide(
+            $disposition->json('data.approval_request_id'),
+            self::FINANCE_USER_ID,
+            'APPROVE',
+        );
+
+        $this->withHeaders(['If-Match' => '3', 'Idempotency-Key' => (string) Str::uuid()])
+            ->postJson("/api/v1/sales/unsold-returns/{$caseId}/post-loss", [
+                'uom_code' => 'PACK', 'cost_amount' => '125.50', 'currency' => 'INR',
+            ])
+            ->assertOk()->assertJsonPath('data.status', 'LOSS_POSTED')
+            ->assertJsonPath('data.loss_quantity', '10.000000');
+
+        $this->assertSame('0.000000', $this->decimal(DB::table('stock_positions')->where('id', $positionId)->value('quantity_base')));
+        $this->assertDatabaseHas('loss_events', [
+            'source_type' => 'UNSOLD_RETURN',
+            'source_id' => $caseId,
+            'quantity_base' => 10,
+            'cost_amount' => 125.5,
+            'currency' => 'INR',
+        ]);
+    }
+
     public function test_disposition_and_loss_posting_are_idempotent_and_versioned(): void
     {
         [$caseId, $lineId] = $this->createCase();
@@ -201,5 +269,10 @@ final class UnsoldReturnCommandEndpointTest extends TestCase
             'received_quantity' => '10',
             'return_position_id' => self::RETURN_POSITION_ID,
         ]]];
+    }
+
+    private function decimal(mixed $value): string
+    {
+        return bcadd((string) ($value ?? 0), '0', 6);
     }
 }

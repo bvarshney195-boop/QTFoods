@@ -66,9 +66,45 @@ describe('account security panel', () => {
     render(<AccountSecurityPanel session={session()} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Google Chrome')).toBeInTheDocument();
+    expect(screen.getByText('Current device')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(screen.getByRole('alertdialog', { name: 'Sign out this device?' })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out now' }));
     await waitFor(() => expect(identityMocks.revokeDeviceSession).toHaveBeenCalledWith('session-1'));
     expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  it('defaults to active devices, paginates history, keeps IDs secondary, and names revocation targets', async () => {
+    const history = Array.from({ length: 6 }, (_, index) => ({
+      id: `history-${index + 1}-reference`, ip_address: `10.0.0.${index + 1}`, user_agent: 'Firefox/140',
+      last_seen_at: `2026-09-0${index + 1}T10:00:00Z`, expires_at: '2026-09-09T12:00:00Z',
+      revoked_at: '2026-09-09T11:00:00Z', revoke_reason: 'Expired', status: 'REVOKED', current: false, record_version: 2,
+    }));
+    identityMocks.listDeviceSessions.mockResolvedValue({
+      data: [{
+        id: 'session-current', ip_address: '127.0.0.1', user_agent: 'Chrome/140', last_seen_at: '2026-09-09T10:00:00Z',
+        expires_at: '2026-09-09T12:00:00Z', revoked_at: null, revoke_reason: null, status: 'ACTIVE', current: true, record_version: 1,
+      }, {
+        id: 'session-edge', ip_address: '10.0.0.20', user_agent: 'Edg/140', last_seen_at: '2026-09-09T09:00:00Z',
+        expires_at: '2026-09-09T12:00:00Z', revoked_at: null, revoke_reason: null, status: 'ACTIVE', current: false, record_version: 1,
+      }, ...history],
+      summary: { total: 8, active: 2 },
+    });
+    const user = userEvent.setup();
+    render(<AccountSecurityPanel session={session()} onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Google Chrome')).toBeInTheDocument();
+    expect(screen.queryByText('Mozilla Firefox')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Revoke' }));
+    expect(screen.getByRole('alertdialog', { name: 'Revoke Microsoft Edge?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep session' }));
+
+    await user.click(screen.getByRole('tab', { name: 'History (6)' }));
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument();
+    const reference = screen.getAllByText(/Session reference/)[0];
+    expect(reference).toHaveClass('technical-identifier');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
   });
 });
 

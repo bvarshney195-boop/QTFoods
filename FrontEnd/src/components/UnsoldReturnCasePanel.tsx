@@ -13,7 +13,6 @@ import {
   settleUnsoldReturnFinance,
   uploadUnsoldReturnEvidence,
   type InvoiceLookup,
-  type ReturnPositionLookup,
   type UnsoldReturnDetail,
   type UnsoldReturnEvidence,
   type UnsoldReturnEvidenceCategory,
@@ -21,6 +20,7 @@ import {
 } from '../api/unsoldReturns';
 import { useErpSession } from '../app/ErpSessionContext';
 import { StatusBadge } from './StatusBadge';
+import { formatBusinessDate, formatZonedDateTime } from '../utils/dateTime';
 
 type Props = {
   caseId: string | null;
@@ -30,6 +30,7 @@ type Props = {
 };
 
 type ReceiptDraft = Record<string, { quantity: string; positionId: string }>;
+type ReturnDestination = { selectionId: string; label: string };
 type DispositionDraft = Record<string, {
   restock: string;
   repack: string;
@@ -58,7 +59,8 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
   const canFinance = session.allowed_actions.includes('ACTION:RET-UNSOLD:FINANCE');
   const canEvidence = session.allowed_actions.includes('ACTION:RET-UNSOLD:EVIDENCE');
   const [detail, setDetail] = useState<UnsoldReturnDetail | null>(null);
-  const [positions, setPositions] = useState<Record<string, ReturnPositionLookup[]>>({});
+  const [positions, setPositions] = useState<Record<string, ReturnDestination[]>>({});
+  const [lookupFailures, setLookupFailures] = useState<string[]>([]);
   const [invoices, setInvoices] = useState<InvoiceLookup[]>([]);
   const [receiptDraft, setReceiptDraft] = useState<ReceiptDraft>({});
   const [dispositionDraft, setDispositionDraft] = useState<DispositionDraft>({});
@@ -87,6 +89,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
     if (!caseId) {
       setDetail(null);
       setPositions({});
+      setLookupFailures([]);
       setInvoices([]);
       setLoading(false);
       setLoadError(null);
@@ -97,6 +100,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
     setLoadError(null);
     try {
       const nextDetail = await getUnsoldReturn(caseId);
+      const failedLookups: string[] = [];
       const [positionEntries, invoiceLookup] = await Promise.all([
         Promise.all(nextDetail.lines.map(async (line) => {
           if (!line.fg_lot) return [line.id, []] as const;
@@ -105,9 +109,22 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
             const lookup = await getUnsoldReturnLookups({
               sku_id: line.sku.id,
               lot_id: line.fg_lot.id,
+              shipment_line_id: line.shipment_line_id ?? undefined,
+              uom_code: line.uom_code,
             });
-            return [line.id, lookup.return_positions] as const;
+            const destinations: ReturnDestination[] = [
+              ...(lookup.return_positions ?? []).map((position) => ({
+                selectionId: position.id,
+                label: `${position.location.code} · ${position.location.name}`,
+              })),
+              ...(lookup.return_locations ?? []).map((location) => ({
+                selectionId: `location:${location.id}`,
+                label: `${location.code} · ${location.name}${location.requires_position_creation ? ' (position created on receipt)' : ''}`,
+              })),
+            ];
+            return [line.id, destinations.filter((destination, index, rows) => rows.findIndex((row) => row.selectionId === destination.selectionId) === index)] as const;
           } catch {
+            failedLookups.push(line.id);
             return [line.id, []] as const;
           }
         })),
@@ -122,6 +139,7 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
       const nextPositions = Object.fromEntries(positionEntries);
       setDetail(nextDetail);
       setPositions(nextPositions);
+      setLookupFailures(failedLookups);
       setInvoices(invoiceLookup?.invoices ?? []);
       setReceiptDraft(makeReceiptDraft(nextDetail.lines, nextPositions));
       setDispositionDraft(makeDispositionDraft(nextDetail.lines));
@@ -163,6 +181,9 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
     const uoms = [...new Set(destroyed.map((line) => line.uom_code))];
     return uoms.length === 1 ? uoms[0] : '';
   }, [detail]);
+  const hasUnroutableLines = useMemo(() => remainingLines.some((line) => (
+    !(positions[line.id]?.length) && !line.return_position?.id
+  )), [positions, remainingLines]);
 
   function changeReceipt(lineId: string, patch: Partial<ReceiptDraft[string]>) {
     receiptKey.current = null;
@@ -236,7 +257,9 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
         { lines: lines.map(({ line, draft }) => ({
           line_id: line.id,
           received_quantity: draft.quantity,
-          return_position_id: draft.positionId,
+          ...(draft.positionId.startsWith('location:')
+            ? { return_location_id: draft.positionId.slice('location:'.length) }
+            : { return_position_id: draft.positionId }),
         })) },
         detail.record_version,
         receiptKey.current
@@ -601,14 +624,15 @@ export function UnsoldReturnCasePanel({ caseId, refreshToken, onClose, onChanged
                 const routes = positions[line.id] ?? [];
                 const draft = receiptDraft[line.id] ?? { quantity: '', positionId: '' };
                 return (
-                  <div className="action-line" key={line.id}>
+                  <div className="action-line return-routing-line" key={line.id}>
                     <b>{line.sku.code ?? line.sku.id}<small>{formatQuantityValue(remainingQuantity(line))} {line.uom_code} remaining</small></b>
                     <label>Received<input type="number" min="0" max={remainingQuantity(line)} step="0.000001" value={draft.quantity} onChange={(event) => changeReceipt(line.id, { quantity: event.target.value })} /></label>
-                    <label>Quarantine position<select value={draft.positionId} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })}><option value="">Select destination</option>{routes.map((position) => <option key={position.id} value={position.id}>{position.location.code} · {position.location.name}</option>)}</select></label>
+                    <label>Quarantine destination<select value={draft.positionId} disabled={!routes.length} onChange={(event) => changeReceipt(line.id, { positionId: event.target.value })}><option value="">{routes.length ? 'Select destination' : 'No eligible destination'}</option>{routes.map((destination) => <option key={destination.selectionId} value={destination.selectionId}>{destination.label}</option>)}</select></label>
+                    {!routes.length && <div className="routing-warning" role="alert"><b>{lookupFailures.includes(line.id) ? 'Destinations could not be loaded.' : 'No return quarantine location is configured for this lot and owner.'}</b><span>{lookupFailures.includes(line.id) ? 'Check the connection and retry the lookup.' : 'Ask your inventory administrator to configure an active Return Quarantine location for this plant.'}</span><div><button className="secondary compact-button" type="button" disabled={loading} onClick={() => void loadCase()}>Retry lookup</button>{session.allowed_screens.includes('ADM-LOC') && <button className="secondary compact-button" type="button" onClick={() => { window.location.hash = 'ADM-LOC'; }}>Configure locations</button>}</div></div>}
                   </div>
                 );
               })}
-              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
+              <div className="form-actions"><button className="primary" type="submit" disabled={submitting !== null || !remainingLines.length || hasUnroutableLines}>{submitting === 'receive' ? 'Posting receipt...' : 'Post quarantine receipt'}</button></div>
             </form>
           ) : <ActionWait role="STORES ACTION" title="Physical receipt" message={`Available only while a return is requested, in transit, or partially received. Current state: ${displayStatus(detail.status)}.`} />)}
 
@@ -791,14 +815,14 @@ function ActionWait({ role, title, message }: { role: string; title: string; mes
 
 function makeReceiptDraft(
   lines: UnsoldReturnLine[],
-  positions: Record<string, ReturnPositionLookup[]>
+  positions: Record<string, ReturnDestination[]>
 ): ReceiptDraft {
   return Object.fromEntries(lines.map((line) => {
     const remaining = remainingQuantity(line);
     const existingPosition = line.return_position?.id;
     return [line.id, {
       quantity: remaining > 0 ? formatQuantityValue(remaining) : '0',
-      positionId: existingPosition ?? positions[line.id]?.[0]?.id ?? '',
+      positionId: existingPosition ?? positions[line.id]?.[0]?.selectionId ?? '',
     }];
   }));
 }
@@ -919,13 +943,11 @@ function formatMoney(amount: string): string {
 }
 
 function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatZonedDateTime(value);
 }
 
 function formatDate(value: string): string {
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  return formatBusinessDate(value);
 }
 
 function formatBytes(bytes: number): string {

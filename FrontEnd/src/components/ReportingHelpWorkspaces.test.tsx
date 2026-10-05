@@ -36,7 +36,7 @@ describe('Controlled reporting workspace', () => {
     const user = userEvent.setup();
     renderReporting();
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Controlled Reports' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument();
     expect(screen.getByText(/never refresh in place/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '+ New' }));
     await user.clear(screen.getByLabelText('Report run number'));
@@ -60,10 +60,16 @@ describe('Controlled reporting workspace', () => {
     renderReporting();
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
-    expect(screen.getByText('Immutable snapshot rows')).toBeInTheDocument();
+    expect(screen.getByText('Snapshot rows')).toBeInTheDocument();
     expect(screen.getByText('General operating expense')).toBeInTheDocument();
+    const integrity = screen.getByText('Export details and integrity').closest('details');
+    expect(integrity).not.toHaveAttribute('open');
+    await user.click(screen.getByText(/Choose columns/));
+    await user.click(screen.getByLabelText('Debit'));
+    expect(screen.queryByRole('columnheader', { name: 'Debit' })).not.toBeInTheDocument();
+    await user.click(screen.getByText('Export details and integrity'));
     expect(screen.getByText('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Create & download CSV' }));
+    await user.click(screen.getByRole('button', { name: 'Download CSV' }));
 
     await waitFor(() => expect(reportingApi.createReportExport).toHaveBeenCalledWith('run-1', 'CSV', expect.any(String)));
     expect(reportingApi.downloadReportExport).toHaveBeenCalledWith('export-1');
@@ -85,7 +91,7 @@ describe('Help and support workspace', () => {
     const user = userEvent.setup();
     renderHelp();
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Help & Support' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Help & support' })).toBeInTheDocument();
     expect(screen.queryByText(/prototype/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Getting started with your company/i }));
     expect(await screen.findByRole('heading', { level: 3, name: 'Select the operating boundary' })).toBeInTheDocument();

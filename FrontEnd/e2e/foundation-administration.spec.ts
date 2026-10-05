@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 test('ERP Administrator provisions plant foundation data and effective user authority', async ({ page }) => {
   await login(page, 'admin.user@qtfoods.local', 'prototype');
@@ -49,7 +50,7 @@ test('ERP Administrator provisions plant foundation data and effective user auth
   await expect(page.getByRole('heading', { name: 'Users & Assignments' })).toBeVisible();
   await page.getByRole('button', { name: '+ New' }).click();
   await page.getByLabel('Name').fill('E2E Location Auditor');
-  await page.getByLabel('Email').fill('e2e.location.auditor@qtfoods.local');
+  await page.getByLabel('Email', { exact: true }).fill('e2e.location.auditor@qtfoods.local');
   await page.getByLabel('Initial role').selectOption({
     label: 'E2E Location Auditor (E2E_LOCATION_AUDITOR)',
   });
@@ -76,10 +77,5 @@ test('ERP Administrator provisions plant foundation data and effective user auth
 });
 
 async function login(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email, password);
 }

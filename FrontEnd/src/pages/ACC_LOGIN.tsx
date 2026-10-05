@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { MfaChallenge } from '../api/auth';
+import QRCode from 'qrcode';
+import type {
+  AuthenticationAction,
+  AuthenticationChallenge,
+  AuthenticationMethod,
+} from '../api/auth';
 import { isApiError } from '../api/client';
 import {
   acceptInvitation,
@@ -14,10 +19,10 @@ import {
 type AccessFlow = 'signin' | 'forgot' | 'verification' | 'reset' | 'verify' | 'invite';
 
 type LoginProps = {
-  onLogin?: (email: string, password: string) => Promise<void> | void;
-  onMfa?: (code: string) => Promise<void> | void;
-  onCancelMfa?: () => void;
-  mfaChallenge?: MfaChallenge | null;
+  onLogin?: (email: string, method: AuthenticationMethod, password?: string) => Promise<void> | void;
+  onChallenge?: (action: AuthenticationAction, code?: string) => Promise<void> | void;
+  onCancelChallenge?: () => void;
+  authChallenge?: AuthenticationChallenge | null;
   onRetry?: () => Promise<void> | void;
   busy?: boolean;
   error?: string | null;
@@ -29,12 +34,13 @@ const demoAccounts = [
   ['Finance', 'finance.user@qtfoods.local'],
   ['ERP Admin', 'admin.user@qtfoods.local'],
 ] as const;
+const demoLoginEnabled = import.meta.env.VITE_ENABLE_DEMO_LOGIN === 'true';
 
 export default function ACC_LOGIN({
   onLogin,
-  onMfa,
-  onCancelMfa,
-  mfaChallenge,
+  onChallenge,
+  onCancelChallenge,
+  authChallenge,
   onRetry,
   busy = false,
   error,
@@ -42,8 +48,9 @@ export default function ACC_LOGIN({
   const parameters = new URLSearchParams(window.location.search);
   const initialFlow = validFlow(parameters.get('flow'));
   const [flow, setFlow] = useState<AccessFlow>(initialFlow);
-  const [email, setEmail] = useState(parameters.get('email') ?? 'demo.user@qtfoods.local');
-  const [password, setPassword] = useState('prototype');
+  const [email, setEmail] = useState(parameters.get('email') ?? '');
+  const [password, setPassword] = useState('');
+  const [authMethod, setAuthMethod] = useState<AuthenticationMethod>('password');
   const [confirmation, setConfirmation] = useState('');
   const [code, setCode] = useState('');
   const [token] = useState(parameters.get('token') ?? '');
@@ -52,6 +59,7 @@ export default function ACC_LOGIN({
   const [localError, setLocalError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (flow !== 'invite') return;
@@ -69,15 +77,35 @@ export default function ACC_LOGIN({
       .finally(() => setLocalBusy(false));
   }, [flow, token]);
 
+  useEffect(() => {
+    let current = true;
+    if (!authChallenge?.setup?.otpauth_uri) {
+      setQrCode(null);
+      return () => { current = false; };
+    }
+    void QRCode.toDataURL(authChallenge.setup.otpauth_uri, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 220,
+      color: { dark: '#173f35', light: '#ffffff' },
+    }).then((value) => {
+      if (current) setQrCode(value);
+    }).catch(() => {
+      if (current) setQrCode(null);
+    });
+    return () => { current = false; };
+  }, [authChallenge?.setup?.otpauth_uri]);
+
   const working = busy || localBusy;
 
   function submitSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setNotice(null);
-    if (mfaChallenge) {
-      void onMfa?.(code.trim());
+    if (authChallenge) {
+      const action = challengeVerificationAction(authChallenge.phase);
+      if (action) void onChallenge?.(action, code.trim());
     } else {
-      void onLogin?.(email.trim(), password);
+      void onLogin?.(email.trim().toLowerCase(), authMethod, authMethod === 'password' ? password : undefined);
     }
   }
 
@@ -159,10 +187,10 @@ export default function ACC_LOGIN({
         {flow === 'signin' && (
           <form className="auth-card" onSubmit={submitSignIn}>
             <div className="eyebrow">SECURE SIGN IN</div>
-            <h2>{mfaChallenge ? 'Two-step verification' : 'Welcome back'}</h2>
-            <p className="auth-intro">{mfaChallenge
-              ? `Enter an authenticator or recovery code. Challenge expires ${new Date(mfaChallenge.expires_at).toLocaleTimeString()}.`
-              : 'Use your work account to open your assigned workspace.'}</p>
+            <h2>{authChallenge ? challengeTitle(authChallenge.phase) : 'Welcome back'}</h2>
+            <p className="auth-intro">{authChallenge
+              ? challengeIntroduction(authChallenge)
+              : 'Choose how you want to verify your work account.'}</p>
 
             {(error || localError) && (
               <div className="form-error" role="alert">
@@ -172,28 +200,85 @@ export default function ACC_LOGIN({
             )}
             {notice && <div className="form-success" role="status"><span></span>{notice}</div>}
 
-            {mfaChallenge ? <>
-              <label htmlFor="login-code">Authenticator or recovery code</label>
-              <input id="login-code" value={code} onChange={(event) => setCode(event.target.value)} autoComplete="one-time-code" autoFocus required />
-              <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : 'Verify and sign in'}</button>
-              <button className="auth-link centered" type="button" onClick={onCancelMfa}>Back to password</button>
+            {authChallenge ? <>
+              {authChallenge.phase === 'SELECT_SECOND_FACTOR' && (
+                <fieldset className="authentication-methods">
+                  <legend>Choose a required second factor</legend>
+                  <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_email_otp')}>
+                    <b>Email one-time code</b><span>Send a six-digit code to {authChallenge.email_hint}</span>
+                  </button>
+                  {authChallenge.available_methods.includes('totp') && (
+                    <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_totp')}>
+                      <b>Google Authenticator</b><span>Use your registered authenticator or a recovery code</span>
+                    </button>
+                  )}
+                </fieldset>
+              )}
+
+              {authChallenge.phase === 'TOTP_ENROLLMENT' && authChallenge.setup && (
+                <div className="totp-enrolment" aria-live="polite">
+                  <p>Scan this QR code with Google Authenticator, then enter the current six-digit code.</p>
+                  {qrCode
+                    ? <img src={qrCode} width="220" height="220" alt="QR code for registering Q & T Foods in Google Authenticator" />
+                    : <div className="qr-placeholder" aria-busy="true">Preparing secure QR code…</div>}
+                  <details><summary>Can’t scan the QR code?</summary><p>Enter this setup key manually:</p><code>{authChallenge.setup.secret}</code></details>
+                </div>
+              )}
+
+              {authChallenge.phase !== 'SELECT_SECOND_FACTOR' && (
+                <>
+                  <label htmlFor="login-code">{challengeCodeLabel(authChallenge.phase)}</label>
+                  <input
+                    id="login-code"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value.replace(/\s/g, ''))}
+                    inputMode={authChallenge.phase === 'TOTP_ENROLLMENT' || authChallenge.phase.startsWith('EMAIL_') ? 'numeric' : 'text'}
+                    autoComplete="one-time-code"
+                    autoFocus
+                    required
+                    aria-describedby="challenge-expiry"
+                  />
+                  <small id="challenge-expiry">This sign-in step expires at {new Date(authChallenge.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</small>
+                  {authChallenge.delivery?.preview_code && <small className="development-preview">Development email code: <code>{authChallenge.delivery.preview_code}</code></small>}
+                  <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : authChallenge.phase === 'TOTP_ENROLLMENT' ? 'Register and sign in' : 'Verify and continue'}</button>
+                  {authChallenge.phase.startsWith('EMAIL_') && (
+                    <button className="auth-link centered" type="button" disabled={working} onClick={() => void onChallenge?.('resend_email_otp')}>Send a new code</button>
+                  )}
+                </>
+              )}
+              <button className="auth-link centered" type="button" onClick={() => { setCode(''); onCancelChallenge?.(); }}>Start again</button>
             </> : <>
               <label htmlFor="login-email">Email</label>
               <input id="login-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required />
-              <label htmlFor="login-password">Password</label>
-              <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
-              <button className="primary" type="submit" disabled={working}>{working ? 'Signing in…' : 'Sign in'}</button>
+              <fieldset className="authentication-methods">
+                <legend>Authentication method</legend>
+                {([
+                  ['password', 'Password', 'Enter your account password'],
+                  ['email_otp', 'Email OTP', 'Receive a code at your registered email'],
+                  ['totp', 'Google Authenticator', 'Use or register a time-based code'],
+                ] as const).map(([value, label, description]) => (
+                  <label className={`authentication-method ${authMethod === value ? 'selected' : ''}`} key={value}>
+                    <input type="radio" name="authentication-method" value={value} checked={authMethod === value} onChange={() => { setAuthMethod(value); setPassword(''); }} />
+                    <span><b>{label}</b><small>{description}</small></span>
+                  </label>
+                ))}
+              </fieldset>
+              {authMethod === 'password' && <>
+                <label htmlFor="login-password">Password</label>
+                <input id="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+              </>}
+              <button className="primary" type="submit" disabled={working || (authMethod === 'password' && !password)}>{working ? 'Starting secure sign-in…' : authMethod === 'email_otp' ? 'Send email code' : authMethod === 'totp' ? 'Continue with authenticator' : 'Continue with password'}</button>
               <div className="auth-links">
                 <button type="button" onClick={() => switchFlow('forgot')}>Forgot password?</button>
                 <button type="button" onClick={() => switchFlow('verification')}>Resend verification</button>
               </div>
 
-              <div className="demo-accounts">
+              {demoLoginEnabled && <div className="demo-accounts">
                 <span>Try a demo role · password: <b>prototype</b></span>
                 <div>{demoAccounts.map(([label, account]) => (
-                  <button type="button" key={account} className={email === account ? 'selected' : ''} onClick={() => setEmail(account)}>{label}</button>
+                  <button type="button" key={account} className={email === account ? 'selected' : ''} onClick={() => { setEmail(account); setAuthMethod('password'); setPassword('prototype'); }}>{label}</button>
                 ))}</div>
-              </div>
+              </div>}
             </>}
           </form>
         )}
@@ -237,6 +322,49 @@ export default function ACC_LOGIN({
 
 function validFlow(value: string | null): AccessFlow {
   return value === 'invite' || value === 'reset' || value === 'verify' ? value : 'signin';
+}
+
+function challengeVerificationAction(phase: AuthenticationChallenge['phase']): AuthenticationAction | null {
+  if (phase === 'TOTP_ENROLLMENT') return 'confirm_totp_setup';
+  if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'verify_totp';
+  if (phase.startsWith('EMAIL_')) return 'verify_email_otp';
+  return null;
+}
+
+function challengeTitle(phase: AuthenticationChallenge['phase']): string {
+  if (phase === 'SELECT_SECOND_FACTOR') return 'Two-step verification required';
+  if (phase === 'TOTP_ENROLLMENT') return 'Register Google Authenticator';
+  if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'Google Authenticator';
+  if (phase === 'EMAIL_PROOF_FOR_TOTP_SETUP') return 'Verify your registered email';
+  return 'Check your email';
+}
+
+function challengeIntroduction(challenge: AuthenticationChallenge): string {
+  if (challenge.phase === 'SELECT_SECOND_FACTOR') {
+    return 'Your role requires another approved factor. Password verification alone cannot sign you in.';
+  }
+  if (challenge.phase === 'TOTP_ENROLLMENT') {
+    return 'Your registered email was verified. Complete authenticator registration to continue.';
+  }
+  if (challenge.phase === 'TOTP_SECOND') {
+    return 'Enter your Google Authenticator code to complete the required second factor.';
+  }
+  if (challenge.phase === 'TOTP_PRIMARY') {
+    return 'Enter the code from Google Authenticator or an unused recovery code.';
+  }
+  if (challenge.phase === 'EMAIL_PROOF_FOR_TOTP_SETUP') {
+    return `Authenticator is not registered yet. First enter the code sent to ${challenge.email_hint}.`;
+  }
+  if (challenge.phase === 'EMAIL_OTP_SECOND_AFTER_TOTP') {
+    return `Your privileged role requires a second factor. Enter the code sent to ${challenge.email_hint}.`;
+  }
+  return `Enter the six-digit code sent to ${challenge.email_hint}.`;
+}
+
+function challengeCodeLabel(phase: AuthenticationChallenge['phase']): string {
+  if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'Google Authenticator or recovery code';
+  if (phase === 'TOTP_ENROLLMENT') return 'Six-digit Google Authenticator code';
+  return 'Six-digit email code';
 }
 
 function message(error: unknown, fallback: string): string {

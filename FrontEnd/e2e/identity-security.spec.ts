@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { beginPasswordSignIn, signInAndSelect } from './support/auth';
 
 test('named user changes password, enables TOTP, and signs in with both factors', async ({ page }) => {
   await loginAndSelect(page, 'admin.user@qtfoods.local', 'prototype');
@@ -8,7 +9,7 @@ test('named user changes password, enables TOTP, and signs in with both factors'
   await page.getByRole('button', { name: '+ New' }).click();
   await page.getByRole('button', { name: 'Direct account' }).click();
   await page.getByLabel('Name').fill('E2E Security Administrator');
-  await page.getByLabel('Email').fill('e2e.security.admin@qtfoods.local');
+  await page.getByLabel('Email', { exact: true }).fill('e2e.security.admin@qtfoods.local');
   await page.getByLabel(/Temporary password/).fill('SecurityInitial123');
   await page.getByLabel('Initial role').selectOption({ label: 'ERP Administrator (ERP_ADMIN)' });
   await page.getByRole('button', { name: 'Create user' }).click();
@@ -54,21 +55,15 @@ test('named user changes password, enables TOTP, and signs in with both factors'
 });
 
 async function loginAndSelect(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email, password);
 }
 
 async function loginWithMfa(page: Page, email: string, password: string, code: string): Promise<void> {
-  await page.goto('/');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible();
-  await page.getByLabel('Authenticator or recovery code').fill(code);
-  await page.getByRole('button', { name: 'Verify and sign in' }).click();
+  await beginPasswordSignIn(page, email, password);
+  await expect(page.getByRole('heading', { name: 'Two-step verification required' })).toBeVisible();
+  await page.getByRole('button', { name: /^Google Authenticator/ }).click();
+  await page.getByLabel('Google Authenticator or recovery code').fill(code);
+  await page.getByRole('button', { name: 'Verify and continue' }).click();
 }
 
 function totp(secret: string): string {

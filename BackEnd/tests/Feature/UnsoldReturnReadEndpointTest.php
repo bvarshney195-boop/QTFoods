@@ -268,6 +268,7 @@ final class UnsoldReturnReadEndpointTest extends TestCase
             'plant_id' => self::TRAINING_PLANT_ID,
             'item_id' => $itemId,
             'lot_id' => $lotId,
+            'inventory_owner_id' => self::COMPANY_ID,
             'location_id' => $locationId,
             'quality_status' => 'RETURN_QUARANTINE',
             'quantity_base' => 0,

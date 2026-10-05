@@ -56,6 +56,25 @@ final class FinanceOperationsEndpointTest extends TestCase
         $this->withHeaders($this->headers(1))->postJson('/api/v1/finance/assets/'.$assetId.'/activate', ['posting_date' => '2026-09-01'])->assertOk()->assertJsonPath('data.status', 'ACTIVE');
         $depreciation = $this->withHeaders($this->headers(2))->postJson('/api/v1/finance/assets/'.$assetId.'/depreciate', ['fiscal_period_id' => self::PERIOD])->assertOk()->assertJsonPath('data.depreciation_amount', '3000.000000');
         $this->assertBalanced((string) $depreciation->json('data.journal_id'), '3000.000000');
+        $this->getJson('/api/v1/finance/assets/'.$assetId)->assertOk()
+            ->assertJsonPath('data.historical_acquisition_cost', '120000.000000')
+            ->assertJsonPath('data.current_carrying_amount', '117000.000000')
+            ->assertJsonPath('data.carrying_amount_basis', 'ACQUISITION_LESS_ACCUMULATED_DEPRECIATION');
+        $disposal = $this->withHeaders($this->headers(3))->postJson('/api/v1/finance/assets/'.$assetId.'/dispose', [
+            'posting_date' => '2026-09-13',
+            'disposal_proceeds' => '100000',
+            'reason' => 'Governed disposal acceptance test.',
+        ])->assertOk()
+            ->assertJsonPath('data.status', 'DISPOSED')
+            ->assertJsonPath('data.carrying_amount_before_disposal', '117000.000000')
+            ->assertJsonPath('data.current_carrying_amount', '0.000000');
+        // The journal clears the historical asset cost (120,000); the API separately
+        // proves that the carrying amount immediately before disposal was 117,000.
+        $this->assertBalanced((string) $disposal->json('data.journal_id'), '120000.000000');
+        $this->getJson('/api/v1/finance/assets/'.$assetId)->assertOk()
+            ->assertJsonPath('data.historical_acquisition_cost', '120000.000000')
+            ->assertJsonPath('data.current_carrying_amount', '0.000000')
+            ->assertJsonPath('data.carrying_amount_basis', 'DERECOGNISED_AFTER_DISPOSAL');
 
         $employee = $this->command()->postJson('/api/v1/finance/employees', ['employee_number' => 'EMP-P2-001', 'name' => 'P2 Operator', 'department' => 'PACKING', 'monthly_gross' => '50000', 'monthly_deductions' => '5000', 'expense_account_id' => self::PAY_EXP, 'payable_account_id' => self::PAYABLE])->assertCreated();
         $payroll = $this->command()->postJson('/api/v1/finance/payroll', ['run_number' => 'PAYROLL-P2-001', 'period_start' => '2026-09-01', 'period_end' => '2026-09-30', 'employee_ids' => [$employee->json('data.id')]])->assertCreated()->assertJsonPath('data.net_amount', '45000.000000');

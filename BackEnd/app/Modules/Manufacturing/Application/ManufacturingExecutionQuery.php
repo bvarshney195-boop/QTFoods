@@ -704,18 +704,35 @@ final class ManufacturingExecutionQuery
     private function productionMetrics(string $orderId): array
     {
         $outputs = DB::table('production_output_events')->where('production_order_id', $orderId)->get();
+        $planned = $this->decimal(DB::table('production_orders')->where('id', $orderId)->value('planned_quantity'));
         $directGood = $this->decimal($outputs->where('event_type', 'GOOD')->sum('quantity'));
         $loss = $this->decimal($outputs->where('event_type', 'LOSS')->sum('quantity'));
         $rework = $this->decimal($outputs->where('event_type', 'REWORK')->sum('quantity'));
         $recovered = $this->decimal($outputs->where('rework_status', 'RECOVERED')->sum('quantity'));
         $scrapped = $this->decimal($outputs->where('rework_status', 'SCRAPPED')->sum('quantity'));
 
+        $finalGood = bcadd($directGood, $recovered, 6);
+        $finalLoss = bcadd($loss, $scrapped, 6);
+        $openRework = $outputs->where('event_type', 'REWORK')->where('rework_status', 'OPEN')->sum('quantity');
+        $reconciled = bcadd(bcadd($finalGood, $finalLoss, 6), (string) $openRework, 6);
+
         return ['material_count' => DB::table('production_order_materials')->where('production_order_id', $orderId)->count(),
             'issued_material_count' => DB::table('production_order_materials')->where('production_order_id', $orderId)->whereColumn('issued_quantity', '>=', 'required_quantity')->count(),
             'stage_count' => DB::table('production_order_stages')->where('production_order_id', $orderId)->count(),
             'completed_stage_count' => DB::table('production_order_stages')->where('production_order_id', $orderId)->where('status', 'COMPLETED')->count(),
-            'accounted_quantity' => bcadd(bcadd($directGood, $loss, 6), $rework, 6), 'good_quantity' => bcadd($directGood, $recovered, 6),
-            'loss_quantity' => bcadd($loss, $scrapped, 6), 'rework_quantity' => $rework,
+            'accounted_quantity' => bcadd(bcadd($directGood, $loss, 6), $rework, 6),
+            'first_pass_good_quantity' => $directGood,
+            'recovered_quantity' => $recovered,
+            'final_good_quantity' => $finalGood,
+            'good_quantity' => $finalGood,
+            'scrapped_rework_quantity' => $scrapped,
+            'loss_quantity' => $finalLoss,
+            'rework_quantity' => $rework,
+            'first_pass_yield_percent' => bccomp($planned, '0', 6) > 0 ? bcmul(bcdiv($directGood, $planned, 8), '100', 4) : null,
+            'final_yield_percent' => bccomp($planned, '0', 6) > 0 ? bcmul(bcdiv($finalGood, $planned, 8), '100', 4) : null,
+            'yield_reconciliation' => ['planned_quantity' => $planned, 'final_good_quantity' => $finalGood,
+                'loss_quantity' => $finalLoss, 'open_rework_quantity' => $this->decimal($openRework),
+                'reconciled_quantity' => $reconciled, 'is_reconciled' => bccomp($planned, $reconciled, 6) === 0],
             'open_rework_count' => $outputs->where('event_type', 'REWORK')->where('rework_status', 'OPEN')->count(),
             'packed_quantity' => $this->decimal(DB::table('packing_runs')->where('production_order_id', $orderId)->where('status', 'COMPLETED')->sum('packed_quantity'))];
     }

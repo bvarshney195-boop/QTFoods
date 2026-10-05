@@ -333,6 +333,12 @@ final class MultiPlantQuery
     private function summary(array $scope): array
     {
         $visible = fn () => $this->visibleTransfers($scope);
+        $stockByUom = DB::table('stock_positions')->where($scope)->groupBy('uom_code')
+            ->orderBy('uom_code')->get(['uom_code', DB::raw('SUM(quantity_base) as quantity')])
+            ->map(fn (object $row): array => [
+                'uom_code' => (string) $row->uom_code,
+                'quantity' => $this->decimal($row->quantity),
+            ])->all();
 
         return [
             'active_routes' => $this->visibleRoutes($scope)->where('route.status', 'ACTIVE')->count(),
@@ -340,7 +346,9 @@ final class MultiPlantQuery
             'in_transit' => $visible()->where('transfer.status', 'IN_TRANSIT')->count(),
             'awaiting_destination' => $visible()->where('transfer.status', 'SOURCE_APPROVED')->count(),
             'active_groups' => $this->visibleGroups($scope)->where('group.status', 'ACTIVE')->count(),
-            'plant_stock_quantity' => $this->decimal(DB::table('stock_positions')->where($scope)->sum('quantity_base')),
+            'plant_stock_by_uom' => $stockByUom,
+            'plant_stock_quantity' => count($stockByUom) === 1 ? $stockByUom[0]['quantity'] : null,
+            'plant_stock_uom' => count($stockByUom) === 1 ? $stockByUom[0]['uom_code'] : null,
         ];
     }
 

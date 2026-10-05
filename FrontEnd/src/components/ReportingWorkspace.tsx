@@ -14,6 +14,8 @@ import { isApiError } from '../api/client';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { FeedbackToast } from './FeedbackToast';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 type RunDraft = {
   run_number: string;
@@ -40,7 +42,9 @@ export function ReportingWorkspace() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setWorkspace(await listReportRuns({ q: search || undefined, report_code: reportCode || undefined }));
+      const next = await listReportRuns({ q: search || undefined, report_code: reportCode || undefined });
+      setWorkspace(next);
+      setSelected((current) => current && next.data.some((run) => run.id === current.id) ? current : null);
       setError(null);
     } catch (caught) {
       setError(message(caught, 'Unable to load report runs.'));
@@ -134,28 +138,25 @@ export function ReportingWorkspace() {
       <Metric label="Exports" value={summary.exports_created} />
       <Metric label="Latest source freshness" value={summary.latest_freshness_at ? dateTime(summary.latest_freshness_at) : 'No source yet'} />
     </div> : null}
-    <div className="module-grid requisition-workspace reporting-workspace">
-      <section className="panel">
+    {success ? <FeedbackToast title="Report updated" message={success} onDismiss={() => setSuccess(null)} /> : null}
+    {!draft && !selected ? <section className="panel reporting-register-panel">
         <div className="requisition-toolbar reporting-toolbar">
           <label>Search runs<input aria-label="Report search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Run number or report" /></label>
           <label>Definition<select aria-label="Report definition filter" value={reportCode} onChange={(event) => setReportCode(event.target.value)}><option value="">All definitions</option>{definitions.map((definition) => <option key={definition.code} value={definition.code}>{definition.title}</option>)}</select></label>
           <button type="button" className="secondary compact-button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
         </div>
-        {loading && !workspace ? <Empty text="Loading controlled report history..." /> : workspace?.data.length ? <div className="table-wrap"><table className="requisition-table reporting-register"><thead><tr><th>Run</th><th>Definition</th><th>Cutoff</th><th>Freshness</th><th>Rows</th><th>Checksum</th><th /></tr></thead><tbody>{workspace.data.map((run) => <tr key={run.id} className={selected?.id === run.id ? 'selected-row' : ''}>
+        {loading && !workspace ? <Empty text="Loading controlled report history..." /> : workspace?.data.length ? <div className="table-wrap"><table className="requisition-table reporting-register"><thead><tr><th>Run</th><th>Definition</th><th>Cutoff</th><th>Freshness</th><th>Rows</th><th>Checksum</th><th /></tr></thead><tbody>{workspace.data.map((run) => <tr key={run.id}>
           <td><b>{run.run_number}</b><small>{run.created_by.name} · {dateTime(run.generated_at)}</small></td>
           <td><StatusBadge status={run.report_code} /><small>{run.report_title}</small></td>
           <td>{dateTime(run.as_of_at)}</td><td>{dateTime(run.source_freshness_at)}</td><td>{run.row_count}</td>
           <td className="report-checksum">{run.sha256.slice(0, 14)}…</td><td><button type="button" className="secondary compact-button" onClick={() => void open(run)}>Open</button></td>
         </tr>)}</tbody></table></div> : <Empty text="No immutable report runs match this scope and filter." />}
-      </section>
-      <aside className="panel requisition-editor reporting-editor"><div className="requisition-detail-body">
+      </section> : <section className="panel reporting-page"><div className="requisition-detail-body">
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
-        {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); runKey.current = null; }} />
-          : selected ? <ReportDetail run={selected} busy={busy} exportRun={exportRun} />
+        {draft ? <ReportRunForm draft={draft} definitions={definitions} busy={busy} errors={fieldErrors} setDraft={setDraft} selectDefinition={selectDefinition} submit={submit} close={() => { setDraft(null); setError(null); setFieldErrors({}); runKey.current = null; }} />
+          : selected ? <ReportDetail run={selected} busy={busy} scope={`${session.selected_context?.company_name ?? 'Company'} · ${session.selected_context?.plant_name ?? 'All plants'}`} exportRun={exportRun} close={() => { setSelected(null); setError(null); }} />
             : <Empty text={canRun ? 'Choose a run to inspect its stored rows, or generate a new controlled snapshot.' : 'Choose a run to inspect its controlled evidence.'} />}
-      </div></aside>
-    </div>
+      </div></section>}
   </>;
 }
 
@@ -179,23 +180,21 @@ function ReportRunForm({ draft, definitions, busy, errors, setDraft, selectDefin
   </fieldset></form>;
 }
 
-function ReportDetail({ run, busy, exportRun }: { run: ReportRun; busy: boolean; exportRun: (format: 'CSV' | 'JSON') => Promise<void> }) {
+function ReportDetail({ run, busy, scope, exportRun, close }: { run: ReportRun; busy: boolean; scope: string; exportRun: (format: 'CSV' | 'JSON') => Promise<void>; close: () => void }) {
   const rows = run.rows ?? [];
   const columns = run.columns ?? [];
+  const [visibleKeys, setVisibleKeys] = useState<string[]>(() => columns.map((column) => column.key));
+  const visibleColumns = columns.filter((column) => visibleKeys.includes(column.key));
+  function toggleColumn(key: string) {
+    setVisibleKeys((current) => current.includes(key)
+      ? (current.length === 1 ? current : current.filter((value) => value !== key))
+      : [...current, key]);
+  }
   return <div className="requisition-detail reporting-detail">
-    <div className="detail-status"><StatusBadge status={run.status} /><b>{run.run_number}</b><span>{run.row_count} rows</span></div>
-    <dl className="control-definition">
-      <Datum label="Definition" value={`${run.report_title} (${run.report_code})`} />
-      <Datum label="Cutoff" value={dateTime(run.as_of_at)} />
-      <Datum label="Source freshness" value={dateTime(run.source_freshness_at)} />
-      <Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} />
-      <Datum label="Snapshot SHA-256" value={run.sha256} wide mono />
-      <Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide />
-    </dl>
+    <header className="report-detail-header"><div><button type="button" className="text-button" onClick={close}>← Back to report runs</button><h2>{run.report_title}</h2><p>{dateTime(run.as_of_at)} · {scope} · {run.row_count} rows</p></div><div className="report-title-actions"><StatusBadge status={run.status} />{run.allowed_actions?.includes('EXPORT') ? <><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>{busy ? 'Preparing…' : 'Download CSV'}</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Download JSON</button></> : null}</div></header>
     <section className="report-totals"><h4>Stored totals</h4><div>{Object.entries(run.totals).map(([key, value]) => <span key={key}>{label(key)}<b>{formatTotal(key, value)}</b></span>)}</div></section>
-    <section className="report-rows"><h4>Immutable snapshot rows</h4>{rows.length ? <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{columns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
-    {run.allowed_actions?.includes('EXPORT') ? <div className="p2-action-grid"><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>Create & download CSV</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Create & download JSON</button></div> : null}
-    {run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : null}
+    <section className="report-rows"><div className="section-heading"><h4>Snapshot rows</h4><details className="column-selector"><summary>Choose columns ({visibleColumns.length}/{columns.length})</summary><div>{columns.map((column) => <label key={column.key}><input type="checkbox" checked={visibleKeys.includes(column.key)} onChange={() => toggleColumn(column.key)} />{column.label}</label>)}</div></details></div>{rows.length ? <div className="table-wrap"><table><thead><tr>{visibleColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{visibleColumns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
+    <details className="report-export-details"><summary>Export details and integrity</summary><dl className="control-definition"><Datum label="Run" value={run.run_number} /><Datum label="Cutoff" value={dateTime(run.as_of_at)} /><Datum label="Source freshness" value={dateTime(run.source_freshness_at)} /><Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} /><Datum label="Snapshot SHA-256" value={run.sha256} wide mono /><Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide /></dl>{run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : <p>No exports have been created from this snapshot.</p>}</details>
   </div>;
 }
 
@@ -206,7 +205,7 @@ function Empty({ text }: { text: string }) { return <div className="empty-state"
 function defaultParameters(definition: ReportDefinition) { return Object.fromEntries(definition.parameters.map((parameter) => [parameter.key, parameter.default])); }
 function today() { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function nextRunNumber() { return `REP-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`; }
-function dateTime(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed); }
+function dateTime(value: string) { return formatZonedDateTime(value); }
 function date(value: unknown) { if (!value) return '—'; const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00Z`); return Number.isNaN(parsed.valueOf()) ? String(value) : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed); }
 function label(value: string) { return value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function number(value: unknown, digits = 2) { const parsed = Number(value); return Number.isFinite(parsed) ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(parsed) : String(value ?? '—'); }

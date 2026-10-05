@@ -16,6 +16,14 @@ final class EnsureActiveDeviceSession
     {
         /** @var User $user */
         $user = $request->user();
+        if ($user->is_demo && ! config('deployment.allow_demo_authentication', false)) {
+            $request->session()->invalidate();
+
+            return response()->json(['error' => [
+                'code' => 'DEMO_IDENTITY_DISABLED',
+                'message' => 'Demo identities are disabled in this environment.',
+            ]], 401);
+        }
         $this->sessions->ensure($user, $request);
 
         return $next($request);

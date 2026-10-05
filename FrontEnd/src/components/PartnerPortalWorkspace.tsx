@@ -193,6 +193,9 @@ export function PartnerPortalWorkspace() {
       const line = values(shipment?.lines)[0] as P2Record | undefined;
       next.draft.shipment_line_id = String(line?.id ?? '');
     }
+    if (field === 'reference_type' && typeof value === 'string') {
+      next.draft.reference_id = String(documentReferenceRows(workspace, value)[0]?.id ?? '');
+    }
     setEditor(next);
   }
 
@@ -288,14 +291,16 @@ function GrantFields({ editor, workspace, update }: { editor: Editor; workspace:
 }
 
 function DocumentFields({ editor, workspace, file, setFile, update }: { editor: Editor; workspace: PortalWorkspace | null; file: File | null; setFile: (file: File | null) => void; update: (field: string, value: string) => void }) {
+  const referenceType = text(editor.draft.reference_type);
+  const references = documentReferenceRows(workspace, referenceType);
   return <div className="form-grid">
     {editor.kind === 'PUBLISH' ? <label>Customer tenant<select aria-label="Document customer tenant" value={text(editor.draft.party_id)} onChange={(event) => update('party_id', event.target.value)} required>{rows(workspace, 'customers').map((party) => <option key={party.id} value={party.id}>{String(party.code)} · {String(party.name)}</option>)}</select></label> : null}
     <label>Document number<input aria-label="Partner document number" value={text(editor.draft.document_number)} onChange={(event) => update('document_number', event.target.value.toUpperCase())} required /></label>
     <label>Document type<select aria-label="Partner document type" value={text(editor.draft.document_type)} onChange={(event) => update('document_type', event.target.value)}>{lookupStrings(workspace, 'document_types').map((type) => <option key={type}>{type}</option>)}</select></label>
     <label className="full-span">Title<input aria-label="Partner document title" value={text(editor.draft.title)} onChange={(event) => update('title', event.target.value)} required minLength={3} /></label>
     <label className="full-span">Description<textarea aria-label="Partner document description" rows={3} value={text(editor.draft.description)} onChange={(event) => update('description', event.target.value)} /></label>
-    <label>Business link<select aria-label="Partner document link type" value={text(editor.draft.reference_type)} onChange={(event) => update('reference_type', event.target.value)}><option value="NONE">No link</option><option value="sales_order_id">Sales order</option><option value="shipment_id">Shipment</option><option value="invoice_id">Invoice</option><option value="customer_claim_id">Claim</option></select></label>
-    <label>Linked record ID<input aria-label="Partner document linked record ID" value={text(editor.draft.reference_id)} onChange={(event) => update('reference_id', event.target.value)} disabled={text(editor.draft.reference_type) === 'NONE'} placeholder="UUID" /></label>
+    <label>Business link<select aria-label="Partner document link type" value={referenceType} onChange={(event) => update('reference_type', event.target.value)}><option value="NONE">No link</option><option value="sales_order_id">Sales order</option><option value="shipment_id">Shipment</option><option value="invoice_id">Invoice</option><option value="customer_claim_id">Claim</option></select></label>
+    <label>Entitled business record<select aria-label="Partner document entitled business record" value={text(editor.draft.reference_id)} onChange={(event) => update('reference_id', event.target.value)} disabled={referenceType === 'NONE' || !references.length}><option value="">{referenceType === 'NONE' ? 'Choose a business link first' : references.length ? 'Select a record' : 'No entitled records available'}</option>{references.map((record) => <option key={record.id} value={record.id}>{documentReferenceLabel(record, referenceType)}</option>)}</select></label>
     <label className="full-span">Private document<input aria-label="Partner private document" type="file" accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)} /></label>
     {file ? <div className="callout full-span">Selected {file.name} · {formatBytes(file.size)}. SHA-256 and private object metadata will be calculated by the server.</div> : null}
   </div>;
@@ -334,6 +339,19 @@ function resourceFor(key: string): string | null {
 function rows(workspace: PortalWorkspace | null, key: string): P2Record[] {
   const value = workspace?.lookups?.[key];
   return Array.isArray(value) ? value as P2Record[] : [];
+}
+
+function documentReferenceRows(workspace: PortalWorkspace | null, referenceType: string): P2Record[] {
+  if (!workspace) return [];
+  const collectionKey = ({ sales_order_id: 'orders', shipment_id: 'shipments', invoice_id: 'invoices', customer_claim_id: 'claims' } as Record<string, string>)[referenceType];
+  return collectionKey ? collection(workspace, collectionKey) : [];
+}
+
+function documentReferenceLabel(record: P2Record, referenceType: string): string {
+  const numberKey = ({ sales_order_id: 'order_number', shipment_id: 'shipment_number', invoice_id: 'invoice_number', customer_claim_id: 'claim_number' } as Record<string, string>)[referenceType];
+  const reference = text(record[numberKey]) || 'Record';
+  const context = text(record.status ?? record.customer_name ?? record.party_name);
+  return context ? `${reference} · ${label(context)}` : reference;
 }
 
 function lookupStrings(workspace: PortalWorkspace | null, key: string): string[] {

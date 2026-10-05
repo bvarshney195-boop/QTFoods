@@ -14,6 +14,7 @@ import { PageHeader } from '../components/PageHeader';
 import { BusinessKpiDashboard } from '../components/BusinessKpiDashboard';
 import { createSavedView, deleteSavedView, getWorkspace, saveWorkspaceSetting } from '../api/experience';
 import { BulkImportCentre } from '../components/BulkImportCentre';
+import { roleLabel } from '../utils/displayText';
 
 type AssignmentFilter = 'ALL' | 'MINE' | 'UNASSIGNED';
 type SavedView = { id: string; name: string; kind: '' | WorkItemKind; assignment: AssignmentFilter; overdueOnly: boolean; search: string };
@@ -414,10 +415,10 @@ function roleWorkspace(roles: string[], allowedScreens: string[]) {
         : role.includes('purchase') || role.includes('procure')
           ? [['PUR-REQ', 'Requisitions'], ['PUR-RFQ', 'RFQ comparison'], ['PUR-PO', 'Purchase orders']]
           : [['WRK-HOME', 'Priority work'], ['BI-REP', 'Controlled reports'], ['INV-STK', 'Stock overview']];
-  const primary = roles[0]?.replaceAll('_', ' ').replaceAll('-', ' ') || 'ERP user';
+  const primary = roles[0] ? roleLabel(roles[0]) : 'ERP user';
   return {
     eyebrow: 'PERSONALISED FOR YOUR ROLE',
-    title: `${primary.replace(/\b\w/g, (letter) => letter.toUpperCase())} workspace`,
+    title: `${primary} workspace`,
     detail: 'Your shortcuts, live work and business indicators respect the selected company, plant and assigned permissions.',
     actions: candidates.filter(([code]) => allowedScreens.includes(code)).slice(0, 3).map(([code, label]) => ({ code, label })),
   };

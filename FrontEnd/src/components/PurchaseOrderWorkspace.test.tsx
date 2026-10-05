@@ -39,7 +39,7 @@ describe('purchase order workspace', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Purchase Orders' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Purchase orders' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '+ New' }));
     await user.type(screen.getByLabelText('Purchase-order number'), 'po-ui-001');
     await user.selectOptions(screen.getByLabelText('Awarded RFQ'), 'rfq-1');

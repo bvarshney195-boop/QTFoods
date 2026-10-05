@@ -21,6 +21,7 @@ final class UnsoldSalesReturnLookupQuery
             'skus' => $this->skus($scope, $filters, $limit),
             'lots' => $this->lots($scope, $filters, $limit),
             'return_positions' => $this->returnPositions($scope, $filters, $limit),
+            'return_locations' => $this->returnLocations($scope, $filters, $limit),
         ];
     }
 
@@ -281,6 +282,8 @@ final class UnsoldSalesReturnLookupQuery
             return [];
         }
 
+        $ownerId = $this->returnOwnerId($scope, $filters);
+
         return DB::table('stock_positions as position')
             ->leftJoin('locations as location', function (JoinClause $join) {
                 $join
@@ -297,8 +300,11 @@ final class UnsoldSalesReturnLookupQuery
             ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('position.plant_id', $plantId))
             ->where('position.item_id', $skuId)
             ->where('position.quality_status', 'RETURN_QUARANTINE')
+            ->where('location.location_type', 'RETURN_QUARANTINE')
             ->where('location.status', 'ACTIVE')
+            ->when($ownerId, fn (Builder $query, string $id) => $query->where('position.inventory_owner_id', $id))
             ->when($filters['lot_id'] ?? null, fn (Builder $query, string $id) => $query->where('position.lot_id', $id))
+            ->when($filters['uom_code'] ?? null, fn (Builder $query, string $uom) => $query->where('position.uom_code', $uom))
             ->orderBy('location.code')
             ->orderBy('lot.internal_lot_code')
             ->limit($limit)
@@ -313,6 +319,7 @@ final class UnsoldSalesReturnLookupQuery
                 'position.quality_status',
                 'position.quantity_base',
                 'position.uom_code',
+                'position.inventory_owner_id',
             ])
             ->map(fn (object $position) => [
                 'id' => (string) $position->id,
@@ -329,9 +336,60 @@ final class UnsoldSalesReturnLookupQuery
                 'quality_status' => $position->quality_status,
                 'quantity' => (string) $position->quantity_base,
                 'uom_code' => $position->uom_code,
+                'inventory_owner_id' => (string) $position->inventory_owner_id,
+                'requires_position_creation' => false,
             ])
             ->values()
             ->all();
+    }
+
+    private function returnLocations(array $scope, array $filters, int $limit): array
+    {
+        if (! ($filters['sku_id'] ?? null) || ! ($filters['lot_id'] ?? null) || ! ($filters['uom_code'] ?? null)) {
+            return [];
+        }
+        $ownerId = $this->returnOwnerId($scope, $filters);
+        if (! $ownerId) {
+            return [];
+        }
+
+        return DB::table('locations')
+            ->where('company_id', $scope['company_id'])
+            ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('plant_id', $plantId))
+            ->where('location_type', 'RETURN_QUARANTINE')->where('status', 'ACTIVE')
+            ->orderBy('code')->limit($limit)->get(['id', 'code', 'name'])
+            ->map(fn (object $location): array => [
+                'id' => (string) $location->id,
+                'code' => $location->code,
+                'name' => $location->name,
+                'inventory_owner_id' => $ownerId,
+                'requires_position_creation' => ! DB::table('stock_positions')
+                    ->where('company_id', $scope['company_id'])->where('plant_id', $scope['plant_id'])
+                    ->where('item_id', $filters['sku_id'])->where('lot_id', $filters['lot_id'])
+                    ->where('inventory_owner_id', $ownerId)->where('location_id', $location->id)
+                    ->where('quality_status', 'RETURN_QUARANTINE')->where('uom_code', $filters['uom_code'])->exists(),
+            ])->values()->all();
+    }
+
+    private function returnOwnerId(array $scope, array $filters): ?string
+    {
+        if (isset($filters['inventory_owner_id'])) {
+            return DB::table('inventory_owners')->where('id', $filters['inventory_owner_id'])
+                ->where('company_id', $scope['company_id'])->where('status', 'ACTIVE')->value('id');
+        }
+        if (isset($filters['shipment_line_id'])) {
+            $owner = DB::table('shipment_lines as line')
+                ->join('stock_positions as position', 'position.id', '=', 'line.stock_position_id')
+                ->where('line.id', $filters['shipment_line_id'])->where('line.company_id', $scope['company_id'])
+                ->when($scope['plant_id'] ?? null, fn (Builder $query, string $plantId) => $query->where('line.plant_id', $plantId))
+                ->value('position.inventory_owner_id');
+            if ($owner) return (string) $owner;
+        }
+
+        $owner = DB::table('inventory_owners')->where('company_id', $scope['company_id'])
+            ->whereNull('party_id')->where('status', 'ACTIVE')->orderBy('code')->value('id');
+
+        return $owner ? (string) $owner : null;
     }
 
     private function scopedShipments(array $scope): Builder

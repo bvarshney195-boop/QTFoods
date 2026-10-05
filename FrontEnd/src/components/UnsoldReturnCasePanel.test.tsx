@@ -103,4 +103,38 @@ describe('UnsoldReturnCasePanel', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
   });
+
+  it('blocks receipt with actionable guidance when no quarantine destination exists', async () => {
+    const user = userEvent.setup();
+    apiMocks.getUnsoldReturnLookups.mockResolvedValue({
+      ...makeUnsoldReturnLookups(),
+      return_positions: [],
+      return_locations: [],
+    });
+    render(
+      <ErpSessionContext.Provider value={makeSession(['ACTION:RET-UNSOLD:RECEIVE'])}>
+        <UnsoldReturnCasePanel caseId={CASE_ID} refreshToken={0} onClose={vi.fn()} onChanged={vi.fn()} />
+      </ErpSessionContext.Provider>
+    );
+
+    await screen.findByRole('heading', { name: /RET-11111111/ });
+    expect(screen.getByRole('button', { name: 'Post quarantine receipt' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('No return quarantine location is configured for this lot and owner.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Ask your inventory administrator');
+    const beforeRetry = apiMocks.getUnsoldReturn.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Retry lookup' }));
+    await waitFor(() => expect(apiMocks.getUnsoldReturn.mock.calls.length).toBeGreaterThan(beforeRetry));
+  });
+
+  it('enables receipt when an eligible quarantine destination is returned', async () => {
+    render(
+      <ErpSessionContext.Provider value={makeSession(['ACTION:RET-UNSOLD:RECEIVE'])}>
+        <UnsoldReturnCasePanel caseId={CASE_ID} refreshToken={0} onClose={vi.fn()} onChanged={vi.fn()} />
+      </ErpSessionContext.Provider>
+    );
+
+    await screen.findByRole('heading', { name: /RET-11111111/ });
+    expect(screen.getByRole('button', { name: 'Post quarantine receipt' })).toBeEnabled();
+    expect(screen.queryByText(/No return quarantine location is configured/)).not.toBeInTheDocument();
+  });
 });

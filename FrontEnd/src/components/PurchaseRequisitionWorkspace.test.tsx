@@ -42,7 +42,7 @@ describe('purchase requisition workspace', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Purchase Requisitions' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Purchase requisitions' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '+ New' }));
     fireEvent.change(screen.getByLabelText('Requisition number'), { target: { value: 'req-ui-001' } });
     fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Production' } });
@@ -74,7 +74,7 @@ describe('purchase requisition workspace', () => {
       .mockResolvedValueOnce(result('DRAFT', 1));
     renderPage();
 
-    await screen.findByRole('heading', { name: 'Purchase Requisitions' });
+    await screen.findByRole('heading', { name: 'Purchase requisitions' });
     await user.click(screen.getByRole('button', { name: '+ New' }));
     fireEvent.change(screen.getByLabelText('Requisition number'), { target: { value: 'REQ-RETRY-001' } });
     fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Production' } });
@@ -183,6 +183,11 @@ describe('purchase requisition workspace', () => {
 
     await user.type(screen.getByLabelText('Approval reason'), 'Attach the revised demand forecast.');
     await user.click(screen.getByRole('button', { name: 'Reject for correction' }));
+    const confirmation = screen.getByRole('alertdialog', { name: 'Reject requisition REQ-UI-001?' });
+    expect(within(confirmation).getByText('Operations Manager')).toBeInTheDocument();
+    expect(within(confirmation).getByText('₹1,250.00')).toBeInTheDocument();
+    expect(within(confirmation).getByText('Attach the revised demand forecast.')).toBeInTheDocument();
+    await user.click(within(confirmation).getByRole('button', { name: 'Reject requisition' }));
     await waitFor(() => expect(apiMocks.decidePurchaseRequisition).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'approval-1' }), 'reject', 'Attach the revised demand forecast.', expect.any(String),
     ));

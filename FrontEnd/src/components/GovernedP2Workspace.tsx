@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { isApiError } from '../api/client';
 import { commandP2, downloadP2, getP2, listP2, type P2Record, type P2Workspace } from '../api/p2Operations';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { FeedbackToast } from './FeedbackToast';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
 import { StructuredCommandForm, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
+import { formatBusinessDate, formatZonedDateTime } from '../utils/dateTime';
 
-export type P2Column = { label: string; key: string; format?: 'date' | 'money' | 'number' | 'text' };
+export type P2Column = { label: string; key: string; format?: 'date' | 'datetime' | 'money' | 'unitCost' | 'number' | 'text' };
 export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean };
 export type P2Creator = {
   action: string;
@@ -50,6 +53,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>({ error: null, success: null, fields: {} });
 
   const refresh = useCallback(async () => {
@@ -57,8 +61,10 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     try {
       const next = await listP2(config.listPath, { q: search || undefined, status: config.supportsStatus === false ? undefined : status || undefined });
       setWorkspace(next);
+      setLoadError(null);
+      setSelected((current) => current && config.collections.some((item) => collectionContainsId(workspacePath(next, item.key), current.id)) ? current : null);
     } catch (error) {
-      setFailure(setFeedback, error, `Unable to load ${config.title.toLowerCase()}.`);
+      setLoadError(failureMessage(error, `Unable to load ${config.title.toLowerCase()}.`));
     } finally {
       setLoading(false);
     }
@@ -95,7 +101,11 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!editor) return;
     const fields = validateStructuredCommand(editor.body, editor.schema);
-    if (Object.keys(fields).length) { setFeedback({ error: 'Please correct the highlighted fields before saving.', success: null, fields }); return; }
+    if (Object.keys(fields).length) {
+      setFeedback({ error: 'Check the highlighted field.', success: null, fields });
+      focusFirstInvalid(fields);
+      return;
+    }
     setBusy(true);
     try {
       const result = await commandP2(editor.path, editor.body, editor.expectedVersion);
@@ -126,40 +136,48 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     finally { setBusy(false); }
   }
 
+  const drawer = (editor || selected || feedback.error) ? <div className="p2-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setEditor(null); setSelected(null); setFeedback(clear()); } }}><aside className="panel requisition-editor p2-drawer" role="dialog" aria-modal="true" aria-label={editor?.label ?? (selected ? 'Record details' : 'Action error')}><div className="requisition-detail-body">
+    {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
+    {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <><button className="drawer-close" type="button" aria-label="Close record details" onClick={() => { setSelected(null); setFeedback(clear()); }}>×</button><RecordDetail record={selected} busy={busy} onAction={act} /></> : <button className="secondary" type="button" onClick={() => setFeedback(clear())}>Close</button>}
+  </div></aside></div> : null;
+
   return <>
     <PageHeader code={config.code} batch={config.batch ?? 'P2 operational'} title={config.title} description={config.description} onNew={contextualCreator ? () => startCreator(contextualCreator) : undefined} />
-    <div className="live-notice p2-live-notice"><span />{config.notice}</div>
+    <details className="business-guidance"><summary>How this workspace works</summary><p>{config.notice}</p></details>
     {workspace?.summary ? <SummaryStrip summary={workspace.summary} /> : null}
     {config.collections.length > 1 || availableCreators.length > 1 ? <div className="workspace-tabs p2-command-tabs">
       {config.collections.map((item) => <button key={item.key} className={item.key === collectionKey ? 'active' : ''} onClick={() => { setCollectionKey(item.key); setSelected(null); setEditor(null); setStatus(''); }}>{item.label}</button>)}
       <i />
       {availableCreators.map((creator) => <button key={`${creator.action}:${creator.label}`} className="p2-create-command" onClick={() => startCreator(creator)}>+ {creator.label}</button>)}
     </div> : null}
-    <div className="module-grid requisition-workspace p2-workspace">
-      <section className="panel">
+    <div className="p2-workspace" aria-busy={loading}>
+      <section className="panel p2-register-panel">
         <div className="requisition-toolbar p2-toolbar">
           <label>Search<input aria-label={`${config.title} search`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Number, customer, reference or description" /></label>
           {config.supportsStatus === false ? <div /> : <label>Status<select aria-label={`${config.title} status`} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>}
           <button className="secondary compact-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
         </div>
-        {loading && !workspace ? <Empty text={`Loading ${config.title.toLowerCase()}...`} /> : <Register records={records} columns={collection?.columns ?? []} showStatus={collection?.showStatus !== false} selectedId={selected?.id} onOpen={open} />}
+        {loading && workspace ? <div className="register-updating" role="status"><span aria-hidden="true" />Updating records… Current data remains visible.</div> : null}
+        {loadError ? <div className="form-error register-load-error" role="alert"><span>{loadError} Your filters and entered values have been kept.</span><button className="secondary compact-button" type="button" disabled={loading} onClick={() => void refresh()}>Retry loading</button></div> : null}
+        {loading && !workspace ? <RegisterSkeleton columns={collection?.columns.length ?? 4} /> : <Register records={records} columns={collection?.columns ?? []} showStatus={collection?.showStatus !== false} selectedId={selected?.id} onOpen={open} />}
       </section>
-      <aside className="panel requisition-editor"><div className="requisition-detail-body">
-        {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
-        {feedback.success ? <div className="form-success" role="status"><span />{feedback.success}</div> : null}
-        {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => setEditor(null)} fields={feedback.fields} /> : selected ? <RecordDetail record={selected} busy={busy} onAction={act} /> : <Empty text={`Choose a ${collection?.label.toLowerCase() ?? 'record'} record${availableCreators.length ? ' or create a new entry' : ''}.`} />}
-      </div></aside>
     </div>
+    {drawer ? createPortal(drawer, document.body) : null}
+    <FeedbackToast message={feedback.success} onDismiss={() => setFeedback((current) => ({ ...current, success: null }))} />
   </>;
 }
 
 function Register({ records, columns, showStatus, selectedId, onOpen }: { records: P2Record[]; columns: P2Column[]; showStatus: boolean; selectedId?: string; onOpen: (record: P2Record) => void }) {
   if (!records.length) return <Empty text="No live records match the selected context and filters." />;
-  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th /></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td key={column.key}>{renderValue(read(record, column.key), column.format)}</td>)}{showStatus ? <td><StatusBadge status={String(record.status ?? 'ARCHIVED')} /></td> : null}<td><button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th>Action</th></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td className={column.format === 'money' || column.format === 'number' || column.format === 'unitCost' ? 'numeric-cell' : undefined} key={column.key}>{renderValue(read(record, column.key), column.format)}</td>)}{showStatus ? <td>{record.status ? <StatusBadge status={String(record.status)} /> : <span className="muted">Not applicable</span>}</td> : null}<td><button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
+}
+
+function RegisterSkeleton({ columns }: { columns: number }) {
+  return <div className="register-skeleton" aria-label="Loading records">{Array.from({ length: 5 }, (_, row) => <div key={row}>{Array.from({ length: columns + 1 }, (_, cell) => <span key={cell} />)}</div>)}</div>;
 }
 
 function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string> }) {
-  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body: refreshCollectionAllocation(body, editor.body, workspace) })} /><div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit">Save</button></div></fieldset></form>;
+  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body: refreshCollectionAllocation(body, editor.body, workspace) })} /><div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions sticky-form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div></fieldset></form>;
 }
 
 function refreshCollectionAllocation(body: unknown, previous: unknown, workspace: P2Workspace | null): unknown {
@@ -211,12 +229,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {
-  const facts = Object.entries(record).filter(([key, value]) => !['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const hidden = ['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'];
+  const facts = Object.entries(record).filter(([key, value]) => !hidden.includes(key) && !technicalKey(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
+  const technical = Object.entries(record).filter(([key, value]) => !hidden.includes(key) && technicalKey(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)));
   const collections = Object.entries(record).filter(([, value]) => Array.isArray(value)) as [string, unknown[]][];
   const objects = Object.entries(record).filter(([key, value]) => !['allowed_actions'].includes(key) && value && typeof value === 'object' && !Array.isArray(value));
-  return <div className="requisition-detail p2-detail"><div className="detail-status"><StatusBadge status={String(record.status ?? 'ARCHIVED')} />{record.record_version ? <span>record version {record.record_version}</span> : null}</div><dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(value, moneyKey(key) ? 'money' : key.includes('date') || key.endsWith('_at') ? 'date' : 'text')}</dd></div>)}</dl>
+  const identifier = businessIdentifier(record);
+  const customer = read(record, 'customer.name') ?? record.customer_name;
+  return <div className="requisition-detail p2-detail">
+    <header className="business-record-header"><div><small>{label(String(record._kind ?? 'record'))}</small><h2>{identifier}</h2></div>{record.status ? <StatusBadge status={String(record.status)} /> : null}</header>
+    {(customer || record.requested_delivery_date || record.total_amount) ? <div className="business-record-summary">{customer ? <span><small>Customer</small><b>{String(customer)}</b></span> : null}{record.requested_delivery_date ? <span><small>Due</small><b>{formatBusinessDate(String(record.requested_delivery_date))}</b></span> : null}{record.total_amount ? <span><small>Total</small><b>{renderValue(record.total_amount, 'money')}</b></span> : null}</div> : null}
+    <dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(value, moneyKey(key) ? (key.includes('unit_cost') ? 'unitCost' : 'money') : key.endsWith('_at') ? 'datetime' : key.includes('date') ? 'date' : 'text')}</dd></div>)}</dl>
     {objects.map(([key, value]) => <section className="p2-object-evidence" key={key}><h4>{label(key)}</h4><ObjectFacts value={value as Record<string, unknown>} /></section>)}
     {collections.map(([key, values]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={values} /></section>)}
+    {technical.length ? <details className="technical-details"><summary>Technical details</summary><dl>{technical.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd><code>{String(value ?? '—')}</code>{value ? <button type="button" onClick={() => void navigator.clipboard?.writeText(String(value))}>Copy</button> : null}</dd></div>)}</dl></details> : null}
     {(record.allowed_actions?.length ?? 0) > 0 ? <div className="p2-action-grid">{record.allowed_actions!.map((action) => <button className={action.includes('CANCEL') || action.includes('REJECT') || action === 'CLOSE' ? 'secondary' : 'primary'} type="button" disabled={busy} key={action} onClick={() => onAction(action)}>{label(action)}</button>)}</div> : <div className="callout">{record._kind === 'claim' ? 'No action is available for this claim in its current state and your assigned role. Sales users create and resolve claims; Operations users receive goods after a claim reaches Return Required.' : 'This record is read-only in its current state or for your assigned role.'}</div>}
   </div>;
 }
@@ -230,15 +256,21 @@ function RelatedRows({ values }: { values: unknown[] }) {
 function ObjectFacts({ value }: { value: Record<string, unknown> }) {
   const facts = Object.entries(value).filter(([, item]) => item === null || ['string', 'number', 'boolean'].includes(typeof item));
   const collections = Object.entries(value).filter(([, item]) => Array.isArray(item)) as [string, unknown[]][];
-  return <>{facts.length ? <dl className="control-definition">{facts.map(([key, item]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(item, moneyKey(key) ? 'money' : key.includes('date') || key.endsWith('_at') ? 'date' : 'text')}</dd></div>)}</dl> : <div className="empty-state compact">No additional details were recorded.</div>}{collections.map(([key, items]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={items} /></section>)}</>;
+  return <>{facts.length ? <dl className="control-definition">{facts.filter(([key]) => !technicalKey(key)).map(([key, item]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(item, moneyKey(key) ? (key.includes('unit_cost') ? 'unitCost' : 'money') : key.endsWith('_at') ? 'datetime' : key.includes('date') ? 'date' : 'text')}</dd></div>)}</dl> : <div className="empty-state compact">No additional details were recorded.</div>}{collections.map(([key, items]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={items} /></section>)}</>;
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty-state">{text}</div>; }
 function read(record: P2Record, path: string): unknown { return path.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, record); }
 function workspacePath(workspace: P2Workspace | null, path: string): unknown { return path.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, workspace); }
 function label(value: string) { return value.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ').replace(/\b\w/g, (character) => character.toUpperCase()); }
-function moneyKey(key: string) { return /(amount|cost|price|value|revenue|margin|debit|credit|rate)$/i.test(key); }
-function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 6 }).format(Number(value) || 0); if (format === 'date') { const text = String(value); const parsed = new Date(text.length === 10 ? `${text}T00:00:00Z` : text); return Number.isNaN(parsed.valueOf()) ? text : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(parsed); } if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
+function moneyKey(key: string) { return !key.includes('percent') && /(amount|cost|price|value|revenue|margin|debit|credit)$/i.test(key); }
+function technicalKey(key: string) { return key === 'id' || key.endsWith('_id') || key.endsWith('_by') || key.endsWith('_uuid') || key === 'record_version' || key === 'company_id' || key === 'plant_id'; }
+function businessIdentifier(record: P2Record): string { for (const key of ['order_number', 'invoice_number', 'allocation_number', 'shipment_number', 'claim_number', 'asset_number', 'number', 'code', 'name']) { if (record[key]) return String(record[key]); } return 'Record details'; }
+function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0); if (format === 'unitCost') return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'number') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'date') return formatBusinessDate(String(value)); if (format === 'datetime') return formatZonedDateTime(String(value)); if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
-function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = values[0] ?? ''; }); setter({ error: api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); }
+function failureMessage(error: unknown, fallback: string): string { const api = isApiError(error) ? error : null; return api?.message ?? (error instanceof Error ? error.message : fallback); }
+function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = quantityError(key, values[0] ?? ''); }); const hasFields = Object.keys(fields).length > 0; setter({ error: hasFields ? 'Check the highlighted field.' : api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); if (hasFields) focusFirstInvalid(fields); }
+function quantityError(path: string, message: string): string { return /(?:^|\.)quantity$/.test(path) && /(greater than|gt|at least|positive)/i.test(message) ? 'Quantity must be greater than 0.' : message.replace(/(?:lines\.)?\d+\./g, ''); }
+function focusFirstInvalid(fields: Record<string, string>) { const path = Object.keys(fields)[0]; if (!path) return; window.requestAnimationFrame(() => { const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(path) : path.replace(/["\\]/g, '\\$&'); const target = document.querySelector<HTMLElement>(`[data-field-path="${escaped}"]`); target?.focus(); }); }
+function collectionContainsId(value: unknown, id: string): boolean { return Array.isArray(value) && value.some((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).id ?? '') === id); }
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }

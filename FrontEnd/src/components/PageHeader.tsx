@@ -1,3 +1,5 @@
+import { screenLabel } from '../utils/displayText';
+
 export function PageHeader({
   code,
   title,
@@ -17,7 +19,7 @@ export function PageHeader({
   return (
     <div className="page-head" data-screen-code={code}>
       <div>
-        <h1>{title}</h1>
+        <h1>{screenLabel(code, title)}</h1>
         <p>{description}</p>
       </div>
       {(onHistory || onExport || onNew) && (

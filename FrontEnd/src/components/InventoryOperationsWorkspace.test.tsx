@@ -44,7 +44,7 @@ describe('inventory operation workspaces', () => {
       .mockResolvedValueOnce({ ...operation('operation-1', 'ISSUE'), status: 'POSTED', record_version: 2, allowed_actions: [], posted_at: '2026-09-11T10:00:00Z', posted_by: { id: 'user-1', name: 'Operations Manager' } });
     renderPage('issues');
 
-    expect(await screen.findByRole('heading', { name: 'Issue / Return' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Stock issues & returns' })).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: '+ New' }));
     fireEvent.change(screen.getByLabelText('Operation number'), { target: { value: 'iss-ui-001' } });
     fireEvent.change(screen.getByLabelText('Operation reason code'), { target: { value: 'production_issue' } });

@@ -1,4 +1,5 @@
 import { expect, test, type Dialog, type Locator, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 test('manufacturing executes a planned batch through quality, packing, cost, genealogy, and recall', async ({ page }) => {
   test.setTimeout(420_000);
@@ -189,4 +190,4 @@ async function recordOutput(editor: Locator, type: string, quantity: string, rea
 }
 async function openRow(page: Page, text: string) { const row = page.locator('.requisition-table tbody tr').filter({ hasText: text }); await expect(row).toBeVisible(); await row.getByRole('button', { name: 'Open' }).click(); }
 async function selectByText(select: Locator, text: string) { const option = select.locator('option').filter({ hasText: text }); await select.selectOption(await option.getAttribute('value') ?? ''); }
-async function loginAndSelect(page: Page, email: string) { await page.goto('/'); await page.getByLabel('Email').fill(email); await page.getByLabel('Password').fill('prototype'); await page.getByRole('button', { name: 'Sign in' }).click(); await page.getByRole('button', { name: /Training Plant/ }).click(); }
+async function loginAndSelect(page: Page, email: string) { await signInAndSelect(page, email); }

@@ -12,6 +12,7 @@ import {
 import { isApiError } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 type Preview = { evidenceId: string; url: string | null; text: string | null; mimeType: string };
 
@@ -136,7 +137,7 @@ function Pagination({ meta, onPage }: { meta?: AuditWorkspace['meta']; onPage: (
 function revokePreview(preview: Preview | null) { if (preview?.url) URL.revokeObjectURL(preview.url); }
 function humanise(value: string) { return value.toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase()); }
 function shortId(value: string) { return value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value; }
-function formatDate(value: string | null) { return value ? new Date(value).toLocaleString() : '—'; }
+function formatDate(value: string | null) { return formatZonedDateTime(value); }
 function formatBytes(value: number) { return value < 1024 ? `${value} B` : value < 1048576 ? `${(value / 1024).toFixed(1)} KiB` : `${(value / 1048576).toFixed(1)} MiB`; }
 function formatJson(value: unknown) { return value === null ? 'No safe change detail was recorded.' : JSON.stringify(value, null, 2); }
 function message(error: unknown, fallback: string) { return isApiError(error) ? error.message : fallback; }

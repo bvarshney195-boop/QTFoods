@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const CUSTOMER = '00000000-0000-4000-8000-000000000501';
 const ITEM = '00000000-0000-4000-8000-000000000601';
@@ -339,12 +340,7 @@ async function apiPost<T = unknown>(page: Page, path: string, body: unknown, ver
 }
 
 async function loginAndSelect(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
 }
 
 async function logout(page: Page): Promise<void> {

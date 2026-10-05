@@ -63,6 +63,7 @@ final class DatabaseSeeder extends Seeder
                     'name' => $name,
                     'password_hash' => Hash::make('prototype'),
                     'status' => 'ACTIVE',
+                    'is_demo' => true,
                     'email_verified_at' => $now,
                     'password_changed_at' => $now,
                     'last_login_at' => null,
@@ -560,6 +561,7 @@ final class DatabaseSeeder extends Seeder
             $roleActions['FINANCE_REVIEWER'] = array_values(array_unique([
                 ...$roleActions['FINANCE_REVIEWER'], ...$p2FinanceActions, ...$p3ConsolidationActions,
                 ...$p3OptimisationReviewActions, ...$helpUserActions, ...$reportActions,
+                'ACTION:BI-PROFIT:COST-BACKFILL',
             ]));
             $roleActions['ERP_ADMIN'] = array_values(array_unique([
                 ...$roleActions['ERP_ADMIN'], ...$p2SalesActions, ...$p2OperationsActions, ...$p2FinanceActions,
@@ -570,6 +572,7 @@ final class DatabaseSeeder extends Seeder
                 'ACTION:PORTAL-EXT:ACCESS-GRANT', 'ACTION:PORTAL-EXT:ACCESS-UPDATE',
                 'ACTION:PORTAL-EXT:ACCESS-REVOKE', 'ACTION:PORTAL-EXT:DOCUMENT-PUBLISH',
                 'ACTION:PORTAL-EXT:DOCUMENT-DOWNLOAD', 'ACTION:PORTAL-EXT:DOCUMENT-WITHDRAW',
+                'ACTION:BI-PROFIT:COST-BACKFILL',
             ]));
 
             foreach ($roleActions as $roleCode => $permissions) {

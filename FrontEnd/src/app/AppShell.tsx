@@ -40,7 +40,10 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
   const [favourites, setFavourites] = useState<string[]>(() => readCodes('qtfoods:favourite-screens'));
   const [recent, setRecent] = useState<string[]>(() => readCodes('qtfoods:recent-screens'));
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(
-    () => new Set(navigationSections.map(({ key }) => key))
+    () => {
+      const saved = readCodes('qtfoods:expanded-navigation');
+      return new Set(saved.length ? saved : navigationSections.map(({ key }) => key));
+    }
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -147,6 +150,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
       if (areas.has(area)) return areas;
       const next = new Set(areas);
       next.add(area);
+      localStorage.setItem('qtfoods:expanded-navigation', JSON.stringify([...next]));
       return next;
     });
   }, [current?.area]);
@@ -181,6 +185,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
       const next = new Set(areas);
       if (next.has(area)) next.delete(area);
       else next.add(area);
+      localStorage.setItem('qtfoods:expanded-navigation', JSON.stringify([...next]));
       return next;
     });
   }
@@ -212,7 +217,6 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
         </div>
         <div className="side-search">
           <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu" aria-label="Search menu" />
-          <kbd>Ctrl K</kbd>
         </div>
         <nav aria-label="Main menu">
           {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
@@ -221,9 +225,9 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
                 const item = navigation.find((screen) => screen.code === code);
                 return item ? <button type="button" key={code} onClick={() => go(code)}><span>★</span>{screenLabel(code, item.title)}</button> : null;
               })}</div>}
-              {recent.length > 0 && <div><b>Recent</b>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
+              {recent.length > 0 && <div><span className="smart-navigation-title"><b>Recent</b><button type="button" aria-label="Dismiss recent pages" title="Dismiss recent pages" onClick={() => { setRecent([]); localStorage.removeItem('qtfoods:recent-screens'); }}>×</button></span>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
                 const item = navigation.find((screen) => screen.code === code);
-                return item ? <button type="button" key={code} onClick={() => go(code)}><span>↗</span>{screenLabel(code, item.title)}</button> : null;
+                return item ? <button type="button" key={code} onClick={() => go(code)}><NavIcon area={item.area} />{screenLabel(code, item.title)}</button> : null;
               })}</div>}
             </section>
           )}
@@ -238,7 +242,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
                 </button>
                 {expanded && <div className="nav-group-items">{items.map((item) => (
                   <button key={item.code} data-screen-code={item.code} aria-label={screenLabel(item.code, item.title)} className={item.code === current?.code ? 'active' : ''} aria-current={item.code === current?.code ? 'page' : undefined} onClick={() => go(item.code)}>
-                    <span>{screenLabel(item.code, item.title)}</span>
+                    <NavIcon area={item.area} /><span>{screenLabel(item.code, item.title)}</span>
                   </button>
                 ))}</div>}
               </section>
@@ -246,7 +250,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           })}
           {!filtered.length && <div className="nav-empty">No menu item matches your search.</div>}
         </nav>
-        <div className="side-user">
+        <div className="side-user" title={`${session.user.name} · ${primaryRole}`}>
           <span className="avatar">{initials(session.user.name)}</span>
           <div className="side-user-copy"><b>{session.user.name}</b><small>{primaryRole}</small></div>
           <button className="side-logout" type="button" aria-label="Sign out" title="Sign out" onClick={() => void onLogout()}>↪</button>
@@ -275,7 +279,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           <button className="global-search-trigger" type="button" onClick={() => setGlobalSearchOpen(true)}><span>⌕</span><b>Search everything</b><kbd>Ctrl K</kbd></button>
           <NotificationCentre onNavigate={(href) => { window.location.hash = href.replace(/^#/, ''); }} />
           {current && <button className={`icon favourite-button ${favourites.includes(current.code) ? 'is-favourite' : ''}`} type="button" aria-label={favourites.includes(current.code) ? 'Remove current page from favourites' : 'Add current page to favourites'} title="Pin page" onClick={toggleFavourite}>★</button>}
-          <button ref={securityButtonRef} className="security-button" type="button" aria-label="Account security" aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>My account</span><b>{session.security?.mfa_enabled ? '2-step on' : '2-step off'}</b></button>
+          <button ref={securityButtonRef} className="security-button" type="button" aria-label={`Account security for ${session.user.name}`} title={`${session.user.name} · ${primaryRole}`} aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>{session.user.name}</span><b>{session.security?.mfa_enabled ? '2-step on' : '2-step off'}</b></button>
           {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
         </header>
 
@@ -297,6 +301,22 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
 function initials(name: string): string {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function NavIcon({ area }: { area: string }) {
+  const path = area.includes('Finance')
+    ? 'M4 18h16M6 15h12M7 15V8m5 7V8m5 7V8M5 8h14l-7-4-7 4Z'
+    : area.includes('Manufacturing')
+      ? 'M4 19V9l5 3V8l5 3V5h6v14H4Zm3-3h2m3 0h2m3 0h1'
+      : area.includes('Sales')
+        ? 'M5 6h2l2 9h8l2-6H8m2 9a1 1 0 1 0 0 .01M17 18a1 1 0 1 0 0 .01'
+        : area.includes('Scale')
+          ? 'M4 19h16M6 16v-5h4v5m4 0V7h4v9M8 8V5h4v3'
+          : area.includes('Master')
+            ? 'M4 7h16v12H4V7Zm3 0V4h10v3m-8 5h6'
+            : 'M4 10 12 4l8 6v10H4V10Zm5 10v-6h6v6';
+
+  return <svg className="nav-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={path} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function readCodes(key: string): string[] {

@@ -26,6 +26,17 @@ final class MfaService
     public function beginSetup(User $user, Request $request, string $currentPassword): array
     {
         $this->assertPassword($user, $currentPassword);
+
+        return $this->beginVerifiedSetup($user, $request);
+    }
+
+    /**
+     * Start authenticator enrolment after the caller has already proved ownership
+     * of the user's registered email address. This is intentionally separate from
+     * beginSetup(), which is used by an authenticated user and requires a password.
+     */
+    public function beginVerifiedSetup(User $user, Request $request): array
+    {
         if ($user->mfa_enabled_at !== null) {
             throw ValidationException::withMessages([
                 'mfa' => ['Multi-factor authentication is already enabled.'],

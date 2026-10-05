@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErpSessionContext } from '../app/ErpSessionContext';
+import type { P2Workspace } from '../api/p2Operations';
 import type { ErpSession } from '../types/session';
+import { screenLabel } from '../utils/displayText';
 import { CommercialP2Workspace, commercialP2Configs, type CommercialP2Code } from './CommercialP2Workspaces';
 import { FinanceArchiveWorkspace } from './FinanceArchiveWorkspace';
 import { FinanceP2Workspace, PayablesIntegrationWorkspace, financeP2Configs, type FinanceP2Code } from './FinanceP2Workspaces';
@@ -21,18 +23,18 @@ describe('P2 commercial and finance workspaces', () => {
   it('renders every P2 screen from live workspace configuration with no prototype surface', async () => {
     for (const code of Object.keys(commercialP2Configs) as CommercialP2Code[]) {
       const view = renderPage(<CommercialP2Workspace screen={code} />);
-      expect(await screen.findByRole('heading', { level: 1, name: commercialP2Configs[code].title })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: screenLabel(code, commercialP2Configs[code].title) })).toBeInTheDocument();
       expect(screen.queryByText(/prototype action only/i)).not.toBeInTheDocument();
       view.unmount();
     }
     for (const code of Object.keys(financeP2Configs) as FinanceP2Code[]) {
       const view = renderPage(<FinanceP2Workspace screen={code} />);
-      expect(await screen.findByRole('heading', { level: 1, name: financeP2Configs[code].title })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: screenLabel(code, financeP2Configs[code].title) })).toBeInTheDocument();
       expect(screen.queryByText(/prototype action only/i)).not.toBeInTheDocument();
       view.unmount();
     }
     const payables = renderPage(<PayablesIntegrationWorkspace />);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Payables Bank & Statutory Integrations' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Supplier invoices & payments' })).toBeInTheDocument();
     payables.unmount();
     expect(api.listP2).toHaveBeenCalledTimes(22);
   });
@@ -92,6 +94,107 @@ describe('P2 commercial and finance workspaces', () => {
 
     await user.selectOptions(screen.getByLabelText('Item'), 'item-service');
     await waitFor(() => expect(unit).toHaveValue('EA'));
+  });
+
+  it('announces loading, preserves the current register and filters on failure, and retries', async () => {
+    const user = userEvent.setup();
+    const lead = { id: 'lead-retry', lead_number: 'LEAD-RETRY-001', company_name: 'Recovery Retail', contact_name: 'Commercial Desk', enquiry_date: '2026-10-05', estimated_value: '25000', status: 'NEW', record_version: 1, allowed_actions: [] };
+    let resolveInitial!: (value: P2Workspace) => void;
+    api.listP2.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
+
+    renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
+    expect(screen.getByLabelText('Loading records')).toBeInTheDocument();
+    expect(document.querySelector('.p2-workspace')).toHaveAttribute('aria-busy', 'true');
+
+    resolveInitial({ ...emptyWorkspace(), data: [lead] });
+    expect(await screen.findByText('LEAD-RETRY-001')).toBeInTheDocument();
+    const search = screen.getByLabelText('Leads & Enquiries search');
+    api.listP2.mockResolvedValueOnce({ ...emptyWorkspace(), data: [lead] });
+    fireEvent.change(search, { target: { value: 'LEAD-RETRY' } });
+    await waitFor(() => expect(api.listP2).toHaveBeenLastCalledWith('/api/v1/sales/leads', expect.objectContaining({ q: 'LEAD-RETRY' })));
+
+    api.listP2.mockRejectedValueOnce(new Error('Service temporarily unavailable.'));
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Service temporarily unavailable.');
+    expect(alert).toHaveTextContent('Your filters and entered values have been kept.');
+    expect(search).toHaveValue('LEAD-RETRY');
+    expect(screen.getByText('LEAD-RETRY-001')).toBeInTheDocument();
+
+    api.listP2.mockResolvedValueOnce({ ...emptyWorkspace(), data: [lead] });
+    await user.click(screen.getByRole('button', { name: 'Retry loading' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(search).toHaveValue('LEAD-RETRY');
+  });
+
+  it('disables the command form while saving so duplicate submissions cannot occur', async () => {
+    const user = userEvent.setup();
+    let resolveCommand!: (value: { id: string; status: string; record_version: number }) => void;
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { orders: [{ id: 'order-1', order_number: 'SO-UI-001', record_version: 7 }] }, allowed_actions: ['ALLOCATE'] });
+    api.commandP2.mockReturnValueOnce(new Promise((resolve) => { resolveCommand = resolve; }));
+    renderPage(<CommercialP2Workspace screen="DSP-PICK" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const saving = await screen.findByRole('button', { name: 'Saving…' });
+    expect(saving).toBeDisabled();
+    expect(api.commandP2).toHaveBeenCalledTimes(1);
+    await user.click(saving);
+    expect(api.commandP2).toHaveBeenCalledTimes(1);
+
+    resolveCommand({ id: 'allocation-1', status: 'ALLOCATED', record_version: 1 });
+    expect(await screen.findByText(/saved successfully/i)).toBeInTheDocument();
+  });
+
+  it('uses business quantity wording, links the inline error and focuses the invalid field', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: {
+        statuses: ['DRAFT', 'CONFIRMED'],
+        customers: [{ id: 'customer-1', name: 'Retail customer' }],
+        items: [{ id: 'item-pack', code: 'SKU-PACK', name: 'Retail pack', base_uom: 'PACK' }],
+        contracts: [],
+        price_lists: [],
+        leads: [],
+      },
+      allowed_actions: ['CREATE'],
+    });
+    renderPage(<CommercialP2Workspace screen="CRM-ORDER" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const quantity = screen.getByLabelText('Quantity');
+    await user.clear(quantity);
+    await user.type(quantity, '0');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted field.');
+    expect(screen.getByText('Quantity must be greater than 0.')).toBeInTheDocument();
+    expect(quantity).toHaveAttribute('aria-invalid', 'true');
+    expect(quantity).toHaveAttribute('aria-describedby', expect.stringContaining('field-error-lines-0-quantity'));
+    await waitFor(() => expect(quantity).toHaveFocus());
+    expect(screen.queryByText(/lines\.0\.quantity/i)).not.toBeInTheDocument();
+    expect(api.commandP2).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: '+ New' }));
+    expect(screen.queryByText('Quantity must be greater than 0.')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Quantity')).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('clears selected detail when the record leaves the filtered result set', async () => {
+    const lead = { id: 'lead-stale', lead_number: 'LEAD-STALE-001', company_name: 'Filtered Customer', contact_name: 'Commercial Desk', enquiry_date: '2026-10-05', estimated_value: '25000', status: 'NEW', record_version: 1, allowed_actions: [] };
+    api.listP2.mockResolvedValueOnce({ ...emptyWorkspace(), data: [lead] });
+    api.getP2.mockResolvedValueOnce(lead);
+    const user = userEvent.setup();
+    renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('dialog', { name: 'Record details' })).toBeInTheDocument();
+
+    api.listP2.mockResolvedValueOnce(emptyWorkspace());
+    fireEvent.change(screen.getByLabelText('Leads & Enquiries search'), { target: { value: 'NO-MATCH' } });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record details' })).not.toBeInTheDocument());
+    expect(screen.getByText('No live records match the selected context and filters.')).toBeInTheDocument();
   });
 
   it('refreshes receipt allocation and total when the selected invoice changes', async () => {

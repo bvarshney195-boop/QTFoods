@@ -25,6 +25,8 @@ final class PartnerPortalEndpointTest extends TestCase
     private const CENTRAL_SHIPMENT = '00000000-0000-4000-8000-000000001002';
     private const NORTH_SHIPMENT_LINE = '00000000-0000-4000-8000-000000001101';
     private const NORTH_INVOICE = '00000000-0000-4000-8000-000000001301';
+    private const ITEM = '00000000-0000-4000-8000-000000000601';
+    private const CONTRACT = '00000000-0000-4000-8000-000000002501';
 
     protected function setUp(): void
     {
@@ -37,6 +39,26 @@ final class PartnerPortalEndpointTest extends TestCase
 
     public function test_partner_workspace_is_exactly_tenant_scoped_and_entitlement_gated(): void
     {
+        $this->signIn(self::ADMIN);
+        $createdOrder = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'PARTNER-ALLOWLIST-001',
+            'customer_party_id' => self::NORTH,
+            'sales_lead_id' => null,
+            'sales_contract_id' => self::CONTRACT,
+            'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(),
+            'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Internal commercial note that must not reach the partner contract.',
+            'lines' => [[
+                'item_id' => self::ITEM,
+                'uom_code' => 'PACK',
+                'quantity' => '2',
+                'discount_percent' => '0',
+            ]],
+        ])->assertCreated();
+        $orderId = (string) $createdOrder->json('data.id');
+        $this->signIn(self::PARTNER);
+
         $workspace = $this->getJson('/api/v1/partner/workspaces')->assertOk()
             ->assertJsonPath('mode', 'PARTNER')
             ->assertJsonPath('identity.party_id', self::NORTH)
@@ -56,6 +78,22 @@ final class PartnerPortalEndpointTest extends TestCase
         );
         $this->assertFalse(collect($workspace->json('shipments'))->contains('id', self::CENTRAL_SHIPMENT));
         $this->getJson('/api/v1/partner/shipments/'.self::CENTRAL_SHIPMENT)->assertNotFound();
+
+        $this->assertContains($orderId, collect($workspace->json('orders'))->pluck('id')->all());
+        $this->getJson('/api/v1/partner/orders/'.$orderId)->assertOk()
+            ->assertJsonMissingPath('data.company_id')
+            ->assertJsonMissingPath('data.plant_id')
+            ->assertJsonMissingPath('data.created_by')
+            ->assertJsonMissingPath('data.notes')
+            ->assertJsonMissingPath('data.credit_limit_snapshot')
+            ->assertJsonMissingPath('data.credit_exposure_snapshot');
+
+        $this->getJson('/api/v1/partner/invoices/'.self::NORTH_INVOICE)->assertOk()
+            ->assertJsonMissingPath('data.company_id')
+            ->assertJsonMissingPath('data.plant_id')
+            ->assertJsonMissingPath('data.transactions.0.company_id')
+            ->assertJsonMissingPath('data.transactions.0.plant_id')
+            ->assertJsonMissingPath('data.transactions.0.actor_id');
 
         DB::table('partner_access_entitlements')
             ->where('partner_access_grant_id', self::GRANT)
@@ -98,6 +136,10 @@ final class PartnerPortalEndpointTest extends TestCase
             ->assertJsonPath('data.party_id', self::NORTH)
             ->assertJsonPath('data.allowed_actions.0', 'DOWNLOAD')
             ->assertJsonPath('data.allowed_actions.1', 'ACKNOWLEDGE')
+            ->assertJsonMissingPath('data.company_id')
+            ->assertJsonMissingPath('data.plant_id')
+            ->assertJsonMissingPath('data.created_by')
+            ->assertJsonMissingPath('data.created_by_name')
             ->assertJsonMissingPath('data.storage_path');
         $this->get('/api/v1/partner/documents/'.$documentId.'/download')
             ->assertOk()

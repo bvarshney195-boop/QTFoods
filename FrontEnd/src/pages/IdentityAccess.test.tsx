@@ -24,15 +24,15 @@ describe('identity access flows', () => {
   });
 
   it('submits the second factor without asking for the password again', async () => {
-    const onMfa = vi.fn();
+    const onChallenge = vi.fn();
     render(<ACC_LOGIN
-      mfaChallenge={{ mfa_required: true, challenge_id: 'challenge-1', expires_at: '2026-09-09T11:00:00Z' }}
-      onMfa={onMfa}
+      authChallenge={{ authentication_required: true, mfa_required: true, challenge_id: 'challenge-1', phase: 'TOTP_SECOND', primary_method: 'PASSWORD', expires_at: '2026-09-09T11:00:00Z', email_hint: 'a***@example.com', totp_registered: true, available_methods: ['email_otp', 'totp'] }}
+      onChallenge={onChallenge}
     />);
 
-    await userEvent.setup().type(screen.getByLabelText('Authenticator or recovery code'), '123456');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Verify and sign in' }));
-    expect(onMfa).toHaveBeenCalledWith('123456');
+    await userEvent.setup().type(screen.getByLabelText('Google Authenticator or recovery code'), '123456');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Verify and continue' }));
+    expect(onChallenge).toHaveBeenCalledWith('verify_totp', '123456');
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 

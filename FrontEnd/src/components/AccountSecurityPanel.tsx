@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import QRCode from 'qrcode';
 import { isApiError } from '../api/client';
 import {
   beginMfaSetup,
@@ -15,6 +16,7 @@ import {
 } from '../api/identity';
 import type { ErpSession } from '../types/session';
 import { StatusBadge } from './StatusBadge';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 export function AccountSecurityPanel({ session, onClose }: { session: ErpSession; onClose: () => void }) {
   const [devices, setDevices] = useState<DeviceSession[]>([]);
@@ -29,6 +31,10 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   const [mfaCode, setMfaCode] = useState('');
   const [setup, setSetup] = useState<MfaSetup | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [setupQr, setSetupQr] = useState('');
+  const [deviceTab, setDeviceTab] = useState<'active' | 'history'>('active');
+  const [devicePage, setDevicePage] = useState(1);
+  const [pendingRevoke, setPendingRevoke] = useState<DeviceSession | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -44,6 +50,18 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   }, []);
 
   useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+
+  useEffect(() => {
+    let live = true;
+    if (!setup?.otpauth_uri) {
+      setSetupQr('');
+      return () => { live = false; };
+    }
+    void QRCode.toDataURL(setup.otpauth_uri, { width: 220, margin: 1, errorCorrectionLevel: 'M' })
+      .then((value) => { if (live) setSetupQr(value); })
+      .catch(() => { if (live) setSetupQr(''); });
+    return () => { live = false; };
+  }, [setup?.otpauth_uri]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -175,6 +193,7 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
   }
 
   async function revoke(device: DeviceSession) {
+    setPendingRevoke(null);
     setBusy(device.id); clearFeedback();
     try {
       const result = await revokeDeviceSession(device.id);
@@ -206,6 +225,17 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
 
   function clearFeedback() { setError(null); setSuccess(null); }
 
+  const visibleDevices = useMemo(() => devices.filter((device) => (
+    deviceTab === 'active' ? device.status === 'ACTIVE' : device.status !== 'ACTIVE'
+  )), [deviceTab, devices]);
+  const pageSize = 5;
+  const pageCount = Math.max(1, Math.ceil(visibleDevices.length / pageSize));
+  const pageDevices = visibleDevices.slice((devicePage - 1) * pageSize, devicePage * pageSize);
+
+  useEffect(() => {
+    setDevicePage(1);
+  }, [deviceTab]);
+
   return (
     <div className="security-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={panelRef} id="account-security-dialog" className="security-panel" role="dialog" aria-modal="true" aria-labelledby="security-title" aria-describedby="security-account-email" tabIndex={-1}>
@@ -222,7 +252,7 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
           <section className="security-section">
             <div className="subsection-head"><div><b>Multi-factor authentication</b><small>TOTP authenticator with one-time recovery codes</small></div><StatusBadge status={session.security?.mfa_enabled ? 'ENABLED' : 'DISABLED'} /></div>
             {!session.security?.mfa_enabled && !setup && <div className="security-inline-form"><label>Current password<input type="password" value={mfaPassword} onChange={(event) => setMfaPassword(event.target.value)} autoComplete="current-password" /></label><button className="secondary" type="button" disabled={busy === 'mfa' || !mfaPassword} onClick={() => void startMfa()}>Set up MFA</button></div>}
-            {setup && <div className="mfa-setup"><p>Add this account to a TOTP authenticator using the URI or manual secret.</p><a href={setup.otpauth_uri}>Open authenticator URI</a><code>{setup.secret}</code><div className="security-inline-form"><label>Six-digit code<input aria-label="MFA setup code" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} /></label><button className="primary" type="button" disabled={busy === 'mfa' || !mfaCode} onClick={() => void finishMfa()}>Enable MFA</button></div></div>}
+            {setup && <div className="mfa-setup"><p>Scan this QR code with Google Authenticator or another TOTP app, then enter its six-digit code.</p>{setupQr ? <img className="mfa-qr" src={setupQr} alt="Authenticator setup QR code" /> : <div className="skeleton-block" role="status">Preparing QR code…</div>}<details><summary>Cannot scan the QR code?</summary><p>Enter this one-time setup key manually. Do not share it.</p><code>{setup.secret}</code><a href={setup.otpauth_uri}>Open authenticator link</a></details><div className="security-inline-form"><label>Six-digit code<input aria-label="MFA setup code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label><button className="primary" type="button" disabled={busy === 'mfa' || mfaCode.length !== 6} onClick={() => void finishMfa()}>Enable MFA</button></div></div>}
             {session.security?.mfa_enabled && <div className="security-inline-form security-mfa-actions"><label>Current password<input type="password" value={mfaPassword} onChange={(event) => setMfaPassword(event.target.value)} autoComplete="current-password" /></label><label>Authenticator code<input inputMode="numeric" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} autoComplete="one-time-code" /></label><div><button className="secondary" type="button" disabled={busy === 'mfa' || !mfaPassword || !mfaCode} onClick={() => void rotateRecoveryCodes()}>Replace recovery codes</button><button className="danger-button" type="button" disabled={busy === 'mfa' || !mfaPassword || !mfaCode} onClick={() => void turnOffMfa()}>Disable MFA</button></div></div>}
             {recoveryCodes.length > 0 && <div className="recovery-codes" aria-label="One-time MFA recovery codes">{recoveryCodes.map((recoveryCode) => <code key={recoveryCode}>{recoveryCode}</code>)}</div>}
           </section>
@@ -239,13 +269,20 @@ export function AccountSecurityPanel({ session, onClose }: { session: ErpSession
 
           <section className="security-section">
             <div className="subsection-head"><div><b>Device sessions</b><small>Logical sessions; no cookie or raw framework session ID is stored</small></div><button className="secondary compact-button" type="button" onClick={() => void revokeOthers()} disabled={busy === 'other-devices'}>Revoke others</button></div>
+            <div className="security-tabs" role="tablist" aria-label="Device session status">
+              <button type="button" role="tab" aria-selected={deviceTab === 'active'} className={deviceTab === 'active' ? 'active' : ''} onClick={() => setDeviceTab('active')}>Active ({devices.filter((device) => device.status === 'ACTIVE').length})</button>
+              <button type="button" role="tab" aria-selected={deviceTab === 'history'} className={deviceTab === 'history' ? 'active' : ''} onClick={() => setDeviceTab('history')}>History ({devices.filter((device) => device.status !== 'ACTIVE').length})</button>
+            </div>
             {loadingDevices && <div className="empty-state">Loading device sessions…</div>}
-            {!loadingDevices && devices.map((device) => <div className="device-row" key={device.id}>
-              <div><b>{deviceName(device.user_agent)}</b><small>{device.ip_address ?? 'Unknown IP'} · Last seen {new Date(device.last_seen_at).toLocaleString()}</small><small>{device.current ? 'This device · ' : ''}{device.id.slice(0, 8)}</small></div>
-              <div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={() => void revoke(device)}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
+            {!loadingDevices && !pageDevices.length && <div className="empty-state">No {deviceTab} device sessions.</div>}
+            {!loadingDevices && pageDevices.map((device) => <div className="device-row" key={device.id}>
+              <div><span className="device-name"><b>{deviceName(device.user_agent)}</b>{device.current && <span className="current-device-badge">Current device</span>}</span><small>{device.ip_address ?? 'Unknown IP'} · Last seen {formatZonedDateTime(device.last_seen_at)}</small><small className="technical-identifier">Session reference {device.id.slice(0, 8)}</small></div>
+              <div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className={device.current ? 'danger-button' : 'secondary'} type="button" disabled={busy === device.id} onClick={() => setPendingRevoke(device)}>{device.current ? 'Sign out' : 'Revoke'}</button>}</div>
             </div>)}
+            {!loadingDevices && visibleDevices.length > pageSize && <div className="pagination"><button type="button" disabled={devicePage === 1} onClick={() => setDevicePage((value) => value - 1)}>Previous</button><span>Page {devicePage} of {pageCount}</span><button type="button" disabled={devicePage === pageCount} onClick={() => setDevicePage((value) => value + 1)}>Next</button></div>}
           </section>
         </div>
+        {pendingRevoke && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-session-title"><h3 id="revoke-session-title">{pendingRevoke.current ? 'Sign out this device?' : `Revoke ${deviceName(pendingRevoke.user_agent)}?`}</h3><p>{pendingRevoke.current ? 'Your current session will end immediately and you will need to authenticate again.' : `Access from ${pendingRevoke.ip_address ?? 'this unknown IP'} will end immediately.`}</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingRevoke(null)}>Keep session</button><button className="danger-button" type="button" onClick={() => void revoke(pendingRevoke)}>{pendingRevoke.current ? 'Sign out now' : 'Revoke session'}</button></div></section></div>}
       </section>
     </div>
   );

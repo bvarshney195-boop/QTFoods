@@ -11,6 +11,7 @@ import {
 } from '../api/unsoldReturns';
 import { useErpSession } from '../app/ErpSessionContext';
 import { StatusBadge } from './StatusBadge';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 type Props = {
   refreshToken: number;
@@ -249,8 +250,7 @@ function formatQuantity(quantity: string): string {
 }
 
 function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatZonedDateTime(value);
 }
 
 function shortId(id: string): string {

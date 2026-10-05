@@ -37,7 +37,21 @@ final class IdentityNotificationService
         return $this->deliver($email, 'Verify your Q & T Foods ERP email', $body, $url);
     }
 
-    private function deliver(string $email, string $subject, string $body, string $previewUrl): array
+    public function loginOtp(string $email, string $name, string $code, string $expiresAt): array
+    {
+        $body = "Hello {$name},\n\nYour Q & T Foods ERP sign-in code is {$code}. "
+            ."It expires at {$expiresAt}.\n\n"
+            .'Never share this code. If you did not request it, contact your organisation administrator.';
+
+        $result = $this->deliver($email, 'Your Q & T Foods ERP sign-in code', $body, null);
+        if (config('qtfoods.identity.preview_links', false)) {
+            $result['preview_code'] = $code;
+        }
+
+        return $result;
+    }
+
+    private function deliver(string $email, string $subject, string $body, ?string $previewUrl): array
     {
         try {
             Mail::raw($body, function ($message) use ($email, $subject): void {
@@ -53,7 +67,7 @@ final class IdentityNotificationService
         }
 
         $result = ['channel' => 'EMAIL', 'status' => $status];
-        if (config('qtfoods.identity.preview_links', false)) {
+        if (config('qtfoods.identity.preview_links', false) && $previewUrl !== null) {
             $result['preview_url'] = $previewUrl;
         }
 

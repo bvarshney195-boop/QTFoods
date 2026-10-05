@@ -34,6 +34,7 @@ const emptyLookups: UnsoldReturnLookups = {
   skus: [],
   lots: [],
   return_positions: [],
+  return_locations: [],
 };
 
 export default function RET_UNSOLD() {

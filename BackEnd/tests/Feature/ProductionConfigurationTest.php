@@ -17,6 +17,8 @@ final class ProductionConfigurationTest extends TestCase
         self::assertContains('APP_KEY must be a unique, valid 32-byte key and not the development fallback.', $violations);
         self::assertContains('APP_URL must be an absolute HTTPS URL.', $violations);
         self::assertContains('QT_ALLOW_DEMO_SEEDERS must be false.', $violations);
+        self::assertContains('QT_ALLOW_DEMO_AUTHENTICATION must be false.', $violations);
+        self::assertContains('QT_OUTBOX_TRANSPORT must be http in production.', $violations);
         self::assertContains('MAIL_MAILER must use the configured SMTP delivery transport.', $violations);
     }
 
@@ -197,6 +199,7 @@ final class ProductionConfigurationTest extends TestCase
             'deployment.trusted_proxies' => 'REMOTE_ADDR',
             'deployment.cors_origins_explicit' => true,
             'deployment.allow_demo_seeders' => false,
+            'deployment.allow_demo_authentication' => false,
             'deployment.log_level' => 'info',
             'logging.default' => 'stderr',
             'logging.channels.stderr.formatter' => \Monolog\Formatter\JsonFormatter::class,
@@ -211,6 +214,11 @@ final class ProductionConfigurationTest extends TestCase
             'session.same_site' => 'lax',
             'session.driver' => 'redis',
             'qtfoods.identity.preview_links' => false,
+            'qtfoods.identity.mfa_required_roles' => ['ERP_ADMIN'],
+            'qtfoods.outbox.transport' => 'http',
+            'qtfoods.outbox.require_acknowledgement' => true,
+            'qtfoods.outbox.http_endpoint' => 'https://events.erp.secure.test/acknowledged-events',
+            'qtfoods.outbox.signing_secret' => 'Q7m2R9x4K6p8V1c5N3q0W2z7L4b9S6d8',
             'database.default' => 'pgsql',
             'database.connections.pgsql.password' => 'D6e9J4m2C8r5V7x1',
             'database.connections.pgsql.mask_bindings_in_exception_messages' => true,

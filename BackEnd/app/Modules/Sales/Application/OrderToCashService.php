@@ -35,6 +35,75 @@ final class OrderToCashService
         private readonly StockPostingService $stock,
     ) {}
 
+    public function backfillProfitabilityCosts(array $data): array
+    {
+        return DB::transaction(function () use ($data): array {
+            $namespace = 'sales.profitability.cost-backfill';
+            if ($replay = $this->begin($namespace, $data)) return $replay;
+
+            $lines = DB::table('sales_order_lines as line')
+                ->join('sales_orders as orders', 'orders.id', '=', 'line.sales_order_id')
+                ->where('line.company_id', $data['company_id'])
+                ->where('line.plant_id', $data['plant_id'])
+                ->where('line.cost_snapshot_status', 'MISSING')
+                ->when($data['order_id'] ?? null, fn ($query, string $orderId) => $query->where('orders.id', $orderId))
+                ->orderBy('orders.order_date')->orderBy('line.line_number')
+                ->lockForUpdate()
+                ->get(['line.id', 'line.item_id', 'line.sales_order_id', 'line.line_number']);
+
+            $updated = [];
+            $unavailable = [];
+            foreach ($lines as $line) {
+                $cost = DB::table('batch_costs as cost')
+                    ->join('production_orders as production', 'production.id', '=', 'cost.production_order_id')
+                    ->where('cost.company_id', $data['company_id'])
+                    ->where('cost.plant_id', $data['plant_id'])
+                    ->where('cost.status', 'FINALIZED')
+                    ->where('production.output_sku_id', $line->item_id)
+                    ->orderByDesc('cost.calculated_at')
+                    ->first(['cost.id', 'cost.cost_per_good_unit', 'cost.calculated_at']);
+                if (! $cost) {
+                    $unavailable[] = (string) $line->id;
+                    continue;
+                }
+
+                DB::table('sales_order_lines')->where('id', $line->id)->where('cost_snapshot_status', 'MISSING')->update([
+                    'unit_cost_snapshot' => $cost->cost_per_good_unit,
+                    'cost_snapshot_status' => 'BACKFILLED',
+                    'cost_snapshot_source_type' => 'BATCH_COST',
+                    'cost_snapshot_source_id' => $cost->id,
+                    'cost_snapshot_at' => $cost->calculated_at,
+                    'cost_backfilled_by' => $data['actor_id'],
+                    'cost_backfilled_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $updated[] = (string) $line->id;
+                $this->audit->record('BACKFILL_PROFITABILITY_COST', 'sales_order_line', (string) $line->id,
+                    $data['actor_id'], $data['company_id'], $data['plant_id'], 'SUCCESS', [
+                        'correlation_id' => $data['correlation_id'] ?? null,
+                        'safe_diff' => ['cost_snapshot_status' => ['from' => 'MISSING', 'to' => 'BACKFILLED'],
+                            'source_type' => 'BATCH_COST', 'source_id' => (string) $cost->id],
+                    ]);
+                $this->outbox->append('sales.profitability-cost.backfilled', 'sales_order_line', (string) $line->id,
+                    $line->id.':'.$cost->id.':cost-backfill', [
+                        'sales_order_line_id' => (string) $line->id,
+                        'sales_order_id' => (string) $line->sales_order_id,
+                        'batch_cost_id' => (string) $cost->id,
+                    ], $data['correlation_id'] ?? null, $data['company_id'], $data['plant_id']);
+            }
+
+            $result = [
+                'updated_count' => count($updated),
+                'updated_line_ids' => $updated,
+                'unavailable_count' => count($unavailable),
+                'unavailable_line_ids' => $unavailable,
+            ];
+            $this->complete($namespace, $data, $result);
+
+            return $result;
+        }, 3);
+    }
+
     public function createLead(array $data): array
     {
         return DB::transaction(function () use ($data): array {
@@ -548,10 +617,12 @@ final class OrderToCashService
             DB::table('sales_orders')->where('id', $orderId)->update(['status' => 'ALLOCATED', 'record_version' => $version, 'updated_at' => $now]);
             $result = $this->result('sales_allocation', $allocationId, 'RESERVED', 1) + [
                 'sales_order_id' => $orderId, 'sales_order_record_version' => $version,
-                'allocated_quantity' => $allocatedTotal, 'fefo_break_count' => $allocationLineNumber,
+                'allocated_quantity' => $allocatedTotal, 'fefo_lot_count' => $allocationLineNumber,
+                'fefo_break_count' => 0,
             ];
             $this->record('ALLOCATE_SALES_ORDER', 'sales.allocation.created', 'sales_allocation', $allocationId, $data, 1, [
-                'sales_order_id' => $orderId, 'allocated_quantity' => $allocatedTotal, 'fefo_break_count' => $allocationLineNumber,
+                'sales_order_id' => $orderId, 'allocated_quantity' => $allocatedTotal,
+                'fefo_lot_count' => $allocationLineNumber, 'fefo_break_count' => 0,
             ], $result);
             $this->complete($namespace, $data, $result);
             return $result;
@@ -1285,15 +1356,20 @@ final class OrderToCashService
             $tax = $this->decimal(bcdiv(bcmul($net, $taxRate, 8), '100', 8));
             $cost = DB::table('batch_costs as cost')->join('production_orders as production', 'production.id', '=', 'cost.production_order_id')
                 ->where('cost.company_id', $data['company_id'])->where('cost.plant_id', $data['plant_id'])
-                ->where('production.output_sku_id', $input['item_id'])->orderByDesc('cost.calculated_at')->value('cost.cost_per_good_unit');
+                ->where('production.output_sku_id', $input['item_id'])->where('cost.status', 'FINALIZED')
+                ->orderByDesc('cost.calculated_at')->first(['cost.id', 'cost.cost_per_good_unit', 'cost.calculated_at']);
             // Preserve order capture when costing is not yet finalized. Profitability marks this
             // snapshot as incomplete instead of presenting a false 100% margin.
-            $cost ??= 0;
+            $costValue = $cost?->cost_per_good_unit ?? 0;
             $priced[] = [
                 'line_number' => $index + 1, 'item_id' => $input['item_id'], 'description' => $item->name,
                 'uom_code' => $input['uom_code'], 'ordered_quantity' => $quantity, 'unit_price' => $this->decimal($source->unit_price),
                 'discount_percent' => $discountRate, 'tax_rate' => $taxRate, 'net_amount' => $net,
-                'tax_amount' => $tax, 'gross_amount' => bcadd($net, $tax, 6), 'unit_cost_snapshot' => $this->decimal($cost),
+                'tax_amount' => $tax, 'gross_amount' => bcadd($net, $tax, 6), 'unit_cost_snapshot' => $this->decimal($costValue),
+                'cost_snapshot_status' => $cost ? 'AVAILABLE' : 'MISSING',
+                'cost_snapshot_source_type' => $cost ? 'BATCH_COST' : null,
+                'cost_snapshot_source_id' => $cost?->id,
+                'cost_snapshot_at' => $cost?->calculated_at,
                 'sales_contract_id' => $contractLine ? $contract->id : null,
                 'sales_contract_line_id' => $contractLine?->id,
             ];
@@ -1313,7 +1389,12 @@ final class OrderToCashService
                 'allocated_quantity' => 0, 'dispatched_quantity' => 0, 'invoiced_quantity' => 0,
                 'unit_price' => $line['unit_price'], 'discount_percent' => $line['discount_percent'], 'tax_rate' => $line['tax_rate'],
                 'net_amount' => $line['net_amount'], 'tax_amount' => $line['tax_amount'], 'gross_amount' => $line['gross_amount'],
-                'unit_cost_snapshot' => $line['unit_cost_snapshot'], 'sales_contract_id' => $line['sales_contract_id'],
+                'unit_cost_snapshot' => $line['unit_cost_snapshot'],
+                'cost_snapshot_status' => $line['cost_snapshot_status'],
+                'cost_snapshot_source_type' => $line['cost_snapshot_source_type'],
+                'cost_snapshot_source_id' => $line['cost_snapshot_source_id'],
+                'cost_snapshot_at' => $line['cost_snapshot_at'],
+                'sales_contract_id' => $line['sales_contract_id'],
                 'sales_contract_line_id' => $line['sales_contract_line_id'], 'created_at' => $now, 'updated_at' => $now,
             ]);
         }

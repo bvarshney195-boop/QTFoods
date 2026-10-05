@@ -24,6 +24,7 @@ import {
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { FeedbackToast } from './FeedbackToast';
 
 type LineForm = {
   item_id: string;
@@ -319,6 +320,7 @@ export function PurchaseRequisitionWorkspace() {
         description="Versioned material requests with scoped item costing, policy-routed approval, maker-checker decisions, and immutable control evidence."
         onNew={workspace?.allowed_actions.includes('CREATE') ? startNew : undefined}
       />
+      {success ? <FeedbackToast title="Requisition updated" message={success} onDismiss={() => setSuccess(null)} /> : null}
 
       <div className="live-notice procurement-notice">
         <span />
@@ -455,7 +457,6 @@ export function PurchaseRequisitionWorkspace() {
           <div className="requisition-detail-body">
             {detailLoading ? <div className="empty-state">Loading requisition detail…</div> : null}
             {error ? <ErrorMessage text={error} onRetry={selected ? () => void choose(selected.id) : undefined} /> : null}
-            {success ? <div className="form-success" role="status"><span />{success}</div> : null}
             {!detailLoading && editing ? (
               <RequisitionEditor
                 form={form}
@@ -708,6 +709,16 @@ function RequisitionDetail({
   onDecide: (decision: 'approve' | 'reject') => void;
 }) {
   const approvalActions = requisition.approval?.allowed_actions ?? [];
+  const [confirmReject, setConfirmReject] = useState(false);
+
+  function reviewRejection() {
+    if (approvalReason.trim().length < 3) {
+      onDecide('reject');
+      return;
+    }
+    setConfirmReject(true);
+  }
+
   return (
     <div className="requisition-detail">
       <div className="detail-status"><StatusBadge status={requisition.status} /><b>{money(requisition.estimated_total, requisition.currency)}</b><span>v{requisition.record_version}</span></div>
@@ -785,7 +796,7 @@ function RequisitionDetail({
             <FieldError text={errors.approval_reason} />
           </label>
           <div className="form-actions">
-            <button className="secondary" type="button" disabled={busy} onClick={() => onDecide('reject')}>Reject for correction</button>
+            <button className="secondary" type="button" disabled={busy} onClick={reviewRejection}>Reject for correction</button>
             <button className="primary" type="button" disabled={busy} onClick={() => onDecide('approve')}>Approve requisition</button>
           </div>
         </div>
@@ -808,6 +819,23 @@ function RequisitionDetail({
             <FieldError text={errors.cancellation_reason} />
           </label>
           <button className="secondary" type="button" disabled={busy} onClick={onCancel}>Cancel requisition</button>
+        </div>
+      ) : null}
+      {confirmReject ? (
+        <div className="confirm-overlay" role="presentation">
+          <section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reject-requisition-title">
+            <h3 id="reject-requisition-title">Reject requisition {requisition.requisition_number}?</h3>
+            <dl className="confirmation-facts">
+              <Fact label="Requester" value={requisition.requested_by.name} />
+              <Fact label="Amount" value={money(requisition.estimated_total, requisition.currency)} />
+              <Fact label="Reason" value={approvalReason.trim()} wide />
+            </dl>
+            <p>The requisition will return for correction and the decision will be retained in its audit history.</p>
+            <div className="form-actions">
+              <button className="secondary" type="button" autoFocus onClick={() => setConfirmReject(false)}>Keep reviewing</button>
+              <button className="danger-button" type="button" disabled={busy} onClick={() => { setConfirmReject(false); onDecide('reject'); }}>Reject requisition</button>
+            </div>
+          </section>
         </div>
       ) : null}
     </div>

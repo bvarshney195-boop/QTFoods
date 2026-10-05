@@ -13,6 +13,7 @@ import {
 import { isApiError } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 export default function ADM_INT() {
   const [workspace, setWorkspace] = useState<OutboxWorkspace | null>(null);
@@ -131,6 +132,6 @@ export default function ADM_INT() {
 
 function Pagination({ meta, onPage }: { meta?: OutboxWorkspace['meta']; onPage: (page: number) => void }) { if (!meta || meta.last_page <= 1) return null; return <div className="pagination"><button type="button" disabled={meta.current_page <= 1} onClick={() => onPage(meta.current_page - 1)}>Previous</button><span>Page {meta.current_page} of {meta.last_page}</span><button type="button" disabled={meta.current_page >= meta.last_page} onClick={() => onPage(meta.current_page + 1)}>Next</button></div>; }
 function shortId(value: string) { return value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value; }
-function formatDate(value: string | null) { return value ? new Date(value).toLocaleString() : '—'; }
+function formatDate(value: string | null) { return formatZonedDateTime(value); }
 function formatJson(value: unknown) { return value === null ? 'No payload recorded.' : JSON.stringify(value, null, 2); }
 function message(error: unknown, fallback: string) { return isApiError(error) ? error.message : fallback; }

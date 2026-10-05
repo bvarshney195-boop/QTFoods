@@ -186,10 +186,19 @@ final class OrderToCashQuery
         $today = CarbonImmutable::today();
         $invoices = collect($page->items())->map(function ($row) use ($today): array {
             $payload = $this->receivableRow($row);
-            $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date)) ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : 0;
-            $payload['ageing_bucket'] = bccomp((string) $row->outstanding_amount, '0', 4) === 0 ? 'SETTLED'
-                : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'))));
+            $settled = bccomp((string) $row->outstanding_amount, '0', 4) === 0;
+            $partiallyPaid = bccomp(bcadd((string) $row->paid_amount, (string) $row->credited_amount, 4), '0', 4) > 0;
+            $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date))
+                ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : ($row->due_date ? 0 : null);
+            $payload['payment_status'] = $settled ? 'SETTLED'
+                : ($days !== null && $days > 0 ? 'OVERDUE' : ($partiallyPaid ? 'PARTIALLY_PAID' : 'OPEN'));
+            $payload['status'] = $payload['payment_status'];
+            $payload['ageing_bucket'] = $settled ? 'SETTLED'
+                : ($days === null ? 'UNKNOWN' : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+')))));
             $payload['days_overdue'] = $days;
+            $payload['document_retention_status'] = DB::table('bill_archive_documents')
+                ->where('company_id', $row->company_id)->where('invoice_id', $row->invoice_id)->exists()
+                ? 'ARCHIVED' : 'NOT_ARCHIVED';
             return $payload;
         })->all();
         $openBase = DB::table('sales_invoice_financials')->where($scope)->where('outstanding_amount', '>', 0);
@@ -209,8 +218,11 @@ final class OrderToCashQuery
             'allowed_actions' => $this->can($permissions, 'ACTION:FIN-AR:COLLECT') ? ['COLLECT'] : []];
     }
 
-    public function profitability(array $scope, array $filters): array
+    public function profitability(array $scope, array $filters, array $permissions = []): array
     {
+        $bookedStatuses = "'CONFIRMED','ALLOCATED','PICKED','LOADED','DISPATCHED','DELIVERED','COMPLETED'";
+        $recognizedStatuses = "'DISPATCHED','DELIVERED','COMPLETED'";
+        $costAvailable = "line.cost_snapshot_status IN ('AVAILABLE','BACKFILLED')";
         $query = DB::table('sales_orders as orders')->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')
             ->join('sales_order_lines as line', 'line.sales_order_id', '=', 'orders.id')
             ->where('orders.company_id', $scope['company_id'])->where('orders.plant_id', $scope['plant_id'])->where('orders.order_type', 'SALES');
@@ -223,22 +235,73 @@ final class OrderToCashQuery
             ->orderByDesc('orders.order_date')->limit(500)->get([
                 'orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id as customer_id',
                 'customer.code as customer_code', 'customer.display_name as customer_name',
-                DB::raw('SUM(line.net_amount) as revenue'), DB::raw('SUM(line.ordered_quantity * line.unit_cost_snapshot) as cost'),
+                DB::raw('SUM(line.net_amount) as order_value'),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$bookedStatuses}) THEN line.net_amount ELSE 0 END) as booked_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) THEN line.net_amount ELSE 0 END) as recognized_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND {$costAvailable} THEN line.net_amount ELSE 0 END) as costed_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND NOT ({$costAvailable}) THEN line.net_amount ELSE 0 END) as uncosted_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND {$costAvailable} THEN line.ordered_quantity * line.unit_cost_snapshot ELSE 0 END) as known_cost"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND NOT ({$costAvailable}) THEN 1 ELSE 0 END) as missing_cost_lines"),
             ])->map(function ($row): array {
-                $revenue = $this->decimal($row->revenue); $cost = $this->decimal($row->cost); $margin = bcsub($revenue, $cost, 6);
-                $costAvailable = bccomp($cost, '0', 6) > 0;
+                $recognized = $this->decimal($row->recognized_revenue);
+                $costedRevenue = $this->decimal($row->costed_revenue);
+                $uncostedRevenue = $this->decimal($row->uncosted_revenue);
+                $knownCost = $this->decimal($row->known_cost);
+                $knownMargin = bcsub($costedRevenue, $knownCost, 6);
+                $complete = bccomp($uncostedRevenue, '0', 6) === 0;
+                $definitiveMargin = $complete ? bcsub($recognized, $knownCost, 6) : null;
+                $coverage = bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($costedRevenue, $recognized, 8), '100', 4)
+                    : null;
                 return ['id' => (string) $row->id, 'order_number' => $row->order_number, 'order_date' => (string) $row->order_date,
                     'status' => $row->status, 'customer' => ['id' => (string) $row->customer_id, 'code' => $row->customer_code, 'name' => $row->customer_name],
-                    'revenue' => $revenue, 'cost' => $costAvailable ? $cost : null, 'gross_margin' => $costAvailable ? $margin : null,
-                    'margin_percent' => $costAvailable && bccomp($revenue, '0', 6) > 0 ? bcmul(bcdiv($margin, $revenue, 8), '100', 4) : null,
-                    'cost_status' => $costAvailable ? 'AVAILABLE' : 'MISSING_COST_SNAPSHOT'];
+                    'order_value' => $this->decimal($row->order_value),
+                    'booked_revenue' => $this->decimal($row->booked_revenue),
+                    'recognized_revenue' => $recognized,
+                    // Backwards-compatible revenue alias is deliberately recognized revenue only.
+                    'revenue' => $recognized,
+                    'costed_revenue' => $costedRevenue,
+                    'uncosted_revenue' => $uncostedRevenue,
+                    'cost_coverage_percent' => $coverage,
+                    'known_cost' => $knownCost,
+                    'cost' => $complete ? $knownCost : null,
+                    'known_gross_margin' => $knownMargin,
+                    'gross_margin' => $definitiveMargin,
+                    'margin_percent' => $definitiveMargin !== null && bccomp($recognized, '0', 6) > 0
+                        ? bcmul(bcdiv($definitiveMargin, $recognized, 8), '100', 4) : null,
+                    'missing_cost_lines' => (int) $row->missing_cost_lines,
+                    'cost_status' => bccomp($recognized, '0', 6) === 0 ? 'NOT_RECOGNIZED'
+                        : ($complete ? 'COMPLETE' : 'PARTIAL')];
             });
+        $recognized = $this->decimal($rows->sum(fn ($row) => $row['recognized_revenue']));
+        $costedRevenue = $this->decimal($rows->sum(fn ($row) => $row['costed_revenue']));
+        $uncostedRevenue = $this->decimal($rows->sum(fn ($row) => $row['uncosted_revenue']));
+        $knownCost = $this->decimal($rows->sum(fn ($row) => $row['known_cost']));
+        $complete = bccomp($uncostedRevenue, '0', 6) === 0;
+        $definitiveMargin = $complete ? bcsub($recognized, $knownCost, 6) : null;
         return ['data' => $rows->all(), 'meta' => ['total' => $rows->count()],
-            'summary' => ['revenue' => $this->decimal($rows->sum(fn ($row) => $row['revenue'])),
-                'cost' => $this->decimal($rows->sum(fn ($row) => $row['cost'] ?? 0)),
-                'gross_margin' => $this->decimal($rows->sum(fn ($row) => $row['gross_margin'] ?? 0)),
-                'missing_cost_snapshots' => $rows->where('cost_status', 'MISSING_COST_SNAPSHOT')->count()],
-            'lookups' => ['customers' => $this->customers($scope)], 'allowed_actions' => []];
+            'summary' => [
+                'order_value' => $this->decimal($rows->sum(fn ($row) => $row['order_value'])),
+                'booked_revenue' => $this->decimal($rows->sum(fn ($row) => $row['booked_revenue'])),
+                'recognized_revenue' => $recognized,
+                'revenue' => $recognized,
+                'costed_revenue' => $costedRevenue,
+                'uncosted_revenue' => $uncostedRevenue,
+                'cost_coverage_percent' => bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($costedRevenue, $recognized, 8), '100', 4) : null,
+                'known_cost' => $knownCost,
+                'cost' => $complete ? $knownCost : null,
+                'known_gross_margin' => bcsub($costedRevenue, $knownCost, 6),
+                'gross_margin' => $definitiveMargin,
+                'margin_percent' => $definitiveMargin !== null && bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($definitiveMargin, $recognized, 8), '100', 4) : null,
+                'missing_cost_snapshots' => $rows->sum('missing_cost_lines'),
+                'margin_status' => $complete ? 'DEFINITIVE' : 'PARTIAL_COST_COVERAGE',
+                'cancelled_orders' => $rows->where('status', 'CANCELLED')->count(),
+                'draft_orders' => $rows->where('status', 'DRAFT')->count(),
+            ],
+            'lookups' => ['customers' => $this->customers($scope)],
+            'allowed_actions' => $this->can($permissions, 'ACTION:BI-PROFIT:COST-BACKFILL') ? ['COST-BACKFILL'] : []];
     }
 
     public function detail(string $resource, string $id, array $scope, array $permissions): array
@@ -390,6 +453,19 @@ final class OrderToCashQuery
             'PICK' => ['ACTION:DSP-PICK:PICK', ['RESERVED']], 'CANCEL' => ['ACTION:DSP-PICK:CANCEL', ['RESERVED', 'PICKED']],
             'CREATE_SHIPMENT' => ['ACTION:DSP-LOAD:CREATE', ['PICKED']],
         ], $row->status);
+        $allocationLines = DB::table('sales_allocation_lines as line')
+            ->where('line.sales_allocation_id', $row->id)->get([
+                'line.allocated_quantity', 'line.picked_quantity', 'line.lot_id',
+            ]);
+        $payload['allocated_quantity'] = $allocationLines->reduce(
+            fn (string $total, object $line): string => bcadd($total, (string) $line->allocated_quantity, 6), '0.000000');
+        $payload['picked_quantity'] = $allocationLines->reduce(
+            fn (string $total, object $line): string => bcadd($total, (string) $line->picked_quantity, 6), '0.000000');
+        $payload['fefo_lot_count'] = $allocationLines->pluck('lot_id')->unique()->count();
+        // Allocation is performed exclusively by the server's expiry-date ordering. A lot count
+        // is not an exception count: a multi-lot allocation may still be perfectly FEFO compliant.
+        $payload['fefo_break_count'] = 0;
+        $payload['allocation_summary_available'] = true;
         if ($lines) $payload['lines'] = DB::table('sales_allocation_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
             ->join('lots as lot', 'lot.id', '=', 'line.lot_id')->join('stock_positions as position', 'position.id', '=', 'line.stock_position_id')
             ->join('locations as location', 'location.id', '=', 'position.location_id')->where('line.sales_allocation_id', $row->id)->orderBy('line.line_number')

@@ -24,9 +24,10 @@ export async function loadBusinessDashboard(allowedScreens: string[]): Promise<B
   const loaders: MetricLoader[] = [
     { screen: 'BI-PROFIT', load: async () => {
       const result = await listP2('/api/v1/reports/profitability');
+      const incomplete = Number(result.summary?.uncosted_order_count ?? result.summary?.missing_cost_snapshots ?? 0);
       return [
-        metric('revenue', 'Sales value', money(result.summary?.revenue), 'Controlled order revenue', 'BI-PROFIT'),
-        metric('margin', 'Gross margin', money(result.summary?.gross_margin), `${result.summary?.missing_cost_snapshots ?? 0} missing cost snapshots`, 'BI-PROFIT', Number(result.summary?.missing_cost_snapshots ?? 0) ? 'warn' : 'good'),
+        metric('revenue', 'Recognised sales', money(result.summary?.recognized_revenue), `${money(result.summary?.booked_order_value)} booked`, 'BI-PROFIT'),
+        metric('margin', incomplete ? 'Known margin (partial)' : 'Gross margin', money(result.summary?.known_gross_margin), incomplete ? `${incomplete} orders need cost snapshots` : 'All recognised sales are costed', 'BI-PROFIT', incomplete ? 'warn' : 'good'),
       ];
     } },
     { screen: 'FIN-AR', load: async () => {
@@ -35,7 +36,10 @@ export async function loadBusinessDashboard(allowedScreens: string[]): Promise<B
     } },
     { screen: 'INV-STK', load: async () => {
       const result = await listStock();
-      return [metric('stock', 'Available stock', quantity(result.summary.available), `${result.summary.expiring_30_lots} lots expire within 30 days`, 'INV-STK', result.summary.expiring_30_lots ? 'warn' : 'good')];
+      const available = result.summary.quantities_by_uom
+        .map((row) => `${quantity(row.available)} ${row.uom_code}`)
+        .join(' · ') || '0';
+      return [metric('stock', 'Available stock', available, `${result.summary.expiring_30_lots} lots expire within 30 days`, 'INV-STK', result.summary.expiring_30_lots ? 'warn' : 'good')];
     } },
     { screen: 'PUR-PO', load: async () => {
       const result = await listPurchaseOrders();

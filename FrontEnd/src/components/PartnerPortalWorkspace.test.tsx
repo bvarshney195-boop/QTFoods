@@ -22,7 +22,7 @@ describe('Partner Portal workspace', () => {
     api.listP2.mockResolvedValue(partnerWorkspace());
     renderPage(partnerSession());
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Partner Portal' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Partner portal' })).toBeInTheDocument();
     expect(screen.getByText(/External organisation: North Market Distributor/i)).toBeInTheDocument();
     expect(screen.getByText(/acknowledgements record receipt only/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Access grants/i })).not.toBeInTheDocument();
@@ -51,6 +51,10 @@ describe('Partner Portal workspace', () => {
 
     expect(await screen.findByText(/Internal administration view/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '+ Publish document' }));
+    await user.selectOptions(screen.getByLabelText('Partner document link type'), 'sales_order_id');
+    expect(screen.getByRole('option', { name: 'SO-ENTITLED-001 · Confirmed' })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Partner document entitled business record'), 'order-1');
+    expect(screen.queryByRole('textbox', { name: /UUID|record ID/i })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Partner document title'), 'September delivery packet');
     await user.upload(screen.getByLabelText('Partner private document'), new File(['private packet'], 'packet.pdf', { type: 'application/pdf' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -58,6 +62,9 @@ describe('Partner Portal workspace', () => {
     const published = api.uploadP2.mock.calls[0][1] as FormData;
     expect(published.get('party_id')).toBe('party-1');
     expect(published.get('title')).toBe('September delivery packet');
+    expect(published.get('sales_order_id')).toBe('order-1');
+    expect(published.get('company_id')).toBeNull();
+    expect(published.get('plant_id')).toBeNull();
 
     internal.unmount();
     vi.clearAllMocks();
@@ -103,7 +110,7 @@ function internalWorkspace() {
   return {
     data: [], mode: 'INTERNAL', identity: { user_id: 'admin-1' }, entitlements: [],
     access_grants: [{ id: 'grant-1', user_id: 'partner-1', user_name: 'Partner User', user_email: 'partner@example.com', party_id: 'party-1', party_name: 'North Market Distributor', status: 'ACTIVE', effective_status: 'ACTIVE', record_version: 1, entitlements: ['DOCUMENTS_VIEW'], allowed_actions: ['UPDATE', 'REVOKE'] }],
-    documents: [], orders: [], shipments: [], invoices: [], claims: [], summary: { active_grants: 1, available_documents: 0 },
+    documents: [], orders: [{ id: 'order-1', order_number: 'SO-ENTITLED-001', status: 'CONFIRMED' }], shipments: [], invoices: [], claims: [], summary: { active_grants: 1, available_documents: 0 },
     allowed_actions: ['ACCESS-GRANT', 'ACCESS-UPDATE', 'ACCESS-REVOKE', 'DOCUMENT-PUBLISH', 'DOCUMENT-DOWNLOAD', 'DOCUMENT-WITHDRAW'],
     lookups: {
       users: [{ id: 'partner-2', name: 'Second Partner', email: 'second@example.com', portal_eligible: true }],

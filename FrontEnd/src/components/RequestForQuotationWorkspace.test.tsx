@@ -46,7 +46,7 @@ describe('request for quotation workspace', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'RFQ & Supplier Comparison' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Supplier quotations' })).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: '+ New' }));
     await user.type(screen.getByLabelText('RFQ number'), 'rfq-ui-001');
     await user.selectOptions(screen.getByLabelText('Approved requisition'), 'requisition-1');

@@ -35,6 +35,7 @@ final class RouteAuthorizationMatrixTest extends TestCase
         'POST api/v1/auth/email/verification/request',
         'POST api/v1/auth/email/verify',
         'POST api/v1/auth/invitations/accept',
+        'POST api/v1/auth/challenge',
         'POST api/v1/auth/login',
         'POST api/v1/auth/mfa/challenge',
         'POST api/v1/auth/password/forgot',

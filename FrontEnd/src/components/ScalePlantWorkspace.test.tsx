@@ -19,7 +19,7 @@ describe('Multi-Plant Control workspace', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Multi-Plant Control' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Multi-plant operations' })).toBeInTheDocument();
     expect(screen.queryByText(/prototype action only/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Transfer routes' }));
     expect(screen.getByText('TRAINING-TO-FIN')).toBeInTheDocument();

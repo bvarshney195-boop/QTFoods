@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const ROUTE = '00000000-0000-4000-8000-000000003011';
 const SOURCE_POSITION = '00000000-0000-4000-8000-000000002602';
@@ -143,12 +144,7 @@ async function transferDetail(page: Page): Promise<TransferDetail['data']> {
 }
 
 async function loginAndSelect(page: Page, email: string, plant: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: new RegExp(plant) }).click();
+  await signInAndSelect(page, email, 'prototype', plant);
 }
 
 async function logout(page: Page): Promise<void> {

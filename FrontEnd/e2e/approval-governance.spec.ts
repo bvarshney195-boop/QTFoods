@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 test('ERP Administrator versions approval policy and delegates scoped authority', async ({ page }) => {
   await loginAndSelect(page, 'admin.user@qtfoods.local');
@@ -58,10 +59,5 @@ test('ERP Administrator versions approval policy and delegates scoped authority'
 });
 
 async function loginAndSelect(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
 }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const DOCUMENT_NUMBER = 'E2E-PORTAL-OUT-001';
 const ACKNOWLEDGEMENT_REFERENCE = 'E2E-PORTAL-RECEIPT-001';
@@ -65,12 +66,7 @@ async function openPortal(page: Page): Promise<void> {
 }
 
 async function loginAndSelect(page: Page, email: string, plant: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: new RegExp(plant) }).click();
+  await signInAndSelect(page, email, 'prototype', plant);
 }
 
 async function logout(page: Page): Promise<void> {

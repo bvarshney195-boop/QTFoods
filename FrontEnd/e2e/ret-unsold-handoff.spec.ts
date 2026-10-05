@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const partyId = '00000000-0000-4000-8000-000000000501';
 const shipmentId = '00000000-0000-4000-8000-000000001001';
@@ -177,12 +178,7 @@ test('Sales, Operations, and Finance complete an unsold-return hand-off', async 
 });
 
 async function loginAs(page: Page, email: string, openReturns = true): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
 
   if (!openReturns) {
     await expect(page.getByRole('heading', { name: 'My ERP workspace' })).toBeVisible();

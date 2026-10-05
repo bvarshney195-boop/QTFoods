@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { screenRegistry } from '../src/data/screenRegistry';
+import { completePolicyRequiredEmailFactor, signInAndSelect } from './support/auth';
 
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const businessScreens = screenRegistry.filter(({ code }) => !code.startsWith('ACC-'));
@@ -10,12 +11,13 @@ test('identity entry and context selection are keyboard operable and pass WCAG A
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await expectNoAccessibilityViolations(page, 'ACC-LOGIN');
 
-  const email = page.getByLabel('Email');
-  const password = page.getByLabel('Password');
+  const email = page.getByLabel('Email', { exact: true });
+  const password = page.getByLabel('Password', { exact: true });
   await email.fill('admin.user@qtfoods.local');
   await password.fill('prototype');
   await password.press('Enter');
 
+  await completePolicyRequiredEmailFactor(page);
   await expect(page.getByRole('heading', { name: 'Choose where you are working' })).toBeVisible();
   await expectNoAccessibilityViolations(page, 'ACC-CTX');
 
@@ -98,12 +100,7 @@ test('responsive navigation and account-security dialog preserve keyboard focus'
 });
 
 async function loginAndSelect(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
   await expect(page.locator('.page-head[data-screen-code="WRK-HOME"]')).toBeVisible();
 }
 

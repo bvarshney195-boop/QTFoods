@@ -70,8 +70,8 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         $this->assertDatabaseCount('stage_events', 6);
 
         $this->withHeaders($this->headers(3))->postJson('/api/v1/manufacturing/orders/'.$orderId.'/outputs', [
-            'event_type' => 'GOOD', 'quantity' => '95', 'notes' => 'First-pass good output.',
-        ])->assertCreated()->assertJsonPath('data.good_quantity', '95.000000')->assertJsonPath('data.record_version', 4);
+            'event_type' => 'GOOD', 'quantity' => '94', 'notes' => 'First-pass good output.',
+        ])->assertCreated()->assertJsonPath('data.good_quantity', '94.000000')->assertJsonPath('data.record_version', 4);
         $this->withHeaders($this->headers(4))->postJson('/api/v1/manufacturing/orders/'.$orderId.'/outputs', [
             'event_type' => 'LOSS', 'quantity' => '3', 'reason_code' => 'BAKE_LOSS', 'notes' => 'Measured process loss.',
         ])->assertCreated()->assertJsonPath('data.loss_quantity', '3.000000')->assertJsonPath('data.record_version', 5);
@@ -81,10 +81,26 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         $eventId = (string) $rework->json('data.output_event_id');
         $this->command()->postJson('/api/v1/manufacturing/output-events/'.$eventId.'/resolve', [
             'disposition' => 'RECOVERED', 'notes' => 'Re-seal verification passed.',
-        ])->assertOk()->assertJsonPath('data.good_quantity', '97.000000')->assertJsonPath('data.record_version', 7);
-        $this->withHeaders($this->headers(7))->postJson('/api/v1/manufacturing/orders/'.$orderId.'/complete')
-            ->assertOk()->assertJsonPath('data.status', 'COMPLETED')->assertJsonPath('data.good_quantity', '97.000000')
-            ->assertJsonPath('data.loss_quantity', '3.000000')->assertJsonPath('data.record_version', 8);
+        ])->assertOk()->assertJsonPath('data.good_quantity', '96.000000')->assertJsonPath('data.record_version', 7);
+        $scrapRework = $this->withHeaders($this->headers(7))->postJson('/api/v1/manufacturing/orders/'.$orderId.'/outputs', [
+            'event_type' => 'REWORK', 'quantity' => '1', 'reason_code' => 'SEAL_REWORK', 'notes' => 'Damaged seal held for disposition.',
+        ])->assertCreated()->assertJsonPath('data.open_rework_count', 1)->assertJsonPath('data.record_version', 8);
+        $this->command()->postJson('/api/v1/manufacturing/output-events/'.$scrapRework->json('data.output_event_id').'/resolve', [
+            'disposition' => 'SCRAPPED', 'notes' => 'Package could not be safely recovered.',
+        ])->assertOk()->assertJsonPath('data.loss_quantity', '4.000000')->assertJsonPath('data.record_version', 9);
+        $this->withHeaders($this->headers(9))->postJson('/api/v1/manufacturing/orders/'.$orderId.'/complete')
+            ->assertOk()->assertJsonPath('data.status', 'COMPLETED')->assertJsonPath('data.good_quantity', '96.000000')
+            ->assertJsonPath('data.loss_quantity', '4.000000')->assertJsonPath('data.record_version', 10);
+        $this->getJson('/api/v1/manufacturing/orders/'.$orderId)->assertOk()
+            ->assertJsonPath('data.first_pass_good_quantity', '94.000000')
+            ->assertJsonPath('data.recovered_quantity', '2.000000')
+            ->assertJsonPath('data.final_good_quantity', '96.000000')
+            ->assertJsonPath('data.scrapped_rework_quantity', '1.000000')
+            ->assertJsonPath('data.first_pass_yield_percent', '94.0000')
+            ->assertJsonPath('data.final_yield_percent', '96.0000')
+            ->assertJsonPath('data.yield_reconciliation.planned_quantity', '100.000000')
+            ->assertJsonPath('data.yield_reconciliation.reconciled_quantity', '100.000000')
+            ->assertJsonPath('data.yield_reconciliation.is_reconciled', true);
 
         $sample = $this->command()->postJson('/api/v1/quality/lab-samples', [
             'sample_number' => 'LAB-P1-FULL-01', 'production_order_id' => $orderId,
@@ -98,12 +114,12 @@ final class ManufacturingExecutionEndpointTest extends TestCase
             'results' => [['result_id' => $sampleDetail['results'][0]['id'], 'numeric_value' => '100.2', 'notes' => 'Within specification.']],
         ])->assertOk()->assertJsonPath('data.status', 'PASSED')->assertJsonPath('data.failure_count', 0);
 
-        $hold = $this->withHeaders($this->headers(8))->postJson('/api/v1/quality/food-safety-holds', [
+        $hold = $this->withHeaders($this->headers(10))->postJson('/api/v1/quality/food-safety-holds', [
             'hold_number' => 'HOLD-P1-FULL-01', 'production_order_id' => $orderId,
             'hazard_type' => 'ALLERGEN', 'reason' => 'Allergen clean-down evidence awaiting verification.',
-        ])->assertCreated()->assertJsonPath('data.status', 'ACTIVE')->assertJsonPath('data.order_record_version', 9);
+        ])->assertCreated()->assertJsonPath('data.status', 'ACTIVE')->assertJsonPath('data.order_record_version', 11);
         $holdId = (string) $hold->json('data.id');
-        $this->withHeaders($this->headers(9))->postJson('/api/v1/quality/production-orders/'.$orderId.'/release')
+        $this->withHeaders($this->headers(11))->postJson('/api/v1/quality/production-orders/'.$orderId.'/release')
             ->assertUnprocessable()->assertJsonPath('error.fields.holds.0', 'Release every active food-safety hold before batch release.');
         $this->withHeaders($this->headers(1))->postJson('/api/v1/quality/food-safety-holds/'.$holdId.'/release', [
             'disposition' => 'ACCEPTED',
@@ -127,7 +143,7 @@ final class ManufacturingExecutionEndpointTest extends TestCase
 
         $packing = $this->command()->postJson('/api/v1/packing/runs', [
             'run_number' => 'PACK-P1-FULL-01', 'production_order_id' => $orderId,
-            'packaging_artwork_id' => $artworkId, 'packed_quantity' => '97',
+            'packaging_artwork_id' => $artworkId, 'packed_quantity' => '96',
             'finished_lot_code' => 'FG-P1-FULL-01', 'manufacture_date' => now()->toDateString(),
             'expiry_date' => now()->addMonths(6)->toDateString(), 'target_location_id' => self::FINISHED_LOCATION_ID,
             'notes' => 'Full recovered output packed.',
@@ -137,10 +153,10 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         $packed = $this->withHeaders($this->headers(1))->postJson('/api/v1/packing/runs/'.$packingId.'/complete')
             ->assertOk()->assertJsonPath('data.status', 'COMPLETED')->assertJsonPath('data.genealogy_edge_count', 1);
         $finishedLotId = (string) $packed->json('data.finished_lot_id');
-        $this->assertDatabaseHas('fg_lots', ['lot_id' => $finishedLotId, 'status' => 'ACTIVE', 'packed_quantity' => 97]);
+        $this->assertDatabaseHas('fg_lots', ['lot_id' => $finishedLotId, 'status' => 'ACTIVE', 'packed_quantity' => 96]);
         $this->getJson('/api/v1/manufacturing/finished-goods/'.$finishedLotId)->assertOk()
             ->assertJsonPath('data.lot_code', 'FG-P1-FULL-01')->assertJsonPath('data.inputs.0.lot.code', 'RM-APPLE-2609A')
-            ->assertJsonPath('data.position.quantity', '97.000000');
+            ->assertJsonPath('data.position.quantity', '96.000000');
         $this->getJson('/api/v1/trace/lots/'.self::RAW_LOT_ID)->assertOk()
             ->assertJsonCount(2, 'data.nodes')->assertJsonPath('data.edges.0.output_lot_id', $finishedLotId);
 
@@ -153,7 +169,7 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         $costId = (string) $cost->json('data.id');
         $this->getJson('/api/v1/costing/batches/'.$costId)->assertOk()
             ->assertJsonPath('data.materials.0.item_code', 'SKU-APPLE-BASE')
-            ->assertJsonPath('data.good_quantity', '97.000000')->assertJsonCount(3, 'data.stages');
+            ->assertJsonPath('data.good_quantity', '96.000000')->assertJsonCount(3, 'data.stages');
 
         $recall = $this->command()->postJson('/api/v1/trace/cases', [
             'recall_number' => 'RECALL-P1-FULL-01', 'source_lot_id' => self::RAW_LOT_ID,

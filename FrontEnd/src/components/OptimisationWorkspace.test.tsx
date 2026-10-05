@@ -28,7 +28,7 @@ describe('Forecast & Optimisation workspace', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Forecast & Optimisation' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Planning recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Inputs are checksum-versioned/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '+ New' }));
     await user.type(screen.getByLabelText('Plan number'), 'opt-ui-002');
@@ -47,6 +47,25 @@ describe('Forecast & Optimisation workspace', () => {
       expect.any(String),
     ));
     expect(await screen.findByText(/Immutable input version 1 captured/i)).toBeInTheDocument();
+  });
+
+  it('uses permission-aware prerequisite guidance and never offers an unavailable create action', async () => {
+    const missingPrerequisite = workspace();
+    missingPrerequisite.lookups.released_demand_plans = [];
+    api.listOptimisationPlans.mockResolvedValueOnce(missingPrerequisite);
+    const first = renderPage();
+
+    expect(await screen.findByText(/Ask the operations planning team to release a plan in Demand planning/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/PLAN-DEM/)).not.toBeInTheDocument();
+    first.unmount();
+
+    const readOnly = workspace();
+    readOnly.allowed_actions = [];
+    api.listOptimisationPlans.mockResolvedValueOnce(readOnly);
+    renderPage();
+    expect(await screen.findByText(/No optimisation plans are available to your role/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument();
   });
 
   it('shows recommendation limitations and submits the exact record version for review', async () => {

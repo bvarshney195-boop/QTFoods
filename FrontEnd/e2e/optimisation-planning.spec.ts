@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const DEMAND_NUMBER = 'E2E-OPT-DEMAND-001';
 const PLAN_NUMBER = 'E2E-OPT-PLAN-001';
@@ -91,12 +92,7 @@ async function selectByText(select: ReturnType<Page['locator']>, text: string): 
 }
 
 async function loginAndSelect(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, email);
 }
 
 async function logout(page: Page): Promise<void> {

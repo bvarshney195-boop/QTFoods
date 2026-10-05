@@ -11,7 +11,7 @@ export type P2Record = Record<string, unknown> & {
 export type P2Workspace = {
   data: P2Record[];
   meta?: { current_page?: number; last_page?: number; total: number };
-  summary?: Record<string, number | string>;
+  summary?: Record<string, unknown>;
   lookups?: Record<string, unknown>;
   allowed_actions?: string[];
   [key: string]: unknown;

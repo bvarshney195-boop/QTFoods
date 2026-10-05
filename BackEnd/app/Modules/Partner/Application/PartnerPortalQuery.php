@@ -10,6 +10,15 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class PartnerPortalQuery
 {
+    /** Fields deliberately approved for the external partner document contract. */
+    private const EXTERNAL_DOCUMENT_FIELDS = [
+        'id', 'document_number', 'direction', 'document_type', 'title', 'description',
+        'original_name', 'mime_type', 'size_bytes', 'sha256_checksum', 'status',
+        'record_version', 'available_at', 'acknowledged_at', 'party_id',
+        'acknowledgement_reference', 'created_at', 'updated_at', 'party_code',
+        'party_name',
+    ];
+
     public function __construct(private readonly PartnerAccessResolver $access) {}
 
     public function workspace(array $scope, string $actorId, array $permissions, array $filters = []): array
@@ -324,14 +333,24 @@ final class PartnerPortalQuery
         if (! $internal) {
             $query->where('customer_party_id', $partyId);
         }
-        $row = $query->first();
+        $fields = [
+            'id', 'order_number', 'order_date', 'requested_delivery_date', 'currency',
+            'subtotal', 'discount_amount', 'tax_amount', 'total_amount', 'status',
+            'record_version', 'confirmed_at', 'cancelled_at', 'updated_at',
+        ];
+        $row = $query->first($internal ? [...$fields, 'customer_party_id', 'notes', 'cancellation_reason'] : $fields);
         if (! $row) {
             throw new NotFoundHttpException('Sales order not found.');
         }
         $payload = $this->moneyRow($row);
         $payload['lines'] = DB::table('sales_order_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
             ->where('line.sales_order_id', $id)->orderBy('line.line_number')
-            ->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn (object $line): array => $this->moneyRow($line))->all();
+            ->get([
+                'line.id', 'line.line_number', 'line.description', 'line.uom_code',
+                'line.ordered_quantity', 'line.dispatched_quantity', 'line.invoiced_quantity',
+                'line.unit_price', 'line.discount_percent', 'line.tax_rate', 'line.net_amount',
+                'line.tax_amount', 'line.gross_amount', 'item.code as item_code', 'item.name as item_name',
+            ])->map(fn (object $line): array => $this->moneyRow($line))->all();
 
         return $payload;
     }
@@ -343,17 +362,28 @@ final class PartnerPortalQuery
         if (! $internal) {
             $query->where('party_id', $partyId);
         }
-        $row = $query->first();
+        $row = $query->first([
+            'id', 'shipment_number', 'shipment_type', 'sales_order_id', 'carrier_name',
+            'vehicle_number', 'status', 'record_version', 'loaded_at', 'dispatched_at',
+            'delivered_at', 'updated_at',
+        ]);
         if (! $row) {
             throw new NotFoundHttpException('Shipment not found.');
         }
         $payload = $this->row($row);
         $payload['lines'] = DB::table('shipment_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
             ->leftJoin('lots as lot', 'lot.id', '=', 'line.fg_lot_id')->where('line.shipment_id', $id)
-            ->orderBy('line.created_at')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
+            ->orderBy('line.created_at')->get([
+                'line.id', 'line.item_id', 'line.fg_lot_id', 'line.shipped_quantity',
+                'line.returned_quantity', 'line.uom_code', 'line.unit_price', 'line.tax_rate',
+                'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code',
+            ])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
-        $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)->first());
-        $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)->first(), true);
+        $payload['proof'] = $this->rowOrNull(DB::table('delivery_proofs')->where('shipment_id', $id)
+            ->first(['id', 'proof_number', 'outcome', 'receiver_name', 'event_at', 'failure_reason']));
+        $payload['invoice'] = $this->rowOrNull(DB::table('sales_invoice_financials')->where('shipment_id', $id)
+            ->first(['invoice_id', 'invoice_number', 'currency', 'net_amount', 'tax_amount', 'gross_amount',
+                'outstanding_amount', 'issued_at', 'due_date']), true);
 
         return $payload;
     }
@@ -366,12 +396,23 @@ final class PartnerPortalQuery
         if (! $internal) {
             $query->where('invoice.party_id', $partyId);
         }
-        $row = $query->first(['invoice.*', 'invoice_record.status']);
+        $row = $query->first([
+            'invoice.invoice_id', 'invoice.invoice_number', 'invoice.shipment_id', 'invoice.sales_order_id',
+            'invoice.currency', 'invoice.net_amount', 'invoice.tax_amount', 'invoice.gross_amount',
+            'invoice.outstanding_amount', 'invoice.paid_amount', 'invoice.credited_amount',
+            'invoice.issued_at', 'invoice.due_date', 'invoice.record_version', 'invoice.updated_at',
+            'invoice_record.status',
+        ]);
         if (! $row) {
             throw new NotFoundHttpException('Invoice not found.');
         }
         $payload = $this->moneyRow($row);
-        $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()
+        $transactionFields = $internal
+            ? ['id', 'invoice_id', 'company_id', 'plant_id', 'transaction_type', 'reference_number', 'amount',
+                'balance_before', 'balance_after', 'customer_receipt_id', 'customer_claim_id', 'actor_id',
+                'posted_at', 'created_at']
+            : ['transaction_type', 'reference_number', 'amount', 'balance_before', 'balance_after', 'posted_at'];
+        $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get($transactionFields)
             ->map(fn (object $transaction): array => $this->moneyRow($transaction))->all();
 
         return $payload;
@@ -384,14 +425,22 @@ final class PartnerPortalQuery
         if (! $internal) {
             $query->where('customer_party_id', $partyId);
         }
-        $row = $query->first();
+        $row = $query->first([
+            'id', 'claim_number', 'shipment_id', 'invoice_id', 'claim_type', 'requested_resolution',
+            'reason', 'status', 'record_version', 'resolution_type', 'credit_amount',
+            'created_at', 'received_at', 'resolved_at', 'updated_at',
+        ]);
         if (! $row) {
             throw new NotFoundHttpException('Customer claim not found.');
         }
         $payload = $this->moneyRow($row);
         $payload['lines'] = DB::table('customer_claim_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
             ->leftJoin('lots as lot', 'lot.id', '=', 'line.lot_id')->where('line.customer_claim_id', $id)
-            ->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])
+            ->orderBy('line.line_number')->get([
+                'line.id', 'line.line_number', 'line.item_id', 'line.lot_id', 'line.uom_code',
+                'line.claimed_quantity', 'line.received_quantity', 'item.code as item_code',
+                'item.name as item_name', 'lot.internal_lot_code',
+            ])
             ->map(fn (object $line): array => $this->moneyRow($line))->all();
 
         return $payload;
@@ -429,9 +478,11 @@ final class PartnerPortalQuery
             throw new NotFoundHttpException('Partner document not found.');
         }
         $payload = $this->documentPayload($row, $internal, $entitlements, $permissions);
+        $eventFields = ['id', 'event_type', 'reference', 'occurred_at'];
+        if ($internal) $eventFields[] = 'metadata_json';
         $payload['events'] = DB::table('partner_document_events')
             ->where('partner_document_id', $id)->orderBy('occurred_at')
-            ->get(['id', 'event_type', 'reference', 'metadata_json', 'occurred_at'])
+            ->get($eventFields)
             ->map(fn (object $event): array => $this->row($event))->all();
 
         return $payload;
@@ -439,10 +490,10 @@ final class PartnerPortalQuery
 
     private function lookups(array $scope, ?string $partyId, bool $internal): array
     {
-        $customers = DB::table('parties as party')->join('party_roles as party_role', function ($join): void {
+        $customers = $internal ? DB::table('parties as party')->join('party_roles as party_role', function ($join): void {
             $join->on('party_role.party_id', '=', 'party.id')->where('party_role.role_code', 'CUSTOMER');
         })->where('party.company_id', $scope['company_id'])->where('party.status', 'ACTIVE')
-            ->orderBy('party.display_name')->get(['party.id', 'party.code', 'party.display_name as name'])->map(fn (object $row): array => $this->row($row))->all();
+            ->orderBy('party.display_name')->get(['party.id', 'party.code', 'party.display_name as name'])->map(fn (object $row): array => $this->row($row))->all() : [];
 
         $lookups = [
             'document_types' => PartnerPortalService::DOCUMENT_TYPES,
@@ -507,6 +558,11 @@ final class PartnerPortalQuery
     private function documentPayload(object $row, bool $internal, array $entitlements, array $permissions): array
     {
         $payload = $this->row($row);
+        if (! $internal) {
+            // Build the partner response from an allowlist so newly added database
+            // fields cannot silently expose internal identifiers or notes.
+            $payload = array_intersect_key($payload, array_flip(self::EXTERNAL_DOCUMENT_FIELDS));
+        }
         $actions = [];
         if ($row->status !== 'WITHDRAWN' && $this->access->hasPermission($permissions, 'DOCUMENT-DOWNLOAD')
             && ($internal || in_array('DOCUMENT_DOWNLOAD', $entitlements, true))) {

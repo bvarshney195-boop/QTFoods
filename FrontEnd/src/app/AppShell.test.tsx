@@ -59,6 +59,21 @@ describe('AppShell role navigation', () => {
       expect(within(navigation).queryByRole('button', { name: 'My work' })).not.toBeInTheDocument();
     });
   });
+
+  it('keeps one command shortcut, SVG navigation icons, and dismissible recent pages', async () => {
+    const user = userEvent.setup();
+    render(<AppShell session={financeSession()} onChooseContext={vi.fn()} onLogout={vi.fn()} />);
+    const navigation = screen.getByRole('navigation', { name: 'Main menu' });
+
+    expect(screen.getAllByText('Ctrl K')).toHaveLength(1);
+    expect(navigation.querySelectorAll('svg.nav-icon').length).toBeGreaterThan(0);
+    await user.click(within(navigation).getByRole('button', { name: 'General ledger' }));
+
+    const recent = within(navigation).getByRole('region', { name: 'Pinned and recent pages' });
+    expect(within(recent).getByText('Recent')).toBeVisible();
+    await user.click(within(recent).getByRole('button', { name: 'Dismiss recent pages' }));
+    expect(within(navigation).queryByRole('region', { name: 'Pinned and recent pages' })).not.toBeInTheDocument();
+  });
 });
 
 function financeSession(): ErpSession {

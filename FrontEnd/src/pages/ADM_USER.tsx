@@ -21,6 +21,7 @@ import type { DeviceSession } from '../api/identity';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
+import { formatZonedDateTime } from '../utils/dateTime';
 
 type UserForm = {
   email: string;
@@ -343,7 +344,7 @@ export default function ADM_USER() {
               {selected.allowed_actions.includes('SEND_VERIFICATION') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void sendVerification()}>Send verification</button>}
               {selected.allowed_actions.includes('MANAGE_SESSIONS') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void loadSessions()}>Review device sessions</button>}
             </div>
-            {deviceSessions && <div className="admin-devices">{deviceSessions.length === 0 && <div className="empty-state">No device sessions recorded.</div>}{deviceSessions.map((device) => <div className="assignment-row" key={device.id}><div><b>{device.user_agent?.includes('Chrome') ? 'Chrome browser' : device.user_agent ?? 'Unknown browser'}</b><small>{device.ip_address ?? 'Unknown IP'} · {new Date(device.last_seen_at).toLocaleString()}</small></div><div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className="danger-button compact-button" type="button" disabled={busy} onClick={() => void revokeSession(device)}>Revoke</button>}</div></div>)}</div>}
+            {deviceSessions && <div className="admin-devices">{deviceSessions.length === 0 && <div className="empty-state">No device sessions recorded.</div>}{deviceSessions.map((device) => <div className="assignment-row" key={device.id}><div><b>{device.user_agent?.includes('Chrome') ? 'Chrome browser' : device.user_agent ?? 'Unknown browser'}</b><small>{device.ip_address ?? 'Unknown IP'} · {formatZonedDateTime(device.last_seen_at)}</small></div><div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className="danger-button compact-button" type="button" disabled={busy} onClick={() => void revokeSession(device)}>Revoke</button>}</div></div>)}</div>}
           </div>}
 
           {selected && <div className="assignment-admin">
@@ -392,7 +393,7 @@ function apiFields(error: unknown): Record<string, string> {
 }
 
 function dateRange(assignment: RoleAssignmentAdmin) {
-  const from = assignment.effective_from ? new Date(assignment.effective_from).toLocaleString() : 'Immediately';
-  const to = assignment.effective_to ? new Date(assignment.effective_to).toLocaleString() : 'No expiry';
+  const from = assignment.effective_from ? formatZonedDateTime(assignment.effective_from) : 'Immediately';
+  const to = assignment.effective_to ? formatZonedDateTime(assignment.effective_to) : 'No expiry';
   return `${from} to ${to}`;
 }

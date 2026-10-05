@@ -39,8 +39,36 @@ export function ManufacturingWorkspace({ code, title, description, notice, loadi
   </>;
 }
 
-export function SummaryStrip({ summary }: { summary: Record<string, number | string> }) {
-  return <div className="manufacturing-summary">{Object.entries(summary).slice(0, 6).map(([key, value]) => <div key={key}><span>{key.replaceAll('_', ' ')}</span><b>{typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) ? decimal(value) : value}</b></div>)}</div>;
+export function SummaryStrip({ summary }: { summary: Record<string, unknown> }) {
+  const entries = Object.entries(summary).filter(([key, value]) => (
+    value !== null && value !== undefined && !Array.isArray(value)
+    && !key.endsWith('_uom') && !key.endsWith('_status')
+  )).slice(0, 5);
+  const unitRows = Object.entries(summary).flatMap(([key, value]) => (
+    key.endsWith('_by_uom') && Array.isArray(value) ? [{ key, value }] : []
+  ));
+
+  return <div className="manufacturing-summary">
+    {entries.map(([key, value]) => <div key={key}><span>{key.replaceAll('_', ' ')}</span><b>{formatSummaryValue(value)}</b></div>)}
+    {unitRows.map(({ key, value }) => <div key={key} className="summary-by-uom"><span>{key.replace('_by_uom', '').replaceAll('_', ' ')}</span><b>{formatUnitRows(value)}</b></div>)}
+  </div>;
+}
+
+function formatSummaryValue(value: unknown): string {
+  if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) return decimal(value);
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return typeof value === 'string' ? value.replaceAll('_', ' ') : 'Not available';
+}
+
+function formatUnitRows(value: unknown[]): string {
+  const rows = value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const record = entry as Record<string, unknown>;
+    const amount = record.quantity ?? record.total ?? record.available;
+    return amount === undefined || !record.uom_code ? [] : [`${decimal(amount)} ${String(record.uom_code)}`];
+  });
+  return rows.length ? rows.join(' · ') : 'No stock';
 }
 export function Detail({ children }: { children: ReactNode }) { return <div className="requisition-detail">{children}</div>; }
 export function DetailHead({ status, version, label }: { status: string; version?: number; label?: string }) { return <div className="detail-status"><StatusBadge status={status} />{version !== undefined ? <span>record version {version}</span> : null}{label ? <span>{label}</span> : null}</div>; }

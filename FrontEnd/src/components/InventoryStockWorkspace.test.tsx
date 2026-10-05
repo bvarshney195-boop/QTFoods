@@ -76,7 +76,8 @@ describe('inventory stock workspace', () => {
     renderPage();
 
     expect(await screen.findByText('Raw Material Store')).toBeInTheDocument();
-    expect(screen.getAllByText('105')).toHaveLength(2);
+    expect(screen.getByText('105 KG')).toBeInTheDocument();
+    expect(screen.getByText('105')).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText('Filter stock availability'), 'BLOCKED');
     await waitFor(() => expect(apiMocks.listStock).toHaveBeenLastCalledWith(expect.objectContaining({ availability: 'BLOCKED' })));
 
@@ -213,7 +214,9 @@ function stockWorkspace(): StockWorkspace {
     meta: { current_page: 1, last_page: 1, per_page: 25, total: 1 },
     summary: {
       position_count: 3, sku_count: 1, lot_count: 1, total: '152.000000', available: '105.000000',
-      blocked: '27.000000', reserved: '20.000000', expired_lots: 0, expiring_30_lots: 0,
+      blocked: '27.000000', reserved: '20.000000', uom_code: 'KG', quantity_summary_status: 'SINGLE_UOM',
+      quantities_by_uom: [{ uom_code: 'KG', total: '152.000000', available: '105.000000', blocked: '27.000000', reserved: '20.000000' }],
+      expired_lots: 0, expiring_30_lots: 0,
     },
     lookups: {
       availability_filters: ['AVAILABLE', 'BLOCKED', 'RESERVED', 'EXPIRED', 'EXPIRING_30'],

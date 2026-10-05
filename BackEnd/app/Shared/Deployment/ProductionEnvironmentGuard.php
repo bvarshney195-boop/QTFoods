@@ -58,7 +58,15 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, ! (bool) $this->config->get('session.encrypt'), 'SESSION_ENCRYPT must be true.');
         $this->reject($violations, ! in_array($this->config->get('session.same_site'), ['lax', 'strict'], true), 'SESSION_SAME_SITE must be lax or strict.');
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_seeders'), 'QT_ALLOW_DEMO_SEEDERS must be false.');
+        $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_authentication'), 'QT_ALLOW_DEMO_AUTHENTICATION must be false.');
         $this->reject($violations, (bool) $this->config->get('qtfoods.identity.preview_links'), 'QT_IDENTITY_PREVIEW_LINKS must be false.');
+        $mfaRoles = (array) $this->config->get('qtfoods.identity.mfa_required_roles', []);
+        $this->reject($violations, ! in_array('ERP_ADMIN', $mfaRoles, true), 'QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.');
+
+        $this->reject($violations, $this->config->get('qtfoods.outbox.transport') !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must be true.');
+        $this->reject($violations, $this->unsafeHttpEndpoint($this->config->get('qtfoods.outbox.http_endpoint')), 'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS endpoint.');
+        $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
 
         $this->reject($violations, $this->config->get('database.default') !== 'pgsql', 'DB_CONNECTION must be pgsql.');
         $this->reject($violations, $this->unsafeSecret($this->config->get('database.connections.pgsql.password')), 'DB_PASSWORD must be a non-placeholder secret of at least 16 characters.');
@@ -181,6 +189,22 @@ final class ProductionEnvironmentGuard
             || isset($parts['user'])
             || isset($parts['pass'])
             || isset($parts['query'])
+            || isset($parts['fragment']);
+    }
+
+    private function unsafeHttpEndpoint(mixed $value): bool
+    {
+        if (! is_string($value) || trim($value) !== $value || $value === '' || $this->placeholder($value)) {
+            return true;
+        }
+
+        $parts = parse_url($value);
+
+        return ! is_array($parts)
+            || ($parts['scheme'] ?? null) !== 'https'
+            || empty($parts['host'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
             || isset($parts['fragment']);
     }
 

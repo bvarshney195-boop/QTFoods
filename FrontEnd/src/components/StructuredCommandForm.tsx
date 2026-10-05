@@ -70,6 +70,8 @@ export function validateStructuredCommand(value: unknown, schema: StructuredComm
     }
     if (current !== null && current !== '' && numericField(fieldKey) && !Number.isFinite(Number(current))) {
       errors[exactPath] = 'Enter a valid number.';
+    } else if (fieldKey === 'quantity' && current !== null && current !== '' && Number(current) <= 0) {
+      errors[exactPath] = 'Quantity must be greater than 0.';
     }
   }
 

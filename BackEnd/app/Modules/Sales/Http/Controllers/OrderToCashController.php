@@ -35,7 +35,18 @@ final class OrderToCashController
     {
         $filters = $request->validate(['q' => ['sometimes', 'string', 'max:100'], 'date_from' => ['sometimes', 'date_format:Y-m-d'],
             'date_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:date_from']]);
-        return response()->json($this->query->profitability($this->selectedScope($request, true), $filters));
+        return response()->json($this->query->profitability(
+            $this->selectedScope($request, true), $filters, $this->currentPermissions($request),
+        ));
+    }
+
+    public function backfillProfitabilityCosts(Request $request): JsonResponse
+    {
+        $validated = $request->validate(['order_id' => ['nullable', 'uuid']]);
+
+        return response()->json(['data' => $this->service->backfillProfitabilityCosts(
+            $validated + $this->commandContext($request, false),
+        )]);
     }
 
     public function lead(string $leadId, Request $request): JsonResponse { return $this->show('lead', $leadId, $request); }

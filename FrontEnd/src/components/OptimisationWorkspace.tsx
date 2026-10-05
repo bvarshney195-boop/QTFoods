@@ -161,7 +161,16 @@ export function OptimisationWorkspace() {
   }
 
   const lookups = workspace?.lookups;
-  const canCreate = Boolean(workspace?.allowed_actions.includes('CREATE'));
+  const canCreateAction = Boolean(workspace?.allowed_actions.includes('CREATE'));
+  const hasReleasedDemandPlan = Boolean(lookups?.released_demand_plans.length);
+  const canCreate = canCreateAction && hasReleasedDemandPlan;
+  const emptyMessage = search || status || objective
+    ? 'No optimisation plans match the current filters.'
+    : !hasReleasedDemandPlan
+      ? 'No released demand plan is available. Ask the operations planning team to release a plan in Demand planning before capturing an optimisation input.'
+      : !canCreateAction
+        ? 'No optimisation plans are available to your role. Ask the operations planning team to capture an approved scenario.'
+        : 'No optimisation plans yet. Use New to capture an input from a released demand plan.';
   return <>
     <PageHeader code="OPT-PLAN" batch="P3 optimisation" title="Forecast & Optimisation"
       description="Version demand inputs, generate bounded recommendations, require human review, and measure outcomes."
@@ -190,9 +199,7 @@ export function OptimisationWorkspace() {
               <td><button type="button" className="secondary compact-button" disabled={busy} onClick={() => void open(plan.id)}>Open</button></td>
             </tr>)}
           </tbody></table></div>
-          {!workspace?.data.length ? <Empty text={lookups?.released_demand_plans.length
-            ? 'No optimisation plans match the current filters.'
-            : 'No released demand plan is available. Release one in PLAN-DEM before capturing an optimisation input.'} /> : null}
+          {!workspace?.data.length ? <Empty text={emptyMessage} /> : null}
           {workspace ? <div className="pagination"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {workspace.meta.current_page} of {workspace.meta.last_page} · {workspace.meta.total} records</span><button type="button" disabled={page >= workspace.meta.last_page || loading} onClick={() => setPage((value) => value + 1)}>Next</button></div> : null}
         </>}
       </section>

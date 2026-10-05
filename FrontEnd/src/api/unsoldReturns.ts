@@ -46,6 +46,14 @@ export type ReturnPositionLookup = {
   uom_code: string;
 };
 
+export type ReturnLocationLookup = {
+  id: string;
+  code: string;
+  name: string;
+  inventory_owner_id: string;
+  requires_position_creation: boolean;
+};
+
 export type InvoiceLookup = {
   id: string;
   number: string;
@@ -67,6 +75,7 @@ export type UnsoldReturnLookups = {
   skus: SkuLookup[];
   lots: LotLookup[];
   return_positions: ReturnPositionLookup[];
+  return_locations: ReturnLocationLookup[];
 };
 
 export type UnsoldReturnListItem = {
@@ -385,6 +394,9 @@ export async function getUnsoldReturnLookups(filters: {
   shipment_id?: string;
   sku_id?: string;
   lot_id?: string;
+  shipment_line_id?: string;
+  inventory_owner_id?: string;
+  uom_code?: string;
   q?: string;
   limit?: number;
 } = {}): Promise<UnsoldReturnLookups> {
@@ -487,7 +499,8 @@ export async function receiveUnsoldReturn(
     lines: Array<{
       line_id: string;
       received_quantity: string;
-      return_position_id: string;
+      return_position_id?: string;
+      return_location_id?: string;
     }>;
   },
   expectedVersion: number,

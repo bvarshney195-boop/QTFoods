@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signInAndSelect } from './support/auth';
 
 const AVAILABLE = '00000000-0000-4000-8000-000000001213';
 const BLOCKED = '00000000-0000-4000-8000-000000001214';
@@ -97,10 +98,5 @@ async function createAndPost(page: Page, command: {
 }
 
 async function loginAndSelect(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await page.getByLabel('Email').fill('operations.user@qtfoods.local');
-  await page.getByLabel('Password').fill('prototype');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Training Plant/ }).click();
+  await signInAndSelect(page, 'operations.user@qtfoods.local');
 }

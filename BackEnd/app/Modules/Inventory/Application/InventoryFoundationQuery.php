@@ -318,22 +318,25 @@ final class InventoryFoundationQuery
     {
         $rows = $this->stockBase($scope)->get([
             'position.id', 'position.item_id', 'position.lot_id', 'position.quantity_base',
-            'position.reserved_quantity_base', 'lot.status as lot_status', 'lot.expiry_date',
+            'position.reserved_quantity_base', 'position.uom_code', 'lot.status as lot_status', 'lot.expiry_date',
             'quality.availability_bucket',
         ]);
-        $total = $available = $blocked = $reserved = '0.000000';
+        $byUom = [];
         foreach ($rows as $row) {
             $quantity = $this->decimal($row->quantity_base);
             $rowReserved = $this->decimal($row->reserved_quantity_base);
             $unreserved = bcsub($quantity, $rowReserved, 6);
             $eligible = $row->availability_bucket === 'AVAILABLE'
                 && $row->lot_status === 'ACTIVE' && ! $this->expired($row->expiry_date);
-            $total = bcadd($total, $quantity, 6);
-            $reserved = bcadd($reserved, $rowReserved, 6);
+            $uom = (string) $row->uom_code;
+            $byUom[$uom] ??= ['uom_code' => $uom, 'total' => '0.000000', 'available' => '0.000000',
+                'blocked' => '0.000000', 'reserved' => '0.000000'];
+            $byUom[$uom]['total'] = bcadd($byUom[$uom]['total'], $quantity, 6);
+            $byUom[$uom]['reserved'] = bcadd($byUom[$uom]['reserved'], $rowReserved, 6);
             if ($eligible) {
-                $available = bcadd($available, $unreserved, 6);
+                $byUom[$uom]['available'] = bcadd($byUom[$uom]['available'], $unreserved, 6);
             } else {
-                $blocked = bcadd($blocked, $unreserved, 6);
+                $byUom[$uom]['blocked'] = bcadd($byUom[$uom]['blocked'], $unreserved, 6);
             }
         }
         $today = today()->toDateString();
@@ -341,14 +344,21 @@ final class InventoryFoundationQuery
         $lotBase = DB::table('lots as lot')->join('stock_positions as position', 'position.lot_id', '=', 'lot.id')
             ->where('position.company_id', $scope['company_id'])->where('position.plant_id', $scope['plant_id']);
 
+        ksort($byUom);
+        $single = count($byUom) === 1 ? array_values($byUom)[0] : null;
+
         return [
             'position_count' => $rows->count(),
             'sku_count' => $rows->pluck('item_id')->unique()->count(),
             'lot_count' => $rows->pluck('lot_id')->unique()->count(),
-            'total' => $total,
-            'available' => $available,
-            'blocked' => $blocked,
-            'reserved' => $reserved,
+            'quantity_summary_status' => $single ? 'SINGLE_UOM' : (count($byUom) > 1 ? 'MIXED_UOM' : 'EMPTY'),
+            'quantities_by_uom' => array_values($byUom),
+            // Legacy scalar fields are populated only when their unit is unambiguous.
+            'total' => $single['total'] ?? null,
+            'available' => $single['available'] ?? null,
+            'blocked' => $single['blocked'] ?? null,
+            'reserved' => $single['reserved'] ?? null,
+            'uom_code' => $single['uom_code'] ?? null,
             'expired_lots' => (clone $lotBase)->where('lot.expiry_date', '<', $today)
                 ->distinct()->count('lot.id'),
             'expiring_30_lots' => (clone $lotBase)->whereBetween('lot.expiry_date', [$today, $soon])

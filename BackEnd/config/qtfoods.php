@@ -1,5 +1,13 @@
 <?php
 
+$csv = static function (mixed $value): array {
+    if (! is_string($value) || trim($value) === '') {
+        return [];
+    }
+
+    return array_values(array_filter(array_map('trim', explode(',', $value))));
+};
+
 return [
     'require_idempotency' => env('QT_REQUIRE_IDEMPOTENCY', true),
     'require_maker_checker' => env('QT_REQUIRE_MAKER_CHECKER', true),
@@ -31,6 +39,9 @@ return [
         'verification_minutes' => (int) env('QT_EMAIL_VERIFICATION_MINUTES', 60),
         'mfa_setup_minutes' => (int) env('QT_MFA_SETUP_MINUTES', 10),
         'mfa_challenge_minutes' => (int) env('QT_MFA_CHALLENGE_MINUTES', 5),
+        'authentication_challenge_minutes' => (int) env('QT_AUTH_CHALLENGE_MINUTES', 10),
+        'login_otp_minutes' => (int) env('QT_LOGIN_OTP_MINUTES', 5),
+        'mfa_required_roles' => $csv(env('QT_MFA_REQUIRED_ROLES', 'ERP_ADMIN')),
         'session_lifetime_minutes' => (int) env('SESSION_LIFETIME', 120),
     ],
 

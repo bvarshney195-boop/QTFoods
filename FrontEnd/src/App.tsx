@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  completeMfaChallenge,
+  continueAuthentication,
   currentSession,
   isApiError,
-  isMfaChallenge,
+  isAuthenticationChallenge,
   login,
   logout,
   resetAuthenticationClient,
   selectContext,
-  type MfaChallenge,
+  type AuthenticationAction,
+  type AuthenticationChallenge,
+  type AuthenticationMethod,
 } from './api/auth';
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
@@ -21,14 +23,14 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [choosingContext, setChoosingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [authChallenge, setAuthChallenge] = useState<AuthenticationChallenge | null>(null);
 
   useEffect(() => {
     const handleSessionExpired = () => {
       resetAuthenticationClient();
       setSession(null);
       setChoosingContext(false);
-      setMfaChallenge(null);
+      setAuthChallenge(null);
       setError('Your ERP session expired. Sign in again to continue.');
     };
     const handleContextRequired = () => {
@@ -70,17 +72,17 @@ export default function App() {
     }
   }
 
-  async function handleLogin(email: string, password: string) {
+  async function handleLogin(email: string, method: AuthenticationMethod, password?: string) {
     setBusy(true);
     setError(null);
 
     try {
-      const authenticated = await login(email, password);
-      if (isMfaChallenge(authenticated)) {
-        setMfaChallenge(authenticated);
+      const authenticated = await login(email, method, password);
+      if (isAuthenticationChallenge(authenticated)) {
+        setAuthChallenge(authenticated);
         return;
       }
-      setMfaChallenge(null);
+      setAuthChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
@@ -90,17 +92,21 @@ export default function App() {
     }
   }
 
-  async function handleMfa(code: string) {
-    if (!mfaChallenge) return;
+  async function handleChallenge(action: AuthenticationAction, code?: string) {
+    if (!authChallenge) return;
     setBusy(true);
     setError(null);
     try {
-      const authenticated = await completeMfaChallenge(mfaChallenge.challenge_id, code);
-      setMfaChallenge(null);
+      const authenticated = await continueAuthentication(authChallenge.challenge_id, action, code);
+      if (isAuthenticationChallenge(authenticated)) {
+        setAuthChallenge(authenticated);
+        return;
+      }
+      setAuthChallenge(null);
       setSession(authenticated);
       setChoosingContext(true);
     } catch (caught) {
-      setError(isApiError(caught) ? caught.message : 'Two-step verification failed.');
+      setError(isApiError(caught) ? caught.message : 'Sign-in verification failed.');
     } finally {
       setBusy(false);
     }
@@ -114,7 +120,7 @@ export default function App() {
       const updated = await selectContext(companyId, plantId);
       setSession(updated);
       setChoosingContext(false);
-      setMfaChallenge(null);
+      setAuthChallenge(null);
       window.location.hash = 'WRK-HOME';
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : 'Context selection failed.');
@@ -145,9 +151,9 @@ export default function App() {
     return (
       <ACC_LOGIN
         onLogin={handleLogin}
-        onMfa={handleMfa}
-        onCancelMfa={() => { setMfaChallenge(null); setError(null); }}
-        mfaChallenge={mfaChallenge}
+        onChallenge={handleChallenge}
+        onCancelChallenge={() => { setAuthChallenge(null); setError(null); }}
+        authChallenge={authChallenge}
         busy={busy}
         error={error}
         onRetry={error === 'Unable to contact the ERP service.' ? restoreSession : undefined}

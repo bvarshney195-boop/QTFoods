@@ -85,9 +85,19 @@ final class IdentityLifecycleEndpointTest extends TestCase
             'password_confirmation' => 'AnotherPassword123',
         ])->assertUnprocessable();
 
-        $this->postJson('/api/v1/auth/login', [
+        $primary = $this->postJson('/api/v1/auth/login', [
             'email' => 'invited.user@example.local',
             'password' => 'InvitationPass123',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'SELECT_SECOND_FACTOR');
+        $this->assertGuest();
+        $second = $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $primary->json('data.challenge_id'),
+            'action' => 'select_email_otp',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'EMAIL_OTP_SECOND');
+        $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $second->json('data.challenge_id'),
+            'action' => 'verify_email_otp',
+            'code' => $second->json('data.delivery.preview_code'),
         ])->assertOk()->assertJsonPath('data.user.id', $userId);
     }
 
@@ -228,7 +238,7 @@ final class IdentityLifecycleEndpointTest extends TestCase
         $this->postJson('/api/v1/auth/mfa/challenge', [
             'challenge_id' => $challenge->json('data.challenge_id'),
             'code' => app(MfaService::class)->codeForSecret($secret),
-        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'AUTHENTICATOR');
+        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+AUTHENTICATOR');
 
         $this->postJson('/api/v1/auth/logout', [])->assertOk();
         $recoveryChallenge = $this->postJson('/api/v1/auth/login', [
@@ -237,7 +247,7 @@ final class IdentityLifecycleEndpointTest extends TestCase
         $this->postJson('/api/v1/auth/mfa/challenge', [
             'challenge_id' => $recoveryChallenge->json('data.challenge_id'),
             'code' => $recoveryCodes[0],
-        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'RECOVERY_CODE');
+        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+RECOVERY_CODE');
         self::assertSame(1, DB::table('user_mfa_recovery_codes')->whereNotNull('used_at')->count());
 
         self::assertSame('287082', app(MfaService::class)->codeForSecret(

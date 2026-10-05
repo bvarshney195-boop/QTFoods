@@ -63,6 +63,9 @@ final class UnsoldSalesReturnController
             'shipment_id' => ['sometimes', 'uuid'],
             'sku_id' => ['sometimes', 'uuid'],
             'lot_id' => ['sometimes', 'uuid'],
+            'shipment_line_id' => ['sometimes', 'uuid'],
+            'inventory_owner_id' => ['sometimes', 'uuid'],
+            'uom_code' => ['sometimes', 'string', 'max:16'],
             'q' => ['sometimes', 'string', 'max:100'],
             'limit' => ['sometimes', 'integer', 'between:1,100'],
         ]);
@@ -107,7 +110,8 @@ final class UnsoldSalesReturnController
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.line_id' => ['required', 'uuid', 'distinct'],
             'lines.*.received_quantity' => ['required', 'decimal:0,6', 'gt:0'],
-            'lines.*.return_position_id' => ['required', 'uuid'],
+            'lines.*.return_position_id' => ['nullable', 'uuid', 'required_without:lines.*.return_location_id'],
+            'lines.*.return_location_id' => ['nullable', 'uuid', 'required_without:lines.*.return_position_id'],
         ]);
         $this->applySelectedContext($request, $validated);
         $validated['actor_id'] = (string) $request->user()->id;

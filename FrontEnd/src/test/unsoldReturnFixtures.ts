@@ -179,6 +179,7 @@ export function makeUnsoldReturnLookups(): UnsoldReturnLookups {
       quantity: '0',
       uom_code: 'PACK',
     }],
+    return_locations: [],
   };
 }
 
