@@ -6,14 +6,17 @@ const SOURCE_POSITION = '00000000-0000-4000-8000-000000002602';
 const DESTINATION_POSITION = '00000000-0000-4000-8000-000000003021';
 const TRANSFER_NUMBER = 'E2E-SCALE-XFER-001';
 
-test('multi-plant scale separates source dispatch from destination receipt', async ({ page }) => {
+test('multi-plant scale separates source dispatch from destination receipt', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
+  const transferNumber = testInfo.retry === 0
+    ? TRANSFER_NUMBER
+    : `${TRANSFER_NUMBER}-R${testInfo.retry}-${Date.now().toString(36).toUpperCase()}`;
 
   await loginAndSelect(page, 'operations.user@qtfoods.local', 'Training Plant');
   await openScale(page);
   await page.getByRole('button', { name: '+ New transfer', exact: true }).click();
   await submitForm(page, 'New transfer', {
-    transfer_number: TRANSFER_NUMBER,
+    transfer_number: transferNumber,
     plant_transfer_route_id: ROUTE,
     transfer_date: '2026-09-15',
     expected_arrival_date: '2026-09-16',
@@ -27,33 +30,34 @@ test('multi-plant scale separates source dispatch from destination receipt', asy
     }],
   });
   await expect(page.locator('.feedback-toast')).toContainText('New transfer saved successfully. Current status: Draft.');
-  await searchAndOpen(page, TRANSFER_NUMBER);
+  await searchAndOpen(page, transferNumber);
   await page.getByRole('button', { name: 'Submit', exact: true }).click();
   await expect(page.locator('.feedback-toast')).toContainText('Transfer submitted for independent source approval');
   await logout(page);
 
   await loginAndSelect(page, 'admin.user@qtfoods.local', 'Training Plant');
   await openScale(page);
-  await searchAndOpen(page, TRANSFER_NUMBER);
+  await searchAndOpen(page, transferNumber);
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(page.locator('.feedback-toast')).toContainText('Transfer independently approved at source');
   await page.getByRole('button', { name: 'Dispatch', exact: true }).click();
   await expect(page.locator('.feedback-toast')).toContainText('Source stock dispatched into governed transit');
 
-  const source = await transferDetail(page);
+  const source = await transferDetail(page, transferNumber);
   expect(source.status).toBe('IN_TRANSIT');
   expect(source.lines[0]?.outbound_movement_id).toBeTruthy();
   expect(source.lines[0]?.inbound_movement_id).toBeNull();
 
+  await closeP2Drawer(page);
   await page.locator('.context-button').click();
   await page.getByRole('button', { name: /Finance Review/ }).click();
   await openScale(page);
-  await searchAndOpen(page, TRANSFER_NUMBER);
+  await searchAndOpen(page, transferNumber);
   await expect(page.getByText('DESTINATION', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Receive', exact: true }).click();
   await expect(page.locator('.feedback-toast')).toContainText('Destination stock received with linked inbound movement evidence');
 
-  const received = await transferDetail(page);
+  const received = await transferDetail(page, transferNumber);
   expect(received.status).toBe('RECEIVED');
   expect(received.lines[0]?.outbound_movement_id).toBeTruthy();
   expect(received.lines[0]?.inbound_movement_id).toBeTruthy();
@@ -126,7 +130,7 @@ async function searchAndOpen(page: Page, text: string): Promise<void> {
   await row.getByRole('button', { name: 'Open' }).click();
 }
 
-async function transferDetail(page: Page): Promise<TransferDetail['data']> {
+async function transferDetail(page: Page, transferNumber: string): Promise<TransferDetail['data']> {
   const response = await page.evaluate(async (number) => {
     const list = await fetch(`/api/v1/scale/plants?q=${encodeURIComponent(number)}`, {
       credentials: 'include', headers: { Accept: 'application/json' },
@@ -138,7 +142,7 @@ async function transferDetail(page: Page): Promise<TransferDetail['data']> {
       credentials: 'include', headers: { Accept: 'application/json' },
     });
     return { ok: detail.ok, status: detail.status, body: await detail.json() };
-  }, TRANSFER_NUMBER);
+  }, transferNumber);
   if (!response.ok) throw new Error(`Transfer detail failed (${response.status}): ${JSON.stringify(response.body)}`);
   return (response.body as TransferDetail).data;
 }
@@ -148,6 +152,16 @@ async function loginAndSelect(page: Page, email: string, plant: string): Promise
 }
 
 async function logout(page: Page): Promise<void> {
+  await closeP2Drawer(page);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+}
+
+async function closeP2Drawer(page: Page): Promise<void> {
+  const backdrop = page.locator('.p2-drawer-backdrop');
+  if (!await backdrop.isVisible()) return;
+  const recordClose = backdrop.getByRole('button', { name: 'Close record details' });
+  if (await recordClose.isVisible()) await recordClose.click();
+  else await backdrop.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(backdrop).toHaveCount(0);
 }

@@ -129,9 +129,12 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     setBusy(true);
     try {
       await commandP2(spec.path, spec.body ?? {}, spec.expectedVersion ?? selected.record_version);
-      setFeedback({ error: null, success: spec.success, fields: {} });
       await refresh();
       if (collection?.detailPath) setSelected({ ...(await getP2(collection.detailPath(selected))), _kind: selected._kind });
+      // Announce success only after both the register and the open detail have
+      // settled. Consumers may safely navigate or close the modal once the
+      // success toast is visible, without an in-flight refresh reopening it.
+      setFeedback({ error: null, success: spec.success, fields: {} });
     } catch (error) { setFailure(setFeedback, error, `Unable to ${action.toLowerCase().replaceAll('_', ' ')}.`); }
     finally { setBusy(false); }
   }

@@ -73,18 +73,21 @@ test.describe('final audit authentication acceptance', () => {
     await expect(page.getByRole('heading', { name: 'Choose where you are working' })).toBeVisible();
   });
 
-  test('unregistered TOTP requires email proof before showing a QR and then signs in', async ({ page }) => {
+  test('unregistered TOTP requires password proof before showing a QR and then signs in', async ({ page }) => {
     await openLogin(page);
     await page.getByLabel('Email', { exact: true }).fill('bi.user@qtfoods.local');
     await page.getByRole('radio', { name: /^Google Authenticator/ }).check();
     await page.getByRole('button', { name: 'Continue with authenticator' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Verify your registered email' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Verify your account password' })).toBeVisible();
     await expect(page.getByRole('img', { name: /QR code/ })).toHaveCount(0);
-    await completePreviewEmailCode(page);
+    expect((await page.request.get('/api/v1/me')).status()).toBe(401);
+    await page.getByLabel('Account password').fill('prototype');
+    await page.getByRole('button', { name: 'Verify password and continue' }).click();
 
     await expect(page.getByRole('heading', { name: 'Register Google Authenticator' })).toBeVisible();
     await expect(page.getByRole('img', { name: /QR code for registering/ })).toBeVisible();
+    expect((await page.request.get('/api/v1/me')).status()).toBe(401);
     await page.getByText('Can’t scan the QR code?').click();
     const secret = (await page.locator('.totp-enrolment details code').textContent())?.trim();
     expect(secret).toBeTruthy();

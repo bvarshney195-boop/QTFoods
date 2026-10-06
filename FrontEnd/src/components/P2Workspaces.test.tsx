@@ -43,11 +43,16 @@ describe('P2 commercial and finance workspaces', () => {
     const user = userEvent.setup();
     const lead = { id: 'lead-1', lead_number: 'LEAD-UI-001', company_name: 'North Market', contact_name: 'Commercial Desk', enquiry_date: '2026-09-13', estimated_value: '25000', status: 'NEW', record_version: 1, allowed_actions: ['QUALIFY'] };
     api.listP2.mockResolvedValue({ ...emptyWorkspace(), data: [lead] });
-    api.getP2.mockResolvedValue(lead);
+    let resolveReload!: (value: typeof lead) => void;
+    api.getP2
+      .mockResolvedValueOnce(lead)
+      .mockReturnValueOnce(new Promise((resolve) => { resolveReload = resolve; }));
     renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
     await user.click(await screen.findByRole('button', { name: 'Open' }));
     await user.click(await screen.findByRole('button', { name: 'Qualify' }));
     await waitFor(() => expect(api.commandP2).toHaveBeenCalledWith('/api/v1/sales/leads/lead-1/qualify', {}, 1));
+    expect(screen.queryByText('Lead qualified.')).not.toBeInTheDocument();
+    resolveReload({ ...lead, status: 'QUALIFIED', record_version: 2, allowed_actions: [] });
     expect(await screen.findByText('Lead qualified.')).toBeInTheDocument();
   });
 

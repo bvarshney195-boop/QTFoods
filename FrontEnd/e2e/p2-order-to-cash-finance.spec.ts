@@ -163,7 +163,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
     buffer: Buffer.from('%PDF-1.4 P2 browser private bill'),
   });
   await page.getByRole('button', { name: 'Upload privately' }).click();
-  await expect(page.locator('.feedback-toast')).toContainText('Document archived with verified private metadata (ARCHIVED)');
+  await expect(page.getByRole('status')).toContainText('Document archived with verified private metadata (ARCHIVED)');
   await page.getByLabel('Archive search').fill(refs.document);
   await openRow(page, refs.document);
   await expect(page.locator('.p2-checksum')).toHaveText(/^[a-f0-9]{64}$/);
@@ -208,7 +208,7 @@ test('P2 runs order-to-cash, finance simulation, private archive, and diagnostic
 
   await openModule(page, 'FIN-AP', 'Supplier invoices & payments');
   await page.getByRole('button', { name: 'Bank & statutory integrations' }).click();
-  await expect(page.getByRole('heading', { name: 'Payables Bank & Statutory Integrations' })).toBeVisible();
+  await expect(page.getByLabel('Payables Bank & Statutory Integrations search')).toBeVisible();
   await expect(page.locator('.business-guidance')).toBeVisible();
   await expect(page.getByText('PROTOTYPE / DEMO DATA')).toHaveCount(0);
 });
@@ -249,11 +249,12 @@ function first(result: P2List) {
 
 async function openP2Module(page: Page, code: string, heading: string): Promise<void> {
   await openModule(page, code, heading);
-  await expect(page.locator('.business-guidance')).toBeVisible();
+  await expect(page.locator('.business-guidance, .p2-live-notice')).toBeVisible();
   await expect(page.getByText('PROTOTYPE / DEMO DATA')).toHaveCount(0);
 }
 
 async function openModule(page: Page, code: string, heading: string): Promise<void> {
+  await closeP2Drawer(page);
   const navigation = page.getByRole('navigation', { name: 'Main menu' });
   await navigation.locator(`[data-screen-code="${code}"]`).click();
   await expect(page.getByRole('heading', { name: heading })).toBeVisible();
@@ -344,6 +345,16 @@ async function loginAndSelect(page: Page, email: string): Promise<void> {
 }
 
 async function logout(page: Page): Promise<void> {
+  await closeP2Drawer(page);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+}
+
+async function closeP2Drawer(page: Page): Promise<void> {
+  const backdrop = page.locator('.p2-drawer-backdrop');
+  if (!await backdrop.isVisible()) return;
+  const recordClose = backdrop.getByRole('button', { name: 'Close record details' });
+  if (await recordClose.isVisible()) await recordClose.click();
+  else await backdrop.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(backdrop).toHaveCount(0);
 }
