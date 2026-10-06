@@ -1,16 +1,16 @@
 # QT Foods Final Master Production Readiness & UAT Audit — Retest Evidence
 
-**Retest date:** 5 October 2026  
+**Retest date:** 6 October 2026
 **Source of truth:** `C:\Users\bhupe\Downloads\QT_Foods_Final_Master_Production_Readiness_UAT_Audit.html`  
-**Tested codebase:** the current working tree in `C:\Users\bhupe\Downloads\latestQT\QTFoods`
+**Tested codebase:** commit `3e15d0741cbebda8b771551beb77c548ba3b13bf` on `main`
 
 ## Release decision
 
 **Formal deployment decision: NO-GO — 30 PASS, 2 FAIL. Code remediation: 32/32 addressed with passing executable release-candidate tests.**
 
-The application changes and all locally executable acceptance tests pass on both SQLite and PostgreSQL. `SEC-01` and `OPS-01` remain formal FAIL results only because their wording requires evidence from the deployed production identity store, external receiver and durable object store. The code now supplies fail-closed production gates and a real-network release probe for collecting that evidence; this report does not substitute the disposable receiver or test storage for the target services.
+The application changes and all automated release-candidate acceptance tests pass on SQLite and PostgreSQL. The required hosted quality gate is green, and Render serves the tested frontend bundle. `SEC-01` and `OPS-01` remain formal FAIL results only because their wording requires retained evidence from the deployed production identity store, external receiver and durable object store. The code supplies fail-closed production gates and a real-network release probe for collecting that evidence; this report does not substitute CI's disposable receiver or test storage for the target services.
 
-This report does not claim that the tested working tree has been deployed.
+Deployment evidence: `https://qtfoods.onrender.com` returned HTTP 200 with the expected `assets/index-Bbxys9Cu.js` bundle. A CSRF-authenticated live request for `bvarshney195@gmail.com` and method `totp` returned HTTP 202 with phase `PASSWORD_PROOF_FOR_TOTP_SETUP`, `totp_registered=false`, no setup secret and no delivery attempt. This proves the live entry contract and pre-proof QR protection; it does not claim that the user has scanned and confirmed a real-device TOTP yet.
 
 ## Authentication acceptance result
 
@@ -20,19 +20,22 @@ PASS for the implemented login flow:
 - The login bundle contains no demo-role chooser, preset email, preset password, or feature flag capable of restoring those shortcuts; Chromium verifies that the email starts empty and no `prototype` guidance is rendered.
 - Selecting Password reveals the password field and performs password verification.
 - Selecting Email OTP sends a short-lived, attempt-limited code to the registered email. An unknown email receives the required organisation-administrator guidance and no challenge is issued.
-- Selecting Google Authenticator asks for TOTP when already enrolled. If not enrolled, the user must first prove control of the registered email; only then is the enrolment QR/secret shown, after which a valid TOTP completes enrolment.
-- A privileged `ERP_ADMIN` cannot establish a session with a password alone. Password primary authentication requires Email OTP or TOTP as a second factor. TOTP used as the primary method requires independent Email OTP. Email OTP used as the primary method requires TOTP or TOTP enrolment.
+- Selecting Google Authenticator asks for TOTP when already enrolled. If not enrolled, the user must first verify the account password; only then is the enrolment QR/secret shown, after which a valid TOTP completes enrolment. This path has no Email OTP dependency and never exposes the QR from an email address alone.
+- A privileged `ERP_ADMIN` cannot establish a session with a password alone. Password primary authentication requires Email OTP or TOTP as a second factor. TOTP used as the primary method requires the account password as the independent second factor. Email OTP used as the primary method requires TOTP or first-time TOTP enrolment.
 - Browser evidence explicitly checks `/api/v1/me`: it returns `401` after the privileged password is accepted and remains `401` after merely choosing the second factor; it returns `200` only after the factor succeeds.
 
 ## Executed test evidence
 
 | Test gate | Result | Evidence |
 |---|---:|---|
-| Backend full SQLite suite | PASS | **204 tests, 11,234 assertions; 4 skipped; 0 failures/errors.** The four catalog checks require PostgreSQL and are covered by the next gate. |
+| Backend full SQLite suite | PASS | **214 tests, 11,309 assertions; 4 expected skips; 0 failures/errors.** The skipped catalog checks require PostgreSQL and are covered by the next gate. |
 | Backend PostgreSQL relational/release suite | PASS | **25 tests, 261 assertions; 0 skipped/failures/errors.** Covers the four catalog checks, concurrency, scoped cost-provenance FK/checks, identity quarantine/isolation and the live-network outbox lifecycle. |
-| Frontend full unit suite | PASS | **34 files, 135 tests; 0 failures.** |
+| Frontend full unit suite | PASS | **34 files, 138 tests; 0 failures.** Includes the action-refresh regression proving success is not announced before record detail has settled. |
 | Frontend production build | PASS | `vite build` completed; **217 modules transformed**. |
-| Chromium final audit acceptance | PASS | **6/6 tests**: three-method login without demo presets, unregistered-email guidance, Email OTP sign-in, TOTP enrolment/sign-in, privileged MFA non-bypass, and the responsive/design contract. |
+| Chromium final audit acceptance | PASS | **6/6 tests**: three-method login without demo presets, unregistered-email guidance, Email OTP sign-in, password-proved TOTP enrolment/sign-in, privileged MFA non-bypass, and the responsive/design contract. `/api/v1/me` stays 401 before TOTP completion. |
+| Chromium aggregate business acceptance | PASS | **8/8 tests** in one clean PostgreSQL/Redis stack: the six final-audit scenarios plus multi-plant dispatch/receipt separation and the full order-to-cash/finance/archive/diagnostics journey. |
+| Frontend dependency audit | PASS | `npm audit --audit-level=high` reported **0 vulnerabilities**. |
+| Hosted required quality gate | PASS | GitHub Actions run `37467599942`: frontend, backend/PostgreSQL, browser, PHP SAST, CodeQL, dynamic API/load, repository and release-image security jobs all completed successfully. |
 
 Commands used for the final gates:
 
@@ -41,7 +44,8 @@ docker run --rm --user root -e APP_ENV=testing qtfoods-audit-backend ./vendor/bi
 docker run --rm --user root --network qtfoods-audit-pg_default -e DB_CONNECTION=pgsql -e DB_HOST=postgres -e DB_DATABASE=qtfoods_e2e -e DB_USERNAME=qtfoods_e2e -e DB_PASSWORD=qtfoods_e2e qtfoods-audit-backend ./vendor/bin/phpunit -c phpunit.pgsql.xml --colors=never tests/Feature/MasterTransactionRelationalIntegrityTest.php tests/Feature/StockLockingPostgresTest.php tests/Feature/ApprovalGovernanceEndpointTest.php tests/Feature/FoundationAdministrationEndpointTest.php tests/Feature/ProductionIdentitySecurityTest.php tests/Feature/OutboxLiveReceiverAcceptanceTest.php
 npm test -- --run
 npm run build
-$env:PLAYWRIGHT_WEB_PORT='4175'; npx playwright test e2e/final-audit-acceptance.spec.ts --project=chromium
+npm audit --audit-level=high
+$env:PLAYWRIGHT_WEB_PORT='4174'; npx playwright test e2e/final-audit-acceptance.spec.ts e2e/multi-plant-scale.spec.ts e2e/p2-order-to-cash-finance.spec.ts
 ```
 
 The backend container was run as root only to let the test harness write its generated `public/index.html`; the production runtime user/configuration was not changed.
