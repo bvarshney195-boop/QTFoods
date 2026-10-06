@@ -80,7 +80,7 @@ final class ProductionAdminBootstrapCommandTest extends TestCase
         ]);
     }
 
-    public function test_bootstrapped_admin_can_start_passwordless_login_but_cannot_bypass_mfa(): void
+    public function test_bootstrapped_admin_can_initialize_a_password_and_enrol_totp_without_email(): void
     {
         $this->bootstrap()->assertExitCode(0);
 
@@ -92,22 +92,83 @@ final class ProductionAdminBootstrapCommandTest extends TestCase
             ->assertJsonPath('error.fields.email.0', 'The supplied credentials are invalid.');
         $this->assertGuest();
 
+        config()->set([
+            'qtfoods.identity.bootstrap_admin_email' => self::EMAIL,
+            'qtfoods.identity.bootstrap_admin_password' => 'UniqueBootstrapPass123',
+            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD',
+        ]);
+        $this->artisan('qt:identity:initialize-bootstrap-password')
+            ->expectsOutputToContain('"status": "initialized"')
+            ->assertExitCode(0);
+
         $primary = $this->postJson('/api/v1/auth/login', [
             'email' => self::EMAIL,
-            'method' => 'email_otp',
+            'method' => 'password',
+            'password' => 'UniqueBootstrapPass123',
         ])->assertStatus(202)
-            ->assertJsonPath('data.phase', 'EMAIL_OTP_PRIMARY')
-            ->assertJsonPath('data.primary_method', 'EMAIL_OTP');
+            ->assertJsonPath('data.phase', 'SELECT_SECOND_FACTOR')
+            ->assertJsonPath('data.primary_method', 'PASSWORD')
+            ->assertJsonPath('data.available_methods.1', 'totp');
         $this->assertGuest();
 
         $this->postJson('/api/v1/auth/challenge', [
             'challenge_id' => $primary->json('data.challenge_id'),
-            'action' => 'verify_email_otp',
-            'code' => $primary->json('data.delivery.preview_code'),
+            'action' => 'select_totp',
         ])->assertStatus(202)
             ->assertJsonPath('data.phase', 'TOTP_ENROLLMENT')
-            ->assertJsonPath('data.totp_registered', false);
+            ->assertJsonPath('data.totp_registered', false)
+            ->assertJsonMissingPath('data.delivery');
         $this->assertGuest();
+    }
+
+    public function test_bootstrap_password_initialization_is_secret_safe_and_one_time(): void
+    {
+        $this->bootstrap()->assertExitCode(0);
+        config()->set([
+            'qtfoods.identity.bootstrap_admin_email' => self::EMAIL,
+            'qtfoods.identity.bootstrap_admin_password' => 'UniqueBootstrapPass123',
+            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD',
+        ]);
+
+        $this->artisan('qt:identity:initialize-bootstrap-password')
+            ->expectsOutputToContain('"status": "initialized"')
+            ->doesntExpectOutputToContain('UniqueBootstrapPass123')
+            ->assertExitCode(0);
+
+        $user = DB::table('users')->where('email', self::EMAIL)->first();
+        self::assertTrue(Hash::check('UniqueBootstrapPass123', $user->password_hash));
+        self::assertNotNull($user->password_changed_at);
+        self::assertSame(1, DB::table('identity_tokens')
+            ->where('user_id', $user->id)
+            ->where('type', 'PASSWORD_RESET')
+            ->whereNotNull('revoked_at')
+            ->count());
+        self::assertTrue(DB::table('audit_events')
+            ->where('command', 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD')
+            ->where('actor_id', $user->id)
+            ->where('reason_code', 'AUTHORIZED_OPERATIONAL_BOOTSTRAP')
+            ->exists());
+        $hash = $user->password_hash;
+
+        config()->set('qtfoods.identity.bootstrap_admin_password', 'DifferentBootstrapPass456');
+        $this->artisan('qt:identity:initialize-bootstrap-password')
+            ->expectsOutputToContain('"status": "already_initialized"')
+            ->doesntExpectOutputToContain('DifferentBootstrapPass456')
+            ->assertExitCode(0);
+        self::assertSame($hash, DB::table('users')->where('email', self::EMAIL)->value('password_hash'));
+    }
+
+    public function test_bootstrap_password_initialization_requires_complete_strong_inputs(): void
+    {
+        $this->bootstrap()->assertExitCode(0);
+        config()->set([
+            'qtfoods.identity.bootstrap_admin_email' => self::EMAIL,
+            'qtfoods.identity.bootstrap_admin_password' => 'weak',
+            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'WRONG',
+        ]);
+
+        $this->artisan('qt:identity:initialize-bootstrap-password')->assertExitCode(2);
+        self::assertNull(DB::table('users')->where('email', self::EMAIL)->value('password_changed_at'));
     }
 
     public function test_command_refuses_missing_confirmation_and_synthetic_contexts(): void

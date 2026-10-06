@@ -104,20 +104,29 @@ final class AuthenticationMethodFlowTest extends TestCase
         $this->assertAuthenticated();
     }
 
-    public function test_totp_enrolment_qr_is_released_only_after_registered_email_proof(): void
+    public function test_totp_enrolment_qr_is_released_only_after_password_proof(): void
     {
         $proof = $this->postJson('/api/v1/auth/login', [
             'email' => 'demo.user@qtfoods.local',
             'method' => 'totp',
         ])->assertStatus(202)
-            ->assertJsonPath('data.phase', 'EMAIL_PROOF_FOR_TOTP_SETUP')
+            ->assertJsonPath('data.phase', 'PASSWORD_PROOF_FOR_TOTP_SETUP')
             ->assertJsonPath('data.totp_registered', false)
-            ->assertJsonMissingPath('data.setup');
+            ->assertJsonMissingPath('data.setup')
+            ->assertJsonMissingPath('data.delivery');
+
+        $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $proof->json('data.challenge_id'),
+            'action' => 'verify_password',
+            'password' => 'not-the-password',
+        ])->assertUnprocessable()
+            ->assertJsonPath('error.fields.password.0', 'The supplied password is invalid.');
+        $this->assertGuest();
 
         $enrolment = $this->postJson('/api/v1/auth/challenge', [
             'challenge_id' => $proof->json('data.challenge_id'),
-            'action' => 'verify_email_otp',
-            'code' => $proof->json('data.delivery.preview_code'),
+            'action' => 'verify_password',
+            'password' => 'prototype',
         ])->assertStatus(202)
             ->assertJsonPath('data.phase', 'TOTP_ENROLLMENT');
 
@@ -131,7 +140,36 @@ final class AuthenticationMethodFlowTest extends TestCase
             'action' => 'confirm_totp_setup',
             'code' => app(MfaService::class)->codeForSecret($secret),
         ])->assertOk()
-            ->assertJsonPath('data.authentication.mfa_method', 'EMAIL_OTP+AUTHENTICATOR')
+            ->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+AUTHENTICATOR')
+            ->assertJsonPath('data.authentication.mfa_enrolment.enabled', true);
+        $this->assertAuthenticated();
+    }
+
+    public function test_privileged_password_can_enrol_totp_as_the_required_second_factor(): void
+    {
+        $primary = $this->postJson('/api/v1/auth/login', [
+            'email' => 'admin.user@qtfoods.local',
+            'method' => 'password',
+            'password' => 'prototype',
+        ])->assertStatus(202)
+            ->assertJsonPath('data.phase', 'SELECT_SECOND_FACTOR')
+            ->assertJsonPath('data.available_methods.1', 'totp');
+
+        $enrolment = $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $primary->json('data.challenge_id'),
+            'action' => 'select_totp',
+        ])->assertStatus(202)
+            ->assertJsonPath('data.phase', 'TOTP_ENROLLMENT')
+            ->assertJsonMissingPath('data.delivery');
+        $this->assertGuest();
+
+        $secret = $enrolment->json('data.setup.secret');
+        $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $enrolment->json('data.challenge_id'),
+            'action' => 'confirm_totp_setup',
+            'code' => app(MfaService::class)->codeForSecret($secret),
+        ])->assertOk()
+            ->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+AUTHENTICATOR')
             ->assertJsonPath('data.authentication.mfa_enrolment.enabled', true);
         $this->assertAuthenticated();
     }
@@ -163,7 +201,7 @@ final class AuthenticationMethodFlowTest extends TestCase
         $this->assertAuthenticated();
     }
 
-    public function test_privileged_totp_primary_still_requires_independent_email_otp(): void
+    public function test_privileged_totp_primary_still_requires_an_independent_password_factor(): void
     {
         $secret = 'JBSWY3DPEHPK3PXP';
         DB::table('users')->where('email', 'admin.user@qtfoods.local')->update([
@@ -182,15 +220,16 @@ final class AuthenticationMethodFlowTest extends TestCase
             'action' => 'verify_totp',
             'code' => app(MfaService::class)->codeForSecret($secret),
         ])->assertStatus(202)
-            ->assertJsonPath('data.phase', 'EMAIL_OTP_SECOND_AFTER_TOTP');
+            ->assertJsonPath('data.phase', 'PASSWORD_SECOND_AFTER_TOTP')
+            ->assertJsonMissingPath('data.delivery');
         $this->assertGuest();
 
         $this->postJson('/api/v1/auth/challenge', [
             'challenge_id' => $second->json('data.challenge_id'),
-            'action' => 'verify_email_otp',
-            'code' => $second->json('data.delivery.preview_code'),
+            'action' => 'verify_password',
+            'password' => 'prototype',
         ])->assertOk()
-            ->assertJsonPath('data.authentication.mfa_method', 'TOTP+EMAIL_OTP');
+            ->assertJsonPath('data.authentication.mfa_method', 'AUTHENTICATOR+PASSWORD');
         $this->assertAuthenticated();
     }
 

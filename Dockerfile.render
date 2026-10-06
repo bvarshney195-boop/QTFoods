@@ -42,4 +42,4 @@ USER www-data
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "php artisan migrate --force && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD ["sh", "-c", "QT_BOOTSTRAP_ADMIN_EMAIL= QT_BOOTSTRAP_ADMIN_PASSWORD= QT_BOOTSTRAP_ADMIN_PASSWORD_CONFIRMATION= php artisan migrate --force && php artisan qt:identity:initialize-bootstrap-password --no-interaction && exec php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]

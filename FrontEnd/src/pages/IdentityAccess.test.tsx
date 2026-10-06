@@ -52,6 +52,32 @@ describe('identity access flows', () => {
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
+  it('requires the account password before first-time authenticator enrolment', async () => {
+    const onChallenge = vi.fn();
+    render(<ACC_LOGIN
+      authChallenge={{ authentication_required: true, mfa_required: true, challenge_id: 'challenge-setup', phase: 'PASSWORD_PROOF_FOR_TOTP_SETUP', primary_method: 'TOTP', expires_at: '2026-09-09T11:00:00Z', email_hint: 'a***@example.com', totp_registered: false, available_methods: [] }}
+      onChallenge={onChallenge}
+    />);
+
+    expect(screen.queryByAltText(/QR code for registering/i)).not.toBeInTheDocument();
+    await userEvent.setup().type(screen.getByLabelText('Account password'), 'AccountPassword123');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Verify password and continue' }));
+
+    expect(onChallenge).toHaveBeenCalledWith('verify_password', 'AccountPassword123');
+  });
+
+  it('offers first-time authenticator registration after password primary proof', async () => {
+    const onChallenge = vi.fn();
+    render(<ACC_LOGIN
+      authChallenge={{ authentication_required: true, mfa_required: true, challenge_id: 'challenge-second', phase: 'SELECT_SECOND_FACTOR', primary_method: 'PASSWORD', expires_at: '2026-09-09T11:00:00Z', email_hint: 'a***@example.com', totp_registered: false, available_methods: ['email_otp', 'totp'] }}
+      onChallenge={onChallenge}
+    />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /Google Authenticator/ }));
+    expect(onChallenge).toHaveBeenCalledWith('select_totp');
+    expect(screen.getByText('Register a new authenticator now')).toBeInTheDocument();
+  });
+
   it('keeps password-reset requests non-enumerating and exposes local preview links when configured', async () => {
     identityMocks.forgotPassword.mockResolvedValue({
       accepted: true,

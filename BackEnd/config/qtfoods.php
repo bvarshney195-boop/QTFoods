@@ -45,6 +45,11 @@ return [
         'login_otp_minutes' => (int) env('QT_LOGIN_OTP_MINUTES', 5),
         'mfa_required_roles' => $csv(env('QT_MFA_REQUIRED_ROLES', 'ERP_ADMIN')),
         'session_lifetime_minutes' => (int) env('SESSION_LIFETIME', 120),
+        // One-time managed-service bootstrap inputs. Remove all three values
+        // immediately after the password-initialisation deployment succeeds.
+        'bootstrap_admin_email' => env('QT_BOOTSTRAP_ADMIN_EMAIL'),
+        'bootstrap_admin_password' => env('QT_BOOTSTRAP_ADMIN_PASSWORD'),
+        'bootstrap_admin_password_confirmation' => env('QT_BOOTSTRAP_ADMIN_PASSWORD_CONFIRMATION'),
     ],
 
     'screen_areas' => [

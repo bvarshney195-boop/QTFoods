@@ -9,14 +9,22 @@ use RuntimeException;
 
 final class ProductionEnvironmentGuard
 {
+    private const BOOTSTRAP_PASSWORD_VIOLATION = 'QT_BOOTSTRAP_ADMIN_PASSWORD must be removed after the one-time administrator initialization.';
+
     public function __construct(
         private readonly Application $app,
         private readonly Repository $config,
     ) {}
 
-    public function enforce(): void
+    public function enforce(?string $environment = null): void
     {
-        $violations = $this->violations();
+        $violations = $this->violations($environment);
+        if ($this->isBootstrapPasswordInitializationCommand()) {
+            $violations = array_values(array_filter(
+                $violations,
+                static fn (string $violation): bool => $violation !== self::BOOTSTRAP_PASSWORD_VIOLATION,
+            ));
+        }
         if ($violations !== []) {
             throw new RuntimeException(
                 "Unsafe production configuration:\n - ".implode("\n - ", $violations),
@@ -61,6 +69,12 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_seeders'), 'QT_ALLOW_DEMO_SEEDERS must be false.');
         $this->reject($violations, (bool) $this->config->get('deployment.allow_demo_authentication'), 'QT_ALLOW_DEMO_AUTHENTICATION must be false.');
         $this->reject($violations, (bool) $this->config->get('qtfoods.identity.preview_links'), 'QT_IDENTITY_PREVIEW_LINKS must be false.');
+        $bootstrapPassword = $this->config->get('qtfoods.identity.bootstrap_admin_password');
+        $this->reject(
+            $violations,
+            is_string($bootstrapPassword) && $bootstrapPassword !== '',
+            self::BOOTSTRAP_PASSWORD_VIOLATION,
+        );
         $mfaRoles = (array) $this->config->get('qtfoods.identity.mfa_required_roles', []);
         $this->reject($violations, ! in_array('ERP_ADMIN', $mfaRoles, true), 'QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.');
 
@@ -119,6 +133,13 @@ final class ProductionEnvironmentGuard
         $this->reject($violations, $objectLimit < 0 || $objectLimit > 1_000_000, 'QT_RECOVERY_OBJECT_LIMIT must be between 0 and 1000000; zero verifies every object.');
 
         return $violations;
+    }
+
+    private function isBootstrapPasswordInitializationCommand(): bool
+    {
+        return $this->app->runningInConsole()
+            && is_array($_SERVER['argv'] ?? null)
+            && ($_SERVER['argv'][1] ?? null) === 'qt:identity:initialize-bootstrap-password';
     }
 
     private function reject(array &$violations, bool $condition, string $message): void

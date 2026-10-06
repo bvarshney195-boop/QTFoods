@@ -7,12 +7,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 use InvalidArgumentException;
 use RuntimeException;
 
 final class ProductionAdminBootstrapper
 {
     public const CONFIRMATION = 'CREATE_PRODUCTION_ADMIN';
+    public const PASSWORD_CONFIRMATION = 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD';
 
     public function __construct(private readonly AuditService $audit) {}
 
@@ -185,6 +187,122 @@ final class ProductionAdminBootstrapper
                 'role_assignment_id' => (string) $assignment->id,
                 'mfa_required' => true,
                 'password_setup_required' => $userCreated,
+            ];
+        });
+    }
+
+    /**
+     * Establish the bootstrapped administrator's first password from a managed
+     * deployment secret when mailbox delivery is unavailable. This deliberately
+     * refuses to reset an account after its first password has been established.
+     */
+    public function initializePassword(string $email, mixed $password, string $confirmation): array
+    {
+        $email = Str::lower(trim($email));
+        if (! hash_equals(self::PASSWORD_CONFIRMATION, $confirmation)) {
+            throw new InvalidArgumentException('Initialising the administrator password requires explicit confirmation.');
+        }
+
+        $validator = Validator::make(['email' => $email, 'password' => $password], [
+            'email' => ['required', 'email:rfc', 'max:255'],
+            'password' => ['required', 'string', 'max:1024', Password::min(16)->letters()->numbers()->mixedCase()],
+        ]);
+        if ($validator->fails()) {
+            throw new InvalidArgumentException($validator->errors()->first());
+        }
+
+        return DB::transaction(function () use ($email, $password): array {
+            $user = DB::table('users')->where('email', $email)->lockForUpdate()->first();
+            if ($user === null
+                || $user->status !== 'ACTIVE'
+                || (bool) $user->is_demo
+                || $user->email_verified_at === null) {
+                throw new RuntimeException('The requested active, verified, non-demo administrator does not exist.');
+            }
+
+            $assignment = DB::table('role_assignments as assignment')
+                ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+                ->join('companies as company', 'company.id', '=', 'assignment.company_id')
+                ->leftJoin('plants as plant', 'plant.id', '=', 'assignment.plant_id')
+                ->where('assignment.user_id', $user->id)
+                ->where('assignment.is_active', true)
+                ->where('role.code', 'ERP_ADMIN')
+                ->where('role.status', 'ACTIVE')
+                ->where('company.status', 'ACTIVE')
+                ->where('company.is_demo', false)
+                ->where(fn ($query) => $query->whereNull('assignment.effective_from')
+                    ->orWhere('assignment.effective_from', '<=', now()))
+                ->where(fn ($query) => $query->whereNull('assignment.effective_to')
+                    ->orWhere('assignment.effective_to', '>', now()))
+                ->first([
+                    'assignment.company_id',
+                    'assignment.plant_id',
+                    'plant.status as plant_status',
+                    'plant.is_demo as plant_is_demo',
+                ]);
+            if ($assignment === null
+                || ($assignment->plant_id !== null
+                    && ($assignment->plant_status !== 'ACTIVE' || (bool) $assignment->plant_is_demo))) {
+                throw new RuntimeException('The requested identity has no active ERP_ADMIN assignment in a legitimate context.');
+            }
+
+            if ($user->password_changed_at !== null) {
+                return [
+                    'status' => 'already_initialized',
+                    'email' => $email,
+                    'password_initialized' => true,
+                ];
+            }
+
+            $now = now();
+            $version = (int) $user->record_version + 1;
+            DB::table('users')->where('id', $user->id)->update([
+                'password_hash' => Hash::make((string) $password),
+                'password_changed_at' => $now,
+                'record_version' => $version,
+                'updated_at' => $now,
+            ]);
+            $revokedResetTokens = DB::table('identity_tokens')
+                ->where('user_id', $user->id)
+                ->where('type', 'PASSWORD_RESET')
+                ->whereNull('used_at')
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => $now, 'updated_at' => $now]);
+            $revoked = DB::table('user_sessions')
+                ->where('user_id', $user->id)
+                ->whereNull('revoked_at')
+                ->update([
+                    'revoked_at' => $now,
+                    'revoked_by_user_id' => $user->id,
+                    'revoke_reason' => 'BOOTSTRAP_PASSWORD_INITIALIZED',
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+            $this->audit->record(
+                'INITIALIZE_PRODUCTION_ADMIN_PASSWORD',
+                'user',
+                (string) $user->id,
+                (string) $user->id,
+                (string) $assignment->company_id,
+                $assignment->plant_id === null ? null : (string) $assignment->plant_id,
+                'SUCCESS',
+                [
+                    'entity_version' => $version,
+                    'reason_code' => 'AUTHORIZED_OPERATIONAL_BOOTSTRAP',
+                    'safe_diff' => [
+                        'password_initialized' => ['from' => false, 'to' => true],
+                        'active_sessions_revoked' => ['from' => 0, 'to' => $revoked],
+                        'password_reset_tokens_revoked' => ['from' => 0, 'to' => $revokedResetTokens],
+                    ],
+                ],
+            );
+
+            return [
+                'status' => 'initialized',
+                'email' => $email,
+                'password_initialized' => true,
+                'active_sessions_revoked' => $revoked,
+                'password_reset_tokens_revoked' => $revokedResetTokens,
             ];
         });
     }

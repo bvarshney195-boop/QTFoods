@@ -20,7 +20,7 @@ type AccessFlow = 'signin' | 'forgot' | 'verification' | 'reset' | 'verify' | 'i
 
 type LoginProps = {
   onLogin?: (email: string, method: AuthenticationMethod, password?: string) => Promise<void> | void;
-  onChallenge?: (action: AuthenticationAction, code?: string) => Promise<void> | void;
+  onChallenge?: (action: AuthenticationAction, credential?: string) => Promise<void> | void;
   onCancelChallenge?: () => void;
   onClearError?: () => void;
   authChallenge?: AuthenticationChallenge | null;
@@ -90,6 +90,10 @@ export default function ACC_LOGIN({
     return () => { current = false; };
   }, [authChallenge?.setup?.otpauth_uri]);
 
+  useEffect(() => {
+    if (authChallenge && !isPasswordChallenge(authChallenge.phase)) setPassword('');
+  }, [authChallenge?.phase]);
+
   const working = busy || localBusy;
 
   function submitSignIn(event: FormEvent<HTMLFormElement>) {
@@ -97,7 +101,7 @@ export default function ACC_LOGIN({
     setNotice(null);
     if (authChallenge) {
       const action = challengeVerificationAction(authChallenge.phase);
-      if (action) void onChallenge?.(action, code.trim());
+      if (action) void onChallenge?.(action, action === 'verify_password' ? password : code.trim());
     } else {
       void onLogin?.(email.trim().toLowerCase(), authMethod, authMethod === 'password' ? password : undefined);
     }
@@ -225,7 +229,7 @@ export default function ACC_LOGIN({
                   </button>
                   {authChallenge.available_methods.includes('totp') && (
                     <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_totp')}>
-                      <b>Google Authenticator</b><span>Use your registered authenticator or a recovery code</span>
+                      <b>Google Authenticator</b><span>{authChallenge.totp_registered ? 'Use your registered authenticator or a recovery code' : 'Register a new authenticator now'}</span>
                     </button>
                   )}
                 </fieldset>
@@ -243,26 +247,40 @@ export default function ACC_LOGIN({
 
               {authChallenge.phase !== 'SELECT_SECOND_FACTOR' && (
                 <>
-                  <label htmlFor="login-code">{challengeCodeLabel(authChallenge.phase)}</label>
-                  <input
-                    id="login-code"
-                    value={code}
-                    onChange={(event) => setCode(event.target.value.replace(/\s/g, ''))}
-                    inputMode={authChallenge.phase === 'TOTP_ENROLLMENT' || authChallenge.phase.startsWith('EMAIL_') ? 'numeric' : 'text'}
-                    autoComplete="one-time-code"
-                    autoFocus
-                    required
-                    aria-describedby="challenge-expiry"
-                  />
+                  {isPasswordChallenge(authChallenge.phase) ? <>
+                    <label htmlFor="challenge-password">Account password</label>
+                    <input
+                      id="challenge-password"
+                      type="password"
+                      value={password}
+                      onChange={(event) => updateSignInPassword(event.target.value)}
+                      autoComplete="current-password"
+                      autoFocus
+                      required
+                      aria-describedby="challenge-expiry"
+                    />
+                  </> : <>
+                    <label htmlFor="login-code">{challengeCodeLabel(authChallenge.phase)}</label>
+                    <input
+                      id="login-code"
+                      value={code}
+                      onChange={(event) => setCode(event.target.value.replace(/\s/g, ''))}
+                      inputMode={authChallenge.phase === 'TOTP_ENROLLMENT' || authChallenge.phase.startsWith('EMAIL_') ? 'numeric' : 'text'}
+                      autoComplete="one-time-code"
+                      autoFocus
+                      required
+                      aria-describedby="challenge-expiry"
+                    />
+                  </>}
                   <small id="challenge-expiry">This sign-in step expires at {new Date(authChallenge.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</small>
                   {authChallenge.delivery?.preview_code && <small className="development-preview">Development email code: <code>{authChallenge.delivery.preview_code}</code></small>}
-                  <button className="primary" type="submit" disabled={working || !code.trim()}>{working ? 'Verifying…' : authChallenge.phase === 'TOTP_ENROLLMENT' ? 'Register and sign in' : 'Verify and continue'}</button>
+                  <button className="primary" type="submit" disabled={working || (isPasswordChallenge(authChallenge.phase) ? !password : !code.trim())}>{working ? 'Verifying…' : authChallenge.phase === 'TOTP_ENROLLMENT' ? 'Register and sign in' : isPasswordChallenge(authChallenge.phase) ? 'Verify password and continue' : 'Verify and continue'}</button>
                   {authChallenge.phase.startsWith('EMAIL_') && (
                     <button className="auth-link centered" type="button" disabled={working} onClick={() => void onChallenge?.('resend_email_otp')}>Send a new code</button>
                   )}
                 </>
               )}
-              <button className="auth-link centered" type="button" onClick={() => { setCode(''); onCancelChallenge?.(); }}>Start again</button>
+              <button className="auth-link centered" type="button" onClick={() => { setCode(''); setPassword(''); onCancelChallenge?.(); }}>Start again</button>
             </> : <>
               <label htmlFor="login-email">Email</label>
               <input id="login-email" type="email" value={email} onChange={(event) => updateSignInEmail(event.target.value)} autoComplete="username" required />
@@ -337,6 +355,7 @@ function validFlow(value: string | null): AccessFlow {
 function challengeVerificationAction(phase: AuthenticationChallenge['phase']): AuthenticationAction | null {
   if (phase === 'TOTP_ENROLLMENT') return 'confirm_totp_setup';
   if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'verify_totp';
+  if (isPasswordChallenge(phase)) return 'verify_password';
   if (phase.startsWith('EMAIL_')) return 'verify_email_otp';
   return null;
 }
@@ -345,6 +364,7 @@ function challengeTitle(phase: AuthenticationChallenge['phase']): string {
   if (phase === 'SELECT_SECOND_FACTOR') return 'Two-step verification required';
   if (phase === 'TOTP_ENROLLMENT') return 'Register Google Authenticator';
   if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'Google Authenticator';
+  if (isPasswordChallenge(phase)) return 'Verify your account password';
   if (phase === 'EMAIL_PROOF_FOR_TOTP_SETUP') return 'Verify your registered email';
   return 'Check your email';
 }
@@ -354,7 +374,9 @@ function challengeIntroduction(challenge: AuthenticationChallenge): string {
     return 'Your role requires another approved factor. Password verification alone cannot sign you in.';
   }
   if (challenge.phase === 'TOTP_ENROLLMENT') {
-    return 'Your registered email was verified. Complete authenticator registration to continue.';
+    return challenge.primary_method === 'EMAIL_OTP'
+      ? 'Your registered email was verified. Complete authenticator registration to continue.'
+      : 'Your account password was verified. Complete authenticator registration to continue.';
   }
   if (challenge.phase === 'TOTP_SECOND') {
     return 'Enter your Google Authenticator code to complete the required second factor.';
@@ -364,6 +386,12 @@ function challengeIntroduction(challenge: AuthenticationChallenge): string {
   }
   if (challenge.phase === 'EMAIL_PROOF_FOR_TOTP_SETUP') {
     return `Authenticator is not registered yet. First enter the code sent to ${challenge.email_hint}.`;
+  }
+  if (challenge.phase === 'PASSWORD_PROOF_FOR_TOTP_SETUP') {
+    return 'Authenticator is not registered yet. Verify your account password before the setup QR code is displayed.';
+  }
+  if (challenge.phase === 'PASSWORD_SECOND_AFTER_TOTP') {
+    return 'Your privileged role requires two independent factors. Verify your account password to finish signing in.';
   }
   if (challenge.phase === 'EMAIL_OTP_SECOND_AFTER_TOTP') {
     return `Your privileged role requires a second factor. Enter the code sent to ${challenge.email_hint}.`;
@@ -375,6 +403,10 @@ function challengeCodeLabel(phase: AuthenticationChallenge['phase']): string {
   if (phase === 'TOTP_PRIMARY' || phase === 'TOTP_SECOND') return 'Google Authenticator or recovery code';
   if (phase === 'TOTP_ENROLLMENT') return 'Six-digit Google Authenticator code';
   return 'Six-digit email code';
+}
+
+function isPasswordChallenge(phase: AuthenticationChallenge['phase']): boolean {
+  return phase === 'PASSWORD_PROOF_FOR_TOTP_SETUP' || phase === 'PASSWORD_SECOND_AFTER_TOTP';
 }
 
 function message(error: unknown, fallback: string): string {

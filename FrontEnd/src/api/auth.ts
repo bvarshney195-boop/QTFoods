@@ -13,6 +13,7 @@ export type AuthenticationAction =
   | 'select_email_otp'
   | 'select_totp'
   | 'verify_email_otp'
+  | 'verify_password'
   | 'verify_totp'
   | 'resend_email_otp'
   | 'confirm_totp_setup';
@@ -27,6 +28,8 @@ export type AuthenticationChallenge = {
     | 'EMAIL_OTP_SECOND'
     | 'EMAIL_OTP_SECOND_AFTER_TOTP'
     | 'EMAIL_PROOF_FOR_TOTP_SETUP'
+    | 'PASSWORD_PROOF_FOR_TOTP_SETUP'
+    | 'PASSWORD_SECOND_AFTER_TOTP'
     | 'TOTP_PRIMARY'
     | 'TOTP_SECOND'
     | 'TOTP_ENROLLMENT';
@@ -72,12 +75,14 @@ export async function login(
 export async function continueAuthentication(
   challengeId: string,
   action: AuthenticationAction,
-  code?: string,
+  credential?: string,
 ): Promise<LoginResult> {
   return (await apiMutation<DataEnvelope<LoginResult>>('/api/v1/auth/challenge', {
     challenge_id: challengeId,
     action,
-    ...(code ? { code } : {}),
+    ...(credential
+      ? action === 'verify_password' ? { password: credential } : { code: credential }
+      : {}),
   })).data;
 }
 

@@ -30,11 +30,7 @@ final class MfaService
         return $this->beginVerifiedSetup($user, $request);
     }
 
-    /**
-     * Start authenticator enrolment after the caller has already proved ownership
-     * of the user's registered email address. This is intentionally separate from
-     * beginSetup(), which is used by an authenticated user and requires a password.
-     */
+    /** Start enrolment after the caller has already completed an approved proof. */
     public function beginVerifiedSetup(User $user, Request $request): array
     {
         if ($user->mfa_enabled_at !== null) {

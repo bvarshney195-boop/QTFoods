@@ -85,6 +85,29 @@ Artisan::command('qt:identity:bootstrap-admin
     }
 )->purpose('One-time, audited provisioning of a real non-demo ERP administrator with mandatory MFA.');
 
+Artisan::command('qt:identity:initialize-bootstrap-password', function (ProductionAdminBootstrapper $bootstrapper) {
+    $email = trim((string) config('qtfoods.identity.bootstrap_admin_email'));
+    $password = config('qtfoods.identity.bootstrap_admin_password');
+    $confirmation = (string) config('qtfoods.identity.bootstrap_admin_password_confirmation');
+    if ($email === '' && ($password === null || $password === '') && $confirmation === '') {
+        $this->info('No production administrator password initialization was requested.');
+
+        return 0;
+    }
+
+    try {
+        $result = $bootstrapper->initializePassword($email, $password, $confirmation);
+    } catch (\InvalidArgumentException|\RuntimeException $exception) {
+        $this->error($exception->getMessage());
+
+        return 2;
+    }
+
+    $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    return 0;
+})->purpose('One-time password initialization from managed deployment secrets; never resets an initialized account.');
+
 Artisan::command('qt:outbox:process {--limit=}', function () {
     $limit = $this->option('limit');
     $result = app(OutboxProcessor::class)->process(

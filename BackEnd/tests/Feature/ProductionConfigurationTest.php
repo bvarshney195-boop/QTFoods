@@ -59,6 +59,36 @@ final class ProductionConfigurationTest extends TestCase
         );
     }
 
+    public function test_bootstrap_password_must_not_remain_in_the_runtime_environment(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set('qtfoods.identity.bootstrap_admin_password', 'UniqueBootstrapPass123');
+
+        self::assertContains(
+            'QT_BOOTSTRAP_ADMIN_PASSWORD must be removed after the one-time administrator initialization.',
+            app(ProductionEnvironmentGuard::class)->violations('production'),
+        );
+    }
+
+    public function test_exact_bootstrap_initializer_may_consume_the_temporary_secret(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set('qtfoods.identity.bootstrap_admin_password', 'UniqueBootstrapPass123');
+        $originalArgv = $_SERVER['argv'] ?? null;
+        $_SERVER['argv'] = ['artisan', 'qt:identity:initialize-bootstrap-password', '--no-interaction'];
+
+        try {
+            app(ProductionEnvironmentGuard::class)->enforce('production');
+            self::addToAssertionCount(1);
+        } finally {
+            if ($originalArgv === null) {
+                unset($_SERVER['argv']);
+            } else {
+                $_SERVER['argv'] = $originalArgv;
+            }
+        }
+    }
+
     public function test_https_is_required_for_application_routes_but_not_health_checks(): void
     {
         config()->set([

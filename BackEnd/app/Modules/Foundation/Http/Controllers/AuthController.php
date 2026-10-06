@@ -44,7 +44,7 @@ final class AuthController
         $validated = $request->validate([
             'email' => ['required', 'email'],
             'method' => ['nullable', 'in:password,email_otp,totp'],
-            'password' => ['nullable', 'string'],
+            'password' => ['nullable', 'string', 'max:1024'],
         ]);
         $method = (string) ($validated['method'] ?? 'password');
         $email = mb_strtolower(trim((string) $validated['email']));
@@ -100,19 +100,21 @@ final class AuthController
         }
 
         // A QR secret is never disclosed merely because someone knows an email.
-        // Registered-email ownership must be proved before enrolment can begin.
+        // When email delivery is unavailable, the account password provides the
+        // independent proof required before first-time authenticator enrolment.
         return $this->storeChallenge($request, $user, [
             'primary_method' => 'TOTP',
-            'phase' => 'EMAIL_PROOF_FOR_TOTP_SETUP',
-        ], true);
+            'phase' => 'PASSWORD_PROOF_FOR_TOTP_SETUP',
+        ]);
     }
 
     public function authenticationChallenge(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'challenge_id' => ['required', 'uuid'],
-            'action' => ['required', 'in:select_email_otp,select_totp,verify_email_otp,verify_totp,resend_email_otp,confirm_totp_setup'],
+            'action' => ['required', 'in:select_email_otp,select_totp,verify_email_otp,verify_password,verify_totp,resend_email_otp,confirm_totp_setup'],
             'code' => ['nullable', 'string', 'max:32'],
+            'password' => ['nullable', 'string', 'max:1024'],
         ]);
         $challenge = $this->loadChallenge($request, (string) $validated['challenge_id']);
         $user = $this->eligibleUserById((string) $challenge['user_id']);
@@ -132,7 +134,11 @@ final class AuthController
 
                 return $this->saveChallengeWithEmailCode($request, $user, $challenge);
             }
-            if ($action === 'select_totp' && $user->mfa_enabled_at !== null) {
+            if ($action === 'select_totp') {
+                if ($user->mfa_enabled_at === null) {
+                    return $this->startTotpEnrollment($request, $user, $challenge, 'PASSWORD');
+                }
+
                 $challenge['phase'] = 'TOTP_SECOND';
                 $this->saveChallenge($request, $challenge);
 
@@ -155,6 +161,22 @@ final class AuthController
             'EMAIL_PROOF_FOR_TOTP_SETUP',
         ], true)) {
             return $this->saveChallengeWithEmailCode($request, $user, $challenge);
+        }
+
+        if ($action === 'verify_password' && in_array($phase, [
+            'PASSWORD_PROOF_FOR_TOTP_SETUP', 'PASSWORD_SECOND_AFTER_TOTP',
+        ], true)) {
+            if (! Hash::check((string) ($validated['password'] ?? ''), (string) $user->password_hash)) {
+                $this->recordFailedAttempt($request, $challenge, 'password', 'The supplied password is invalid.');
+            }
+
+            if ($phase === 'PASSWORD_SECOND_AFTER_TOTP') {
+                $totpMethod = (string) ($challenge['verified_totp_method'] ?? 'AUTHENTICATOR');
+
+                return $this->completeChallengeLogin($request, $user, $challenge, $totpMethod.'+PASSWORD');
+            }
+
+            return $this->startTotpEnrollment($request, $user, $challenge, 'PASSWORD');
         }
 
         if ($action === 'verify_email_otp' && in_array($phase, [
@@ -181,14 +203,7 @@ final class AuthController
                 return $this->challengeResponse($user, $challenge);
             }
 
-            $setup = $this->mfa->beginVerifiedSetup($user, $request);
-            $challenge['phase'] = 'TOTP_ENROLLMENT';
-            $challenge['attempts'] = 0;
-            $challenge['setup'] = $setup;
-            unset($challenge['email_code_hash'], $challenge['email_code_expires_at']);
-            $this->saveChallenge($request, $challenge);
-
-            return $this->challengeResponse($user, $challenge);
+            return $this->startTotpEnrollment($request, $user, $challenge, 'EMAIL_OTP');
         }
 
         if ($action === 'verify_totp' && in_array($phase, ['TOTP_PRIMARY', 'TOTP_SECOND'], true)) {
@@ -203,17 +218,18 @@ final class AuthController
                 return $this->completeChallengeLogin($request, $user, $challenge, $primary.'+'.$method);
             }
             // Selecting an enrolled authenticator is itself a possession-based
-            // primary ceremony. Only roles governed by mandatory MFA need an
-            // additional, independent email factor after it. Password sign-in
-            // still honours an enrolled user's MFA setting via the earlier gate.
+            // primary ceremony. Privileged roles still require an independent
+            // knowledge factor, but no longer depend on email delivery.
             if (! $this->requiresRoleSecondFactor($user)) {
                 return $this->completeChallengeLogin($request, $user, $challenge, $method);
             }
 
-            $challenge['phase'] = 'EMAIL_OTP_SECOND_AFTER_TOTP';
+            $challenge['phase'] = 'PASSWORD_SECOND_AFTER_TOTP';
             $challenge['attempts'] = 0;
+            $challenge['verified_totp_method'] = $method;
+            $this->saveChallenge($request, $challenge);
 
-            return $this->saveChallengeWithEmailCode($request, $user, $challenge);
+            return $this->challengeResponse($user, $challenge);
         }
 
         if ($action === 'confirm_totp_setup' && $phase === 'TOTP_ENROLLMENT') {
@@ -224,11 +240,13 @@ final class AuthController
                     $exception->errors()['code'][0] ?? 'Enter a valid six-digit Google Authenticator code.');
             }
 
+            $setupProof = (string) ($challenge['setup_proof'] ?? 'EMAIL_OTP');
+
             return $this->completeChallengeLogin(
                 $request,
                 $user->fresh(),
                 $challenge,
-                'EMAIL_OTP+AUTHENTICATOR',
+                $setupProof === 'PASSWORD' ? 'PASSWORD+AUTHENTICATOR' : 'EMAIL_OTP+AUTHENTICATOR',
                 ['mfa_enrolment' => $setupResult],
             );
         }
@@ -294,6 +312,27 @@ final class AuthController
         return $this->challengeResponse($user, $challenge);
     }
 
+    private function startTotpEnrollment(
+        Request $request,
+        User $user,
+        array $challenge,
+        string $proofMethod,
+    ): JsonResponse {
+        $setup = $this->mfa->beginVerifiedSetup($user, $request);
+        $challenge['phase'] = 'TOTP_ENROLLMENT';
+        $challenge['attempts'] = 0;
+        $challenge['setup_proof'] = $proofMethod;
+        $challenge['setup'] = $setup;
+        unset(
+            $challenge['email_code_hash'],
+            $challenge['email_code_expires_at'],
+            $challenge['delivery'],
+        );
+        $this->saveChallenge($request, $challenge);
+
+        return $this->challengeResponse($user, $challenge);
+    }
+
     private function loadChallenge(Request $request, string $challengeId): array
     {
         $challenge = $request->session()->get(self::CHALLENGE_KEY);
@@ -350,7 +389,7 @@ final class AuthController
             'email_hint' => $this->maskEmail((string) $user->email),
             'totp_registered' => $user->mfa_enabled_at !== null,
             'available_methods' => $phase === 'SELECT_SECOND_FACTOR'
-                ? array_values(array_filter(['email_otp', $user->mfa_enabled_at !== null ? 'totp' : null]))
+                ? ['email_otp', 'totp']
                 : [],
         ];
         if (isset($challenge['setup']) && is_array($challenge['setup'])) {
