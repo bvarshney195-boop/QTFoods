@@ -604,7 +604,10 @@ final class FoundationAdminService
                 ]);
             $recoveryCodesRemoved = DB::table('user_mfa_recovery_codes')
                 ->where('user_id', $userId)->delete();
+            $releasedEmail = $this->deletedUserEmail($userId);
             DB::table('users')->where('id', $userId)->update([
+                'deleted_email' => $user->email,
+                'email' => $releasedEmail,
                 'password_hash' => Hash::make(Str::random(64)),
                 'status' => 'INACTIVE',
                 'mfa_secret' => null,
@@ -617,6 +620,7 @@ final class FoundationAdminService
 
             $result = $this->result('user', $userId, 'DELETED', $version, [
                 'deleted' => true,
+                'email_released' => true,
                 'assignments_revoked' => $revokedAssignments,
                 'sessions_revoked' => $revokedSessions,
             ]);
@@ -624,6 +628,7 @@ final class FoundationAdminService
                 $data['company_id'], $data['plant_id'], $data, $version, [
                     'status' => ['from' => $user->status, 'to' => 'INACTIVE'],
                     'deleted_at' => ['from' => null, 'to' => $now->toISOString()],
+                    'email_released' => ['from' => false, 'to' => true],
                     'assignments_revoked' => ['from' => 0, 'to' => $revokedAssignments],
                     'sessions_revoked' => ['from' => 0, 'to' => $revokedSessions],
                     'tokens_revoked' => ['from' => 0, 'to' => $revokedTokens],
@@ -1254,6 +1259,16 @@ final class FoundationAdminService
         if ($query->exists()) {
             throw ValidationException::withMessages([$field => [$message]]);
         }
+    }
+
+    private function deletedUserEmail(string $userId): string
+    {
+        $email = 'deleted+'.str_replace('-', '', Str::lower($userId)).'@identity.invalid';
+        while (DB::table('users')->where('email', $email)->exists()) {
+            $email = 'deleted+'.Str::lower(Str::random(32)).'@identity.invalid';
+        }
+
+        return $email;
     }
 
     private function diff(object $before, array $changes): array

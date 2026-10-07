@@ -147,7 +147,7 @@ final class UserAdminController
             'email' => ['required', 'email:rfc', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'temporary_password' => [
-                'required', 'string', Password::min(12)->letters()->numbers()->mixedCase(),
+                'required', 'string', 'max:1024', Password::min(9)->letters()->numbers()->mixedCase(),
             ],
             'role_id' => ['required', 'uuid'],
             'effective_from' => ['nullable', 'date'],

@@ -207,7 +207,9 @@ final class FoundationAdminQuery
                 ->where('scoped_assignment.plant_id', $plantId))
             ->select('user.*');
 
-        $this->applyTextFilter($query, $filters['q'] ?? null, ['user.name', 'user.email']);
+        $this->applyTextFilter($query, $filters['q'] ?? null, [
+            'user.name', 'user.email', 'user.deleted_email',
+        ]);
         $query->when($filters['status'] ?? null, fn (Builder $query, string $status) =>
             $query->where('user.status', $status));
 
@@ -415,7 +417,9 @@ final class FoundationAdminQuery
 
         return [
             'id' => (string) $user->id,
-            'email' => $user->email,
+            'email' => $deleted && $user->deleted_email !== null
+                ? $user->deleted_email
+                : $user->email,
             'name' => $user->name,
             'status' => $user->status,
             'email_verified' => $user->email_verified_at !== null,

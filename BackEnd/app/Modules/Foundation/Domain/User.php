@@ -13,7 +13,7 @@ final class User extends Authenticatable
 
     protected $guarded = [];
 
-    protected $hidden = ['password_hash', 'mfa_secret'];
+    protected $hidden = ['password_hash', 'mfa_secret', 'deleted_email'];
 
     protected $authPasswordName = 'password_hash';
 

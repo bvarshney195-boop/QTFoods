@@ -367,6 +367,10 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
 /* Organisation changes occupy a full row so the plant form is never clipped beside the register. */
 .organisation-workspace{grid-template-columns:minmax(0,1fr)}
 .organisation-workspace>.organisation-editor{position:static;max-height:none;overflow:visible}
+/* User create/detail follows the register on its own full-width row. */
+.user-workspace{grid-template-columns:minmax(0,1fr)}
+.user-workspace>.user-editor{position:static;max-height:none;overflow:visible}
+.user-register-actions{justify-content:flex-start;min-width:150px}
 .required-password-flow .context-flow-main{display:grid;place-items:center}
 .required-password-card{width:min(620px,100%)}
 .required-password-card h1{margin:8px 0;color:var(--navy)}

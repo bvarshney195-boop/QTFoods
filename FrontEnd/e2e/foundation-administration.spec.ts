@@ -88,6 +88,12 @@ test('ERP Administrator provisions plant foundation data and effective user auth
 test('User register issues temporary passwords and governs MFA and deletion', async ({ page }) => {
   await login(page, 'admin.user@qtfoods.local', 'prototype');
   await page.getByRole('navigation', { name: 'Main menu' }).locator('[data-screen-code="ADM-USER"]').click();
+  const workspace = page.getByTestId('user-workspace');
+  const registerBounds = await workspace.locator(':scope > section').boundingBox();
+  const editorBounds = await workspace.locator(':scope > aside').boundingBox();
+  expect(registerBounds).not.toBeNull();
+  expect(editorBounds).not.toBeNull();
+  expect(editorBounds!.y).toBeGreaterThanOrEqual(registerBounds!.y + registerBounds!.height - 1);
   await page.getByRole('button', { name: '+ New' }).click();
   await page.getByRole('button', { name: 'Direct account' }).click();
   await page.getByLabel('Name').fill('E2E Governed User');
@@ -98,14 +104,14 @@ test('User register issues temporary passwords and governs MFA and deletion', as
   await expect(page.getByRole('status')).toContainText('created atomically');
 
   const row = page.locator('.admin-table tbody tr').filter({ hasText: 'e2e.governed.user@qtfoods.local' });
-  await row.getByRole('button', { name: 'Open' }).click();
-  await page.getByRole('button', { name: 'Reset password' }).click();
+  await row.getByRole('button', { name: 'Reset password' }).click();
   const resetDialog = page.getByRole('dialog', { name: 'Reset password for E2E Governed User' });
   await resetDialog.getByLabel(/^Temporary password/).fill('ResetPass9x');
   await resetDialog.getByLabel('Confirm temporary password').fill('ResetPass9x');
   await resetDialog.getByRole('button', { name: 'Issue temporary password' }).click();
   await expect(page.getByRole('status')).toContainText('must replace it at next sign-in');
 
+  await row.getByRole('button', { name: 'Open' }).click();
   await page.getByRole('button', { name: 'Enable MFA' }).click();
   const enableDialog = page.getByRole('alertdialog', { name: 'Enable MFA for E2E Governed User?' });
   await enableDialog.getByRole('button', { name: 'Enable MFA' }).click();
@@ -121,6 +127,18 @@ test('User register issues temporary passwords and governs MFA and deletion', as
   await deleteDialog.getByRole('button', { name: 'Delete user' }).click();
   await expect(page.getByRole('status')).toContainText('Audit history was retained');
   await expect(row.getByText('Deleted', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '+ New' }).click();
+  await page.getByRole('button', { name: 'Direct account' }).click();
+  await page.getByLabel('Name').fill('E2E Replacement Identity');
+  await page.getByLabel('Email', { exact: true }).fill('e2e.governed.user@qtfoods.local');
+  await page.getByLabel(/Temporary password/).fill('Restart9A');
+  await page.getByLabel('Initial role').selectOption({ label: 'Sales Manager (SALES_MANAGER)' });
+  await page.getByRole('button', { name: 'Create user' }).click();
+  await expect(page.getByRole('status')).toContainText('created atomically');
+  const matchingRows = page.locator('.admin-table tbody tr').filter({ hasText: 'e2e.governed.user@qtfoods.local' });
+  await expect(matchingRows).toHaveCount(2);
+  await expect(matchingRows.filter({ hasText: 'E2E Replacement Identity' }).getByText('Active', { exact: true })).toBeVisible();
 });
 
 async function login(page: Page, email: string, password: string): Promise<void> {

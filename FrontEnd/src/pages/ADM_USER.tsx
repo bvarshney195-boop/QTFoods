@@ -121,6 +121,13 @@ export default function ADM_USER() {
     clearFeedback();
   }
 
+  function startPasswordReset(user: UserAdmin) {
+    clearFeedback();
+    setTemporaryPassword('');
+    setTemporaryPasswordConfirmation('');
+    setPasswordResetTarget(user);
+  }
+
   function change(patch: Partial<UserForm>) {
     setForm((current) => ({ ...current, ...patch }));
     commandKey.current = null;
@@ -263,7 +270,7 @@ export default function ADM_USER() {
       setSelected(null);
       setForm(blankUser());
       setDeviceSessions(null);
-      setSuccess(`${target.email} was deleted. Audit history was retained and all access was revoked.`);
+      setSuccess(`${target.email} was deleted. Audit history was retained, all access was revoked, and the email can now be used for a new account.`);
       await refresh();
     } catch (caught) {
       setError(apiMessage(caught, 'Unable to delete this user.'));
@@ -369,7 +376,7 @@ export default function ADM_USER() {
         <div className="kpi"><span>Roles in use</span><b>{loading && !workspace ? '-' : workspace?.summary.roles_in_use ?? 0}</b><small>distinct authorities</small></div>
       </div>
 
-      <div className="module-grid admin-workspace">
+      <div className="module-grid admin-workspace user-workspace" data-testid="user-workspace">
         <section className="panel">
           <div className="panel-head"><div><h3>User register</h3><span>{session.selected_context?.plant_name}</span></div><button className="secondary compact-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
           <form className="admin-toolbar two-filter" onSubmit={submitSearch}>
@@ -387,7 +394,7 @@ export default function ADM_USER() {
                 <td><small>{user.email_verified ? 'Email verified' : 'Email unverified'}</small><small>{user.mfa_enabled ? 'Authenticator enrolled' : user.mfa_required ? 'MFA enrolment pending' : 'MFA optional'}</small></td>
                 <td>{user.assignments.filter((assignment) => assignment.is_active).map((assignment) => assignment.role.name).join(', ') || 'None'}</td>
                 <td>{user.active_session_count} active</td>
-                <td><button className="secondary compact-button" type="button" onClick={() => choose(user)}>Open</button></td>
+                <td><div className="admin-inline-actions user-register-actions"><button className="secondary compact-button" type="button" onClick={() => choose(user)}>Open</button>{user.allowed_actions.includes('RESET_PASSWORD') && user.id !== session.user.id && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => startPasswordReset(user)}>Reset password</button>}</div></td>
               </tr>)}
             </tbody></table>
           </div>}
@@ -403,7 +410,7 @@ export default function ADM_USER() {
             <label className="full">Name<input value={form.name} onChange={(event) => change({ name: event.target.value })} /><FieldError value={fieldErrors.name} /></label>
             <label className="full">Email<input type="email" value={form.email} readOnly={selected?.status === 'INVITED'} onChange={(event) => change({ email: event.target.value })} />{selected?.status === 'INVITED' && <span className="field-hint">Revoke and create a new invitation to correct this address.</span>}<FieldError value={fieldErrors.email} /></label>
             {selected ? <label className="full">Account status<select value={form.status} onChange={(event) => change({ status: event.target.value as UserStatus })}><option>ACTIVE</option><option disabled={selected.status !== 'INVITED'}>INVITED</option><option>INACTIVE</option></select><FieldError value={fieldErrors.status} /></label> : <>
-              {creationMode === 'direct' && <label className="full">Temporary password<input type="password" value={form.temporary_password} onChange={(event) => change({ temporary_password: event.target.value })} autoComplete="new-password" /><span className="field-hint">At least 12 characters with upper/lowercase and a number</span><FieldError value={fieldErrors.temporary_password} /></label>}
+              {creationMode === 'direct' && <label className="full">Temporary password<input type="password" value={form.temporary_password} onChange={(event) => change({ temporary_password: event.target.value })} autoComplete="new-password" minLength={9} required /><span className="field-hint">At least 9 characters with upper/lowercase letters and a number; replacement is required at first sign-in</span><FieldError value={fieldErrors.temporary_password} /></label>}
               <label className="full">Initial role<select value={form.role_id} onChange={(event) => change({ role_id: event.target.value })}><option value="">Select an active role</option>{workspace?.lookups.roles.map((role) => <option key={role.id} value={role.id}>{role.name} ({role.code})</option>)}</select><FieldError value={fieldErrors.role_id} /></label>
               <label>Effective from<input type="datetime-local" value={form.effective_from} onChange={(event) => change({ effective_from: event.target.value })} /><FieldError value={fieldErrors.effective_from} /></label>
               <label>Effective to<input type="datetime-local" value={form.effective_to} onChange={(event) => change({ effective_to: event.target.value })} /><FieldError value={fieldErrors.effective_to} /></label>
@@ -418,7 +425,7 @@ export default function ADM_USER() {
               {selected.allowed_actions.includes('MANAGE_INVITATION') && selected.invitation && <><button className="secondary compact-button" type="button" disabled={busy} onClick={() => void manageInvitation('resend')}>Resend invitation</button><button className="danger-button compact-button" type="button" disabled={busy} onClick={() => void manageInvitation('revoke')}>Revoke invitation</button></>}
               {selected.allowed_actions.includes('SEND_VERIFICATION') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void sendVerification()}>Send verification</button>}
               {selected.allowed_actions.includes('MANAGE_SESSIONS') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void loadSessions()}>Review device sessions</button>}
-              {selected.allowed_actions.includes('RESET_PASSWORD') && selected.id !== session.user.id && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPasswordResetTarget(selected); }}>Reset password</button>}
+              {selected.allowed_actions.includes('RESET_PASSWORD') && selected.id !== session.user.id && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => startPasswordReset(selected)}>Set temporary password</button>}
               {selected.allowed_actions.includes('MANAGE_MFA') && selected.mfa_requirement_source === 'ROLE' && <button className="secondary compact-button" type="button" disabled title="ERP Administrator role policy requires MFA">MFA required by role</button>}
               {selected.allowed_actions.includes('MANAGE_MFA') && selected.mfa_requirement_source !== 'ROLE' && selected.id !== session.user.id && <button className={selected.mfa_enabled || selected.mfa_required ? 'danger-button compact-button' : 'secondary compact-button'} type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingMfa({ user: selected, required: !(selected.mfa_enabled || selected.mfa_required) }); }}>{selected.mfa_enabled || selected.mfa_required ? 'Disable MFA' : 'Enable MFA'}</button>}
               {selected.allowed_actions.includes('DELETE') && selected.id !== session.user.id && <button className="danger-button compact-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete user</button>}
@@ -447,7 +454,7 @@ export default function ADM_USER() {
 
       {pendingMfa && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mfa-policy-title"><h3 id="mfa-policy-title">{pendingMfa.required ? 'Enable' : 'Disable'} MFA for {pendingMfa.user.name}?</h3><p>{pendingMfa.required ? 'All active sessions will end. The user must complete two independent factors and will enrol their own authenticator after identity proof when needed.' : 'All active sessions will end, and the user’s authenticator secret and unused recovery codes will be removed.'}</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingMfa(null)} disabled={busy}>Cancel</button><button className={pendingMfa.required ? 'primary' : 'danger-button'} type="button" onClick={() => void confirmMfaChange()} disabled={busy}>{busy ? 'Applying…' : pendingMfa.required ? 'Enable MFA' : 'Disable MFA'}</button></div></section></div>}
 
-      {pendingDelete && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title"><h3 id="delete-user-title">Delete {pendingDelete.name}?</h3><p>This immediately revokes the user’s sessions, tokens, invitations, MFA credentials, and role assignments. The identity is retained as a deleted record so audit events remain verifiable.</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingDelete(null)} disabled={busy}>Cancel</button><button className="danger-button" type="button" onClick={() => void confirmDelete()} disabled={busy}>{busy ? 'Deleting…' : 'Delete user'}</button></div></section></div>}
+      {pendingDelete && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title"><h3 id="delete-user-title">Delete {pendingDelete.name}?</h3><p>This immediately revokes the user’s sessions, tokens, invitations, MFA credentials, and role assignments. The identity remains in audit history, while its email address is released so a new account can use it.</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingDelete(null)} disabled={busy}>Cancel</button><button className="danger-button" type="button" onClick={() => void confirmDelete()} disabled={busy}>{busy ? 'Deleting…' : 'Delete user'}</button></div></section></div>}
     </>
   );
 

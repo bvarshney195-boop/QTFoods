@@ -107,18 +107,22 @@ describe('foundation administration workspaces', () => {
     renderPage(<ADM_USER />);
 
     expect(await screen.findByText('Demo ERP Administrator')).toBeInTheDocument();
+    const userLayout = screen.getByTestId('user-workspace');
+    expect(userLayout).toHaveClass('user-workspace');
+    expect(userLayout.children[0]?.tagName).toBe('SECTION');
+    expect(userLayout.children[1]?.tagName).toBe('ASIDE');
     await userEvent.setup().click(screen.getByRole('button', { name: '+ New' }));
     await userEvent.setup().click(screen.getByRole('button', { name: 'Direct account' }));
     await userEvent.setup().type(screen.getByLabelText('Name'), 'Plant Auditor');
     await userEvent.setup().type(screen.getByLabelText('Email'), 'AUDITOR@EXAMPLE.LOCAL');
-    await userEvent.setup().type(screen.getByLabelText(/Temporary password/), 'TemporaryPass123');
+    await userEvent.setup().type(screen.getByLabelText(/Temporary password/), 'TempPass9');
     await userEvent.setup().selectOptions(screen.getByLabelText('Initial role'), 'role-admin');
     await userEvent.setup().click(screen.getByRole('button', { name: 'Create user' }));
 
     await waitFor(() => expect(apiMocks.createUser).toHaveBeenCalledWith(expect.objectContaining({
       email: 'auditor@example.local',
       name: 'Plant Auditor',
-      temporary_password: 'TemporaryPass123',
+      temporary_password: 'TempPass9',
       role_id: 'role-admin',
     }), expect.any(String)));
     expect(await screen.findByRole('status')).toHaveTextContent('created atomically');
@@ -155,8 +159,7 @@ describe('foundation administration workspaces', () => {
     renderPage(<ADM_USER />);
 
     const targetRow = (await screen.findByText('Plant Auditor')).closest('tr');
-    await userEvent.setup().click(within(targetRow!).getByRole('button', { name: 'Open' }));
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Reset password' }));
+    await userEvent.setup().click(within(targetRow!).getByRole('button', { name: 'Reset password' }));
     const dialog = screen.getByRole('dialog', { name: 'Reset password for Plant Auditor' });
     await userEvent.setup().type(within(dialog).getByLabelText(/^Temporary password/), 'TempPass9x');
     await userEvent.setup().type(within(dialog).getByLabelText('Confirm temporary password'), 'TempPass9x');

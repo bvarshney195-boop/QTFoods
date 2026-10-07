@@ -200,7 +200,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
         $created = $this->command()->postJson('/api/v1/admin/users', [
             'email' => ' NEW.ADMIN@EXAMPLE.LOCAL ',
             'name' => 'New Plant Administrator',
-            'temporary_password' => 'TemporaryPass123',
+            'temporary_password' => 'TempPass9',
             'role_id' => self::ERP_ADMIN_ROLE_ID,
             'effective_from' => null,
             'effective_to' => null,
@@ -210,9 +210,9 @@ final class FoundationAdministrationEndpointTest extends TestCase
 
         $user = DB::table('users')->where('id', $userId)->first();
         $this->assertSame('new.admin@example.local', $user->email);
-        $this->assertTrue(Hash::check('TemporaryPass123', $user->password_hash));
+        $this->assertTrue(Hash::check('TempPass9', $user->password_hash));
         $this->assertNull($user->password_changed_at);
-        $this->assertStringNotContainsString('TemporaryPass123', json_encode($created->json()));
+        $this->assertStringNotContainsString('TempPass9', json_encode($created->json()));
 
         $this->withHeaders($this->commandHeaders(1))->postJson("/api/v1/admin/users/{$userId}", [
             'email' => 'new.admin@example.local',
@@ -392,9 +392,34 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertJsonPath('data.status', 'DELETED');
         $this->assertDatabaseHas('users', ['id' => $userId, 'status' => 'INACTIVE', 'record_version' => 2]);
         self::assertNotNull(DB::table('users')->where('id', $userId)->value('deleted_at'));
+        $this->assertDatabaseHas('users', ['id' => $userId, 'deleted_email' => 'delete.me@example.local']);
+        $releasedEmail = (string) DB::table('users')->where('id', $userId)->value('email');
+        self::assertNotSame('delete.me@example.local', $releasedEmail);
+        self::assertStringEndsWith('@identity.invalid', $releasedEmail);
         $this->assertDatabaseHas('role_assignments', ['id' => $assignmentId, 'is_active' => false]);
         $this->assertDatabaseHas('audit_events', ['command' => 'DELETE_USER', 'entity_id' => $userId]);
         $this->assertDatabaseHas('outbox_events', ['event_type' => 'foundation.user.deleted', 'aggregate_id' => $userId]);
+
+        $recreated = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'delete.me@example.local',
+            'name' => 'Replacement Identity',
+            'temporary_password' => 'Restart9A',
+            'role_id' => self::SALES_ROLE_ID,
+        ])->assertCreated();
+        self::assertNotSame($userId, $recreated->json('data.id'));
+        $this->assertDatabaseHas('users', [
+            'id' => $recreated->json('data.id'),
+            'email' => 'delete.me@example.local',
+            'deleted_email' => null,
+        ]);
+        $matchingUsers = $this->getJson('/api/v1/admin/users?q=delete.me%40example.local')
+            ->assertOk()->json('data');
+        self::assertCount(2, $matchingUsers);
+        self::assertCount(1, collect($matchingUsers)->whereNotNull('deleted_at'));
+        self::assertSame(
+            ['delete.me@example.local'],
+            collect($matchingUsers)->pluck('email')->unique()->values()->all()
+        );
         $this->postJson('/api/v1/auth/login', [
             'email' => 'delete.me@example.local', 'method' => 'password', 'password' => 'InitialPass123',
         ])->assertUnprocessable();
