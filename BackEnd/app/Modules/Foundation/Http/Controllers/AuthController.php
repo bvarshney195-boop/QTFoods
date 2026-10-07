@@ -220,7 +220,7 @@ final class AuthController
             // Selecting an enrolled authenticator is itself a possession-based
             // primary ceremony. Privileged roles still require an independent
             // knowledge factor, but no longer depend on email delivery.
-            if (! $this->requiresRoleSecondFactor($user)) {
+            if (! $this->requiresSecondFactor($user)) {
                 return $this->completeChallengeLogin($request, $user, $challenge, $method);
             }
 
@@ -441,11 +441,11 @@ final class AuthController
 
     private function requiresSecondFactor(User $user): bool
     {
-        if ($user->mfa_enabled_at !== null) {
-            return true;
-        }
-
-        return $this->requiresRoleSecondFactor($user);
+        // Authenticator enrollment gives standard users another primary sign-in
+        // choice; it does not silently turn every other selected method into a
+        // two-step flow. Privileged roles and users explicitly governed by an
+        // administrator remain fail-closed to two independent factors.
+        return (bool) $user->mfa_required_by_admin || $this->requiresRoleSecondFactor($user);
     }
 
     private function requiresRoleSecondFactor(User $user): bool

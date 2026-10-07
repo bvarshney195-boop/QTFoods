@@ -3,12 +3,15 @@ import { isApiError } from '../api/client';
 import {
   createRoleAssignment,
   createUser,
+  deleteUser,
   inviteUser,
   listUsers,
   listUserSessions,
   resendInvitation,
   revokeInvitation,
   revokeUserSession,
+  resetUserPassword,
+  setUserMfaRequirement,
   sendUserVerification,
   updateRoleAssignment,
   updateUser,
@@ -60,6 +63,11 @@ export default function ADM_USER() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [identityLink, setIdentityLink] = useState<string | null>(null);
   const [deviceSessions, setDeviceSessions] = useState<DeviceSession[] | null>(null);
+  const [passwordResetTarget, setPasswordResetTarget] = useState<UserAdmin | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [temporaryPasswordConfirmation, setTemporaryPasswordConfirmation] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<UserAdmin | null>(null);
+  const [pendingMfa, setPendingMfa] = useState<{ user: UserAdmin; required: boolean } | null>(null);
   const commandKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
 
@@ -96,6 +104,7 @@ export default function ADM_USER() {
     setForm(toForm(user));
     setIdentityLink(null);
     setDeviceSessions(null);
+    closeSecurityDialogs();
     resetAssignmentForm();
     clearFeedback();
   }
@@ -107,6 +116,7 @@ export default function ADM_USER() {
     setCreationMode('invite');
     setIdentityLink(null);
     setDeviceSessions(null);
+    closeSecurityDialogs();
     resetAssignmentForm();
     clearFeedback();
   }
@@ -193,6 +203,71 @@ export default function ADM_USER() {
       setSuccess('A one-time email verification link was sent.');
     } catch (caught) {
       setError(apiMessage(caught, 'Unable to send an email verification link.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitTemporaryPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!passwordResetTarget || busy) return;
+    setBusy(true); clearFeedback();
+    try {
+      await resetUserPassword(
+        passwordResetTarget,
+        temporaryPassword,
+        temporaryPasswordConfirmation,
+        globalThis.crypto.randomUUID()
+      );
+      setPasswordResetTarget(null);
+      setTemporaryPassword('');
+      setTemporaryPasswordConfirmation('');
+      setSuccess(`A temporary password was issued for ${passwordResetTarget.email}. The user must replace it at next sign-in.`);
+      await refresh();
+    } catch (caught) {
+      setError(apiMessage(caught, 'Unable to issue a temporary password.'));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmMfaChange() {
+    if (!pendingMfa || busy) return;
+    const target = pendingMfa.user;
+    const required = pendingMfa.required;
+    setBusy(true); clearFeedback();
+    try {
+      await setUserMfaRequirement(target, required, globalThis.crypto.randomUUID());
+      setPendingMfa(null);
+      setSuccess(required
+        ? `MFA is now required for ${target.email}; enrolment will be completed by the user after identity proof.`
+        : `MFA was disabled for ${target.email}; authenticator credentials and active sessions were revoked.`);
+      await refresh();
+    } catch (caught) {
+      setError(apiMessage(caught, `Unable to ${required ? 'enable' : 'disable'} MFA.`));
+      setPendingMfa(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true); clearFeedback();
+    try {
+      await deleteUser(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedId.current = null;
+      setSelected(null);
+      setForm(blankUser());
+      setDeviceSessions(null);
+      setSuccess(`${target.email} was deleted. Audit history was retained and all access was revoked.`);
+      await refresh();
+    } catch (caught) {
+      setError(apiMessage(caught, 'Unable to delete this user.'));
+      setPendingDelete(null);
     } finally {
       setBusy(false);
     }
@@ -308,8 +383,8 @@ export default function ADM_USER() {
             <table className="admin-table"><thead><tr><th>User</th><th>Status</th><th>Identity</th><th>Active roles</th><th>Sessions</th><th>Action</th></tr></thead><tbody>
               {workspace.data.map((user) => <tr key={user.id}>
                 <td><b>{user.name}</b><small>{user.email}</small></td>
-                <td><StatusBadge status={user.status} /></td>
-                <td><small>{user.email_verified ? 'Email verified' : 'Email unverified'}</small><small>{user.mfa_enabled ? 'MFA enabled' : 'MFA disabled'}</small></td>
+                <td><StatusBadge status={user.deleted_at ? 'DELETED' : user.status} /></td>
+                <td><small>{user.email_verified ? 'Email verified' : 'Email unverified'}</small><small>{user.mfa_enabled ? 'Authenticator enrolled' : user.mfa_required ? 'MFA enrolment pending' : 'MFA optional'}</small></td>
                 <td>{user.assignments.filter((assignment) => assignment.is_active).map((assignment) => assignment.role.name).join(', ') || 'None'}</td>
                 <td>{user.active_session_count} active</td>
                 <td><button className="secondary compact-button" type="button" onClick={() => choose(user)}>Open</button></td>
@@ -337,12 +412,16 @@ export default function ADM_USER() {
           </form>
 
           {selected && <div className="identity-admin">
-            <div className="subsection-head"><div><b>Identity controls</b><small>{selected.email_verified ? 'Verified email' : 'Email verification pending'} · {selected.mfa_enabled ? 'MFA enabled' : 'MFA disabled'}</small></div></div>
+            <div className="subsection-head"><div><b>Identity controls</b><small>{selected.email_verified ? 'Verified email' : 'Email verification pending'} · {selected.mfa_required ? `MFA required by ${selected.mfa_requirement_source === 'ROLE' ? 'role policy' : 'administrator'}` : selected.mfa_enabled ? 'Authenticator available as a sign-in method' : 'MFA optional'}{selected.password_change_required ? ' · temporary password must be replaced' : ''}</small></div></div>
             {selected.invitation && <div className="identity-fact"><span>Invitation</span><b>{selected.invitation.status} · sent {selected.invitation.delivery_count} time(s)</b></div>}
             <div className="admin-inline-actions">
               {selected.allowed_actions.includes('MANAGE_INVITATION') && selected.invitation && <><button className="secondary compact-button" type="button" disabled={busy} onClick={() => void manageInvitation('resend')}>Resend invitation</button><button className="danger-button compact-button" type="button" disabled={busy} onClick={() => void manageInvitation('revoke')}>Revoke invitation</button></>}
               {selected.allowed_actions.includes('SEND_VERIFICATION') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void sendVerification()}>Send verification</button>}
               {selected.allowed_actions.includes('MANAGE_SESSIONS') && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => void loadSessions()}>Review device sessions</button>}
+              {selected.allowed_actions.includes('RESET_PASSWORD') && selected.id !== session.user.id && <button className="secondary compact-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPasswordResetTarget(selected); }}>Reset password</button>}
+              {selected.allowed_actions.includes('MANAGE_MFA') && selected.mfa_requirement_source === 'ROLE' && <button className="secondary compact-button" type="button" disabled title="ERP Administrator role policy requires MFA">MFA required by role</button>}
+              {selected.allowed_actions.includes('MANAGE_MFA') && selected.mfa_requirement_source !== 'ROLE' && selected.id !== session.user.id && <button className={selected.mfa_enabled || selected.mfa_required ? 'danger-button compact-button' : 'secondary compact-button'} type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingMfa({ user: selected, required: !(selected.mfa_enabled || selected.mfa_required) }); }}>{selected.mfa_enabled || selected.mfa_required ? 'Disable MFA' : 'Enable MFA'}</button>}
+              {selected.allowed_actions.includes('DELETE') && selected.id !== session.user.id && <button className="danger-button compact-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete user</button>}
             </div>
             {deviceSessions && <div className="admin-devices">{deviceSessions.length === 0 && <div className="empty-state">No device sessions recorded.</div>}{deviceSessions.map((device) => <div className="assignment-row" key={device.id}><div><b>{device.user_agent?.includes('Chrome') ? 'Chrome browser' : device.user_agent ?? 'Unknown browser'}</b><small>{device.ip_address ?? 'Unknown IP'} · {formatZonedDateTime(device.last_seen_at)}</small></div><div><StatusBadge status={device.status} />{device.status === 'ACTIVE' && <button className="danger-button compact-button" type="button" disabled={busy} onClick={() => void revokeSession(device)}>Revoke</button>}</div></div>)}</div>}
           </div>}
@@ -363,6 +442,12 @@ export default function ADM_USER() {
           </div>}
         </aside>
       </div>
+
+      {passwordResetTarget && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="temporary-password-title"><h3 id="temporary-password-title">Reset password for {passwordResetTarget.name}</h3><p>Set a write-only temporary password. Existing sessions and reset links will be revoked, and the user must choose a permanent password before opening ERP data.</p><form className="form-grid security-password" onSubmit={submitTemporaryPassword}><label className="full">Temporary password<input autoFocus type="password" autoComplete="new-password" minLength={9} value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} required /><span className="field-hint">At least 9 characters with upper/lowercase letters and a number</span><FieldError value={fieldErrors.temporary_password} /></label><label className="full">Confirm temporary password<input type="password" autoComplete="new-password" minLength={9} value={temporaryPasswordConfirmation} onChange={(event) => setTemporaryPasswordConfirmation(event.target.value)} required /></label><div className="form-actions full"><button className="secondary" type="button" onClick={() => { setPasswordResetTarget(null); setTemporaryPassword(''); setTemporaryPasswordConfirmation(''); clearFeedback(); }} disabled={busy}>Cancel</button><button className="primary" type="submit" disabled={busy || !temporaryPassword || temporaryPassword !== temporaryPasswordConfirmation}>{busy ? 'Resetting…' : 'Issue temporary password'}</button></div></form></section></div>}
+
+      {pendingMfa && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="mfa-policy-title"><h3 id="mfa-policy-title">{pendingMfa.required ? 'Enable' : 'Disable'} MFA for {pendingMfa.user.name}?</h3><p>{pendingMfa.required ? 'All active sessions will end. The user must complete two independent factors and will enrol their own authenticator after identity proof when needed.' : 'All active sessions will end, and the user’s authenticator secret and unused recovery codes will be removed.'}</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingMfa(null)} disabled={busy}>Cancel</button><button className={pendingMfa.required ? 'primary' : 'danger-button'} type="button" onClick={() => void confirmMfaChange()} disabled={busy}>{busy ? 'Applying…' : pendingMfa.required ? 'Enable MFA' : 'Disable MFA'}</button></div></section></div>}
+
+      {pendingDelete && <div className="confirm-overlay" role="presentation"><section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title"><h3 id="delete-user-title">Delete {pendingDelete.name}?</h3><p>This immediately revokes the user’s sessions, tokens, invitations, MFA credentials, and role assignments. The identity is retained as a deleted record so audit events remain verifiable.</p><div className="form-actions"><button className="secondary" type="button" autoFocus onClick={() => setPendingDelete(null)} disabled={busy}>Cancel</button><button className="danger-button" type="button" onClick={() => void confirmDelete()} disabled={busy}>{busy ? 'Deleting…' : 'Delete user'}</button></div></section></div>}
     </>
   );
 
@@ -372,6 +457,11 @@ export default function ADM_USER() {
 
   function clearFeedback() {
     commandKey.current = null; setError(null); setSuccess(null); setFieldErrors({}); setIdentityLink(null);
+  }
+
+  function closeSecurityDialogs() {
+    setPasswordResetTarget(null); setTemporaryPassword(''); setTemporaryPasswordConfirmation('');
+    setPendingDelete(null); setPendingMfa(null);
   }
 }
 

@@ -25,7 +25,10 @@ const apiMocks = vi.hoisted(() => ({
   updateLocation: vi.fn(),
   listUsers: vi.fn(),
   createUser: vi.fn(),
+  deleteUser: vi.fn(),
   inviteUser: vi.fn(),
+  resetUserPassword: vi.fn(),
+  setUserMfaRequirement: vi.fn(),
   updateUser: vi.fn(),
   createRoleAssignment: vi.fn(),
   updateRoleAssignment: vi.fn(),
@@ -58,6 +61,10 @@ describe('foundation administration workspaces', () => {
     renderPage(<ADM_ORG />);
 
     expect(await screen.findByText('Training Plant')).toBeInTheDocument();
+    const organisationLayout = screen.getByTestId('organisation-workspace');
+    expect(organisationLayout).toHaveClass('organisation-workspace');
+    expect(organisationLayout.children[0]?.tagName).toBe('SECTION');
+    expect(organisationLayout.children[1]?.tagName).toBe('ASIDE');
     await userEvent.setup().click(screen.getByRole('button', { name: '+ New' }));
     await userEvent.setup().type(screen.getByLabelText('Plant code'), 'pilot');
     await userEvent.setup().type(screen.getByLabelText('Plant name'), 'Pilot Plant');
@@ -140,6 +147,53 @@ describe('foundation administration workspaces', () => {
     expect(screen.getByRole('link', { name: 'Open development email link' })).toBeInTheDocument();
   });
 
+  it('issues a write-only temporary password that must be replaced', async () => {
+    apiMocks.listUsers.mockResolvedValue(userWorkspace());
+    apiMocks.resetUserPassword.mockResolvedValue({
+      ...commandResult('user'), record_version: 2, password_change_required: true,
+    });
+    renderPage(<ADM_USER />);
+
+    const targetRow = (await screen.findByText('Plant Auditor')).closest('tr');
+    await userEvent.setup().click(within(targetRow!).getByRole('button', { name: 'Open' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Reset password' }));
+    const dialog = screen.getByRole('dialog', { name: 'Reset password for Plant Auditor' });
+    await userEvent.setup().type(within(dialog).getByLabelText(/^Temporary password/), 'TempPass9x');
+    await userEvent.setup().type(within(dialog).getByLabelText('Confirm temporary password'), 'TempPass9x');
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Issue temporary password' }));
+
+    await waitFor(() => expect(apiMocks.resetUserPassword).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-target', record_version: 1 }),
+      'TempPass9x',
+      'TempPass9x',
+      expect.any(String)
+    ));
+    expect(await screen.findByRole('status')).toHaveTextContent('must replace it at next sign-in');
+  });
+
+  it('requires confirmation before enabling MFA or deleting a user', async () => {
+    apiMocks.listUsers.mockResolvedValue(userWorkspace());
+    apiMocks.setUserMfaRequirement.mockResolvedValue({ ...commandResult('user'), record_version: 2, mfa_required: true });
+    apiMocks.deleteUser.mockResolvedValue({ ...commandResult('user'), status: 'DELETED', record_version: 2, deleted: true });
+    renderPage(<ADM_USER />);
+
+    const targetRow = (await screen.findByText('Plant Auditor')).closest('tr');
+    await userEvent.setup().click(within(targetRow!).getByRole('button', { name: 'Open' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Enable MFA' }));
+    const mfaDialog = screen.getByRole('alertdialog', { name: 'Enable MFA for Plant Auditor?' });
+    await userEvent.setup().click(within(mfaDialog).getByRole('button', { name: 'Enable MFA' }));
+    await waitFor(() => expect(apiMocks.setUserMfaRequirement).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-target' }), true, expect.any(String)
+    ));
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Delete user' }));
+    const deleteDialog = screen.getByRole('alertdialog', { name: 'Delete Plant Auditor?' });
+    await userEvent.setup().click(within(deleteDialog).getByRole('button', { name: 'Delete user' }));
+    await waitFor(() => expect(apiMocks.deleteUser).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-target' }), expect.any(String)
+    ));
+  });
+
   it('replaces permissions on a scoped custom role using its current version', async () => {
     apiMocks.listRoles.mockResolvedValue(roleWorkspace());
     apiMocks.syncRolePermissions.mockResolvedValue({ ...commandResult('role'), record_version: 2 });
@@ -215,11 +269,19 @@ function userWorkspace(): UserWorkspace {
     data: [{
       id: 'user-admin', email: 'admin.user@qtfoods.local', name: 'Demo ERP Administrator', status: 'ACTIVE',
       email_verified: true, email_verified_at: now, mfa_enabled: false, mfa_enabled_at: null,
+      mfa_required: true, mfa_requirement_source: 'ROLE', password_change_required: false, deleted_at: null,
       last_login_at: now, active_session_count: 1, invitation: null,
       assignments: [], active_assignment_count: 1, record_version: 1,
-      allowed_actions: ['UPDATE', 'ASSIGN_ROLE'], created_at: now, updated_at: now,
+      allowed_actions: ['UPDATE', 'ASSIGN_ROLE', 'MANAGE_MFA'], created_at: now, updated_at: now,
+    }, {
+      id: 'user-target', email: 'auditor@example.local', name: 'Plant Auditor', status: 'ACTIVE',
+      email_verified: true, email_verified_at: now, mfa_enabled: false, mfa_enabled_at: null,
+      mfa_required: false, mfa_requirement_source: 'NONE', password_change_required: false, deleted_at: null,
+      last_login_at: null, active_session_count: 1, invitation: null,
+      assignments: [], active_assignment_count: 1, record_version: 1,
+      allowed_actions: ['UPDATE', 'ASSIGN_ROLE', 'MANAGE_SESSIONS', 'RESET_PASSWORD', 'MANAGE_MFA', 'DELETE'], created_at: now, updated_at: now,
     }],
-    summary: { total: 1, active: 1, invited: 0, unverified: 0, active_assignments: 1, roles_in_use: 1 },
+    summary: { total: 2, active: 2, invited: 0, unverified: 0, active_assignments: 2, roles_in_use: 1 },
     lookups: { roles: [{ id: 'role-admin', code: 'ERP_ADMIN', name: 'ERP Administrator', is_system: true }] },
     allowed_actions: ['CREATE', 'INVITE'],
   };

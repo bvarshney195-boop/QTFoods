@@ -161,7 +161,7 @@ export default function ADM_ORG() {
       {loading && !workspace && <section className="panel empty-state">Loading organisation and plant records...</section>}
 
       {workspace && (
-        <div className="module-grid admin-workspace">
+        <div className="module-grid admin-workspace organisation-workspace" data-testid="organisation-workspace">
           <section className="panel">
             <div className="panel-head">
               <div><h3>{workspace.company.display_name}</h3><span>{workspace.company.code} · version {workspace.company.record_version}</span></div>
@@ -191,7 +191,7 @@ export default function ADM_ORG() {
             </div>
           </section>
 
-          <aside className="panel admin-editor">
+          <aside className="panel admin-editor organisation-editor">
             <div className="panel-head"><h3>{editorTitle(editor, selectedPlant)}</h3><span>{editor === 'plant' ? `Version ${selectedPlant?.record_version ?? '-'}` : 'Controlled change'}</span></div>
             <form className="panel-body form-grid admin-form" onSubmit={submit} noValidate>
               {error && <div className="form-error full" role="alert"><span>{error}</span></div>}

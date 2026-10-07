@@ -19,6 +19,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
     private const SALES_USER_ID = '00000000-0000-4000-8000-000000000201';
     private const FINANCE_USER_ID = '00000000-0000-4000-8000-000000000203';
     private const ADMIN_USER_ID = '00000000-0000-4000-8000-000000000204';
+    private const SALES_ROLE_ID = '00000000-0000-4000-8000-000000000301';
     private const ERP_ADMIN_ROLE_ID = '00000000-0000-4000-8000-000000000304';
 
     protected function setUp(): void
@@ -210,6 +211,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
         $user = DB::table('users')->where('id', $userId)->first();
         $this->assertSame('new.admin@example.local', $user->email);
         $this->assertTrue(Hash::check('TemporaryPass123', $user->password_hash));
+        $this->assertNull($user->password_changed_at);
         $this->assertStringNotContainsString('TemporaryPass123', json_encode($created->json()));
 
         $this->withHeaders($this->commandHeaders(1))->postJson("/api/v1/admin/users/{$userId}", [
@@ -267,14 +269,150 @@ final class FoundationAdministrationEndpointTest extends TestCase
             'email' => 'location.auditor@example.local',
             'password' => 'TemporaryPass123',
         ])->assertOk();
+        $session->assertJsonPath('data.security.password_change_required', true);
         $this->assertContains('ADM-LOC', $session->json('data.allowed_screens'));
         $this->assertContains('ACTION:ADM-LOC:EXPORT', $session->json('data.allowed_actions'));
+        $this->getJson('/api/v1/contexts')
+            ->assertConflict()->assertJsonPath('error.code', 'PASSWORD_CHANGE_REQUIRED');
+        $this->postJson('/api/v1/auth/password/change', [
+            'current_password' => 'TemporaryPass123',
+            'password' => 'PermanentPass123',
+            'password_confirmation' => 'PermanentPass123',
+        ])->assertOk();
 
         $this->actingAs(User::query()->findOrFail($userId))->withSession([
             'erp.company_id' => self::COMPANY_ID,
             'erp.plant_id' => self::TRAINING_PLANT_ID,
         ])->getJson('/api/v1/admin/locations')->assertOk();
         $this->postJson('/api/v1/admin/locations', [])->assertForbidden();
+    }
+
+    public function test_admin_issues_a_write_only_temporary_password_and_business_access_stays_locked_until_replacement(): void
+    {
+        $created = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'temporary.reset@example.local',
+            'name' => 'Temporary Password User',
+            'temporary_password' => 'InitialPass123',
+            'role_id' => self::SALES_ROLE_ID,
+            'effective_from' => null,
+            'effective_to' => null,
+        ])->assertCreated();
+        $userId = $created->json('data.id');
+
+        $response = $this->withHeaders($this->commandHeaders(1))
+            ->postJson("/api/v1/admin/users/{$userId}/password-reset", [
+                'temporary_password' => 'TempPass9x',
+                'temporary_password_confirmation' => 'TempPass9x',
+            ])->assertOk()
+            ->assertJsonPath('data.password_change_required', true)
+            ->assertJsonMissing(['temporary_password' => 'TempPass9x']);
+        self::assertSame(2, $response->json('data.record_version'));
+
+        $user = User::query()->findOrFail($userId);
+        self::assertTrue(Hash::check('TempPass9x', $user->password_hash));
+        self::assertNull($user->password_changed_at);
+        $this->assertDatabaseHas('audit_events', ['command' => 'RESET_USER_PASSWORD', 'entity_id' => $userId]);
+        $this->assertDatabaseHas('outbox_events', [
+            'event_type' => 'foundation.user.temporary-password-issued', 'aggregate_id' => $userId,
+        ]);
+
+        $this->postJson('/api/v1/auth/logout', [])->assertOk();
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'temporary.reset@example.local',
+            'method' => 'password',
+            'password' => 'TempPass9x',
+        ])->assertOk()->assertJsonPath('data.security.password_change_required', true);
+        $this->getJson('/api/v1/contexts')
+            ->assertConflict()->assertJsonPath('error.code', 'PASSWORD_CHANGE_REQUIRED');
+        $this->getJson('/api/v1/admin/users')
+            ->assertConflict()->assertJsonPath('error.code', 'PASSWORD_CHANGE_REQUIRED');
+
+        $this->postJson('/api/v1/auth/password/change', [
+            'current_password' => 'TempPass9x',
+            'password' => 'PermanentPass123',
+            'password_confirmation' => 'PermanentPass123',
+        ])->assertOk();
+        $this->getJson('/api/v1/contexts')->assertOk();
+        self::assertNotNull(User::query()->findOrFail($userId)->password_changed_at);
+    }
+
+    public function test_admin_can_govern_standard_user_mfa_but_cannot_disable_role_required_mfa(): void
+    {
+        $created = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'mfa.policy@example.local',
+            'name' => 'MFA Policy User',
+            'temporary_password' => 'InitialPass123',
+            'role_id' => self::SALES_ROLE_ID,
+        ])->assertCreated();
+        $userId = $created->json('data.id');
+
+        $this->withHeaders($this->commandHeaders(1))->postJson("/api/v1/admin/users/{$userId}/mfa", [
+            'required' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.mfa_required', true)
+            ->assertJsonPath('data.record_version', 2);
+        $this->assertDatabaseHas('users', ['id' => $userId, 'mfa_required_by_admin' => true]);
+
+        $this->withHeaders($this->commandHeaders(2))->postJson("/api/v1/admin/users/{$userId}/mfa", [
+            'required' => false,
+        ])->assertOk()
+            ->assertJsonPath('data.mfa_required', false)
+            ->assertJsonPath('data.record_version', 3);
+        $this->assertDatabaseHas('users', [
+            'id' => $userId, 'mfa_required_by_admin' => false, 'mfa_enabled_at' => null,
+        ]);
+
+        $secondAdmin = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'second.admin@example.local',
+            'name' => 'Second Administrator',
+            'temporary_password' => 'InitialPass123',
+            'role_id' => self::ERP_ADMIN_ROLE_ID,
+        ])->assertCreated();
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson('/api/v1/admin/users/'.$secondAdmin->json('data.id').'/mfa', ['required' => false])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.fields.user.0', 'MFA cannot be disabled while this user has an active ERP Administrator role.');
+    }
+
+    public function test_delete_user_revokes_access_retains_audit_history_and_protects_the_last_administrator(): void
+    {
+        $created = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'delete.me@example.local',
+            'name' => 'Delete Me',
+            'temporary_password' => 'InitialPass123',
+            'role_id' => self::SALES_ROLE_ID,
+        ])->assertCreated();
+        $userId = $created->json('data.id');
+        $assignmentId = $created->json('data.role_assignment_id');
+
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson("/api/v1/admin/users/{$userId}/delete", [])
+            ->assertOk()
+            ->assertJsonPath('data.deleted', true)
+            ->assertJsonPath('data.status', 'DELETED');
+        $this->assertDatabaseHas('users', ['id' => $userId, 'status' => 'INACTIVE', 'record_version' => 2]);
+        self::assertNotNull(DB::table('users')->where('id', $userId)->value('deleted_at'));
+        $this->assertDatabaseHas('role_assignments', ['id' => $assignmentId, 'is_active' => false]);
+        $this->assertDatabaseHas('audit_events', ['command' => 'DELETE_USER', 'entity_id' => $userId]);
+        $this->assertDatabaseHas('outbox_events', ['event_type' => 'foundation.user.deleted', 'aggregate_id' => $userId]);
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'delete.me@example.local', 'method' => 'password', 'password' => 'InitialPass123',
+        ])->assertUnprocessable();
+
+        $salesRoleId = self::SALES_ROLE_ID;
+        $permissionIds = DB::table('permissions')->whereIn('code', [
+            'SCREEN:ADM-USER:VIEW', 'ACTION:ADM-USER:DELETE',
+        ])->pluck('id');
+        foreach ($permissionIds as $permissionId) {
+            DB::table('role_permissions')->insertOrIgnore([
+                'role_id' => $salesRoleId, 'permission_id' => $permissionId,
+            ]);
+        }
+        $this->signIn(self::SALES_USER_ID, self::TRAINING_PLANT_ID);
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson('/api/v1/admin/users/'.self::ADMIN_USER_ID.'/delete', [])
+            ->assertUnprocessable()
+            ->assertJsonPath('error.fields.user.0', 'Assign another active ERP Administrator in every affected context before deleting this user.');
     }
 
     public function test_non_admin_and_out_of_scope_commands_are_denied(): void

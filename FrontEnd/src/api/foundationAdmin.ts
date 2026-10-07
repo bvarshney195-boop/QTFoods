@@ -137,6 +137,10 @@ export type UserAdmin = {
   email_verified_at: string | null;
   mfa_enabled: boolean;
   mfa_enabled_at: string | null;
+  mfa_required: boolean;
+  mfa_requirement_source: 'ROLE' | 'ADMIN' | 'NONE';
+  password_change_required: boolean;
+  deleted_at: string | null;
   last_login_at: string | null;
   active_session_count: number;
   invitation: {
@@ -151,7 +155,7 @@ export type UserAdmin = {
   assignments: RoleAssignmentAdmin[];
   active_assignment_count: number;
   record_version: number;
-  allowed_actions: ('UPDATE' | 'ASSIGN_ROLE' | 'MANAGE_INVITATION' | 'SEND_VERIFICATION' | 'MANAGE_SESSIONS')[];
+  allowed_actions: ('UPDATE' | 'ASSIGN_ROLE' | 'MANAGE_INVITATION' | 'SEND_VERIFICATION' | 'MANAGE_SESSIONS' | 'RESET_PASSWORD' | 'MANAGE_MFA' | 'DELETE')[];
   created_at: string;
   updated_at: string;
 };
@@ -387,6 +391,48 @@ export async function updateUser(
     expectedVersion: user.record_version,
     idempotencyKey,
   })).data;
+}
+
+export async function resetUserPassword(
+  user: UserAdmin,
+  temporaryPassword: string,
+  confirmation: string,
+  idempotencyKey: string
+): Promise<AdminCommandResult & { password_change_required: true }> {
+  return (await apiMutation<{ data: AdminCommandResult & { password_change_required: true } }>(
+    `/api/v1/admin/users/${user.id}/password-reset`, {
+      temporary_password: temporaryPassword,
+      temporary_password_confirmation: confirmation,
+    }, {
+      expectedVersion: user.record_version,
+      idempotencyKey,
+    }
+  )).data;
+}
+
+export async function setUserMfaRequirement(
+  user: UserAdmin,
+  required: boolean,
+  idempotencyKey: string
+): Promise<AdminCommandResult & { mfa_required: boolean }> {
+  return (await apiMutation<{ data: AdminCommandResult & { mfa_required: boolean } }>(
+    `/api/v1/admin/users/${user.id}/mfa`, { required }, {
+      expectedVersion: user.record_version,
+      idempotencyKey,
+    }
+  )).data;
+}
+
+export async function deleteUser(
+  user: UserAdmin,
+  idempotencyKey: string
+): Promise<AdminCommandResult & { deleted: true }> {
+  return (await apiMutation<{ data: AdminCommandResult & { deleted: true } }>(
+    `/api/v1/admin/users/${user.id}/delete`, {}, {
+      expectedVersion: user.record_version,
+      idempotencyKey,
+    }
+  )).data;
 }
 
 export async function createRoleAssignment(

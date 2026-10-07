@@ -26,6 +26,8 @@ final class User extends Authenticatable
             'password_changed_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
             'mfa_enabled_at' => 'immutable_datetime',
+            'mfa_required_by_admin' => 'boolean',
+            'deleted_at' => 'immutable_datetime',
             'is_demo' => 'boolean',
             'record_version' => 'integer',
         ];

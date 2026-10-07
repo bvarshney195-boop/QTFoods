@@ -409,6 +409,9 @@ final class FoundationAdminQuery
             ->whereNull('revoked_at')
             ->where('expires_at', '>', now())
             ->count();
+        $deleted = $user->deleted_at !== null;
+        $roleMfaRequired = $this->userRequiresRoleMfa((string) $user->id);
+        $mfaRequired = (bool) $user->mfa_required_by_admin || $roleMfaRequired;
 
         return [
             'id' => (string) $user->id,
@@ -419,6 +422,10 @@ final class FoundationAdminQuery
             'email_verified_at' => $this->timestamp($user->email_verified_at),
             'mfa_enabled' => $user->mfa_enabled_at !== null,
             'mfa_enabled_at' => $this->timestamp($user->mfa_enabled_at),
+            'mfa_required' => $mfaRequired,
+            'mfa_requirement_source' => $roleMfaRequired ? 'ROLE' : ((bool) $user->mfa_required_by_admin ? 'ADMIN' : 'NONE'),
+            'password_change_required' => $user->password_changed_at === null,
+            'deleted_at' => $this->timestamp($user->deleted_at),
             'last_login_at' => $this->timestamp($user->last_login_at),
             'active_session_count' => $activeSessions,
             'invitation' => $invitation ? [
@@ -438,14 +445,20 @@ final class FoundationAdminQuery
             'active_assignment_count' => collect($assignments)->where('is_active', true)->count(),
             'record_version' => (int) $user->record_version,
             'allowed_actions' => array_values(array_filter([
-                $this->can($permissions, 'ACTION:ADM-USER:UPDATE') ? 'UPDATE' : null,
-                $this->can($permissions, 'ACTION:ADM-USER:ASSIGN') ? 'ASSIGN_ROLE' : null,
+                ! $deleted && $this->can($permissions, 'ACTION:ADM-USER:UPDATE') ? 'UPDATE' : null,
+                ! $deleted && $this->can($permissions, 'ACTION:ADM-USER:ASSIGN') ? 'ASSIGN_ROLE' : null,
                 $this->can($permissions, 'ACTION:ADM-USER:INVITE') && $user->status === 'INVITED'
+                    && ! $deleted
                     ? 'MANAGE_INVITATION' : null,
                 $this->can($permissions, 'ACTION:ADM-USER:INVITE')
-                    && $user->status === 'ACTIVE' && $user->email_verified_at === null
+                    && ! $deleted && $user->status === 'ACTIVE' && $user->email_verified_at === null
                     ? 'SEND_VERIFICATION' : null,
-                $this->can($permissions, 'ACTION:ADM-USER:SESSIONS') ? 'MANAGE_SESSIONS' : null,
+                ! $deleted && $this->can($permissions, 'ACTION:ADM-USER:SESSIONS') ? 'MANAGE_SESSIONS' : null,
+                ! $deleted && $user->status === 'ACTIVE'
+                    && $this->can($permissions, 'ACTION:ADM-USER:PASSWORD-RESET') ? 'RESET_PASSWORD' : null,
+                ! $deleted && $user->status === 'ACTIVE'
+                    && $this->can($permissions, 'ACTION:ADM-USER:MFA') ? 'MANAGE_MFA' : null,
+                ! $deleted && $this->can($permissions, 'ACTION:ADM-USER:DELETE') ? 'DELETE' : null,
             ])),
             'created_at' => $this->timestamp($user->created_at),
             'updated_at' => $this->timestamp($user->updated_at),
@@ -619,6 +632,21 @@ final class FoundationAdminQuery
                 $query->{$method}("LOWER(COALESCE({$wrappedColumn}, ?)) LIKE ?", ['', $pattern]);
             }
         });
+    }
+
+    private function userRequiresRoleMfa(string $userId): bool
+    {
+        return DB::table('role_assignments as assignment')
+            ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+            ->where('assignment.user_id', $userId)
+            ->where('assignment.is_active', true)
+            ->where('role.status', 'ACTIVE')
+            ->where('role.code', 'ERP_ADMIN')
+            ->where(fn (Builder $query) => $query->whereNull('assignment.effective_from')
+                ->orWhere('assignment.effective_from', '<=', now()))
+            ->where(fn (Builder $query) => $query->whereNull('assignment.effective_to')
+                ->orWhere('assignment.effective_to', '>', now()))
+            ->exists();
     }
 
     private function can(array $permissions, string $permission): bool

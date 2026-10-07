@@ -318,7 +318,7 @@ final class FoundationAdminService
                     'password_hash' => Hash::make($data['temporary_password']),
                     'status' => 'ACTIVE',
                     'email_verified_at' => $now,
-                    'password_changed_at' => $now,
+                    'password_changed_at' => null,
                     'last_login_at' => null,
                     'last_login_ip' => null,
                     'mfa_secret' => null,
@@ -361,6 +361,11 @@ final class FoundationAdminService
         return $this->execute("foundation.user.update.{$userId}", $data, function () use ($userId, $data) {
             $user = $this->scopedUser($userId, $data, true);
             $this->assertVersion($user, $data['expected_version'], 'user');
+            if ($user->deleted_at !== null) {
+                throw ValidationException::withMessages([
+                    'user' => ['A deleted user cannot be edited.'],
+                ]);
+            }
             if ($data['status'] === 'INACTIVE' && $userId === $data['actor_id']) {
                 throw ValidationException::withMessages([
                     'status' => ['You cannot deactivate your own signed-in account.'],
@@ -423,6 +428,208 @@ final class FoundationAdminService
             $result = $this->result('user', $userId, $data['status'], $version);
             $this->record('UPDATE_USER', 'foundation.user.updated', 'user', $userId,
                 $data['company_id'], $data['plant_id'], $data, $version, $this->diff($user, $changes), $result);
+
+            return $result;
+        });
+    }
+
+    public function resetUserPassword(string $userId, array $data): array
+    {
+        return $this->execute("foundation.user.password-reset.{$userId}", $data, function () use ($userId, $data) {
+            $user = $this->scopedUser($userId, $data, true);
+            $this->assertVersion($user, $data['expected_version'], 'user');
+            if ($userId === $data['actor_id']) {
+                throw ValidationException::withMessages([
+                    'user' => ['Use Account security to change your own password.'],
+                ]);
+            }
+            if ($user->status !== 'ACTIVE' || $user->deleted_at !== null) {
+                throw ValidationException::withMessages([
+                    'user' => ['Only an active user can receive a temporary password.'],
+                ]);
+            }
+            if (Hash::check($data['temporary_password'], (string) $user->password_hash)) {
+                throw ValidationException::withMessages([
+                    'temporary_password' => ['Choose a temporary password different from the current password.'],
+                ]);
+            }
+
+            $passwordChangeWasRequired = $user->password_changed_at === null;
+            $now = now();
+            $version = (int) $user->record_version + 1;
+            DB::table('users')->where('id', $userId)->update([
+                'password_hash' => Hash::make($data['temporary_password']),
+                'password_changed_at' => null,
+                'record_version' => $version,
+                'updated_at' => $now,
+            ]);
+            $revokedSessions = DB::table('user_sessions')->where('user_id', $userId)
+                ->whereNull('revoked_at')->update([
+                    'revoked_at' => $now,
+                    'revoked_by_user_id' => $data['actor_id'],
+                    'revoke_reason' => 'TEMPORARY_PASSWORD_ISSUED',
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+            $revokedTokens = DB::table('identity_tokens')->where('user_id', $userId)
+                ->whereNull('used_at')->whereNull('revoked_at')
+                ->update(['revoked_at' => $now, 'updated_at' => $now]);
+
+            $result = $this->result('user', $userId, 'ACTIVE', $version, [
+                'password_change_required' => true,
+                'sessions_revoked' => $revokedSessions,
+                'tokens_revoked' => $revokedTokens,
+            ]);
+            $this->record('RESET_USER_PASSWORD', 'foundation.user.temporary-password-issued', 'user', $userId,
+                $data['company_id'], $data['plant_id'], $data, $version, [
+                    'password_changed_at' => ['from' => $user->password_changed_at, 'to' => null],
+                    'password_change_required' => ['from' => $passwordChangeWasRequired, 'to' => true],
+                    'sessions_revoked' => ['from' => 0, 'to' => $revokedSessions],
+                    'tokens_revoked' => ['from' => 0, 'to' => $revokedTokens],
+                ], $result);
+
+            return $result;
+        });
+    }
+
+    public function setUserMfaRequirement(string $userId, array $data): array
+    {
+        return $this->execute("foundation.user.mfa.{$userId}", $data, function () use ($userId, $data) {
+            $user = $this->scopedUser($userId, $data, true);
+            $this->assertVersion($user, $data['expected_version'], 'user');
+            if ($user->status !== 'ACTIVE' || $user->deleted_at !== null) {
+                throw ValidationException::withMessages([
+                    'user' => ['MFA policy can only be changed for an active user.'],
+                ]);
+            }
+
+            $required = (bool) $data['required'];
+            if (! $required) {
+                if ($userId === $data['actor_id']) {
+                    throw ValidationException::withMessages([
+                        'user' => ['Use Account security to change MFA on your own account.'],
+                    ]);
+                }
+                if ($this->userRequiresRoleMfa($userId)) {
+                    throw ValidationException::withMessages([
+                        'user' => ['MFA cannot be disabled while this user has an active ERP Administrator role.'],
+                    ]);
+                }
+            }
+
+            $now = now();
+            $version = (int) $user->record_version + 1;
+            $changes = [
+                'mfa_required_by_admin' => $required,
+                'record_version' => $version,
+                'updated_at' => $now,
+            ];
+            if (! $required) {
+                $changes['mfa_secret'] = null;
+                $changes['mfa_enabled_at'] = null;
+            }
+            DB::table('users')->where('id', $userId)->update($changes);
+            $recoveryCodesRemoved = $required ? 0 : DB::table('user_mfa_recovery_codes')
+                ->where('user_id', $userId)->delete();
+            $revokedSessions = DB::table('user_sessions')->where('user_id', $userId)
+                ->whereNull('revoked_at')->update([
+                    'revoked_at' => $now,
+                    'revoked_by_user_id' => $data['actor_id'],
+                    'revoke_reason' => $required ? 'ADMIN_MFA_REQUIRED' : 'ADMIN_MFA_DISABLED',
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+
+            $command = $required ? 'ENABLE_USER_MFA' : 'DISABLE_USER_MFA';
+            $result = $this->result('user', $userId, 'ACTIVE', $version, [
+                'mfa_required' => $required,
+                'mfa_enabled' => $required && $user->mfa_enabled_at !== null,
+                'sessions_revoked' => $revokedSessions,
+            ]);
+            $this->record($command, 'foundation.user.mfa-policy.updated', 'user', $userId,
+                $data['company_id'], $data['plant_id'], $data, $version, [
+                    'mfa_required_by_admin' => ['from' => (bool) $user->mfa_required_by_admin, 'to' => $required],
+                    'authenticator_enrolment_removed' => ['from' => false, 'to' => ! $required && $user->mfa_enabled_at !== null],
+                    'recovery_codes_removed' => ['from' => 0, 'to' => $recoveryCodesRemoved],
+                    'sessions_revoked' => ['from' => 0, 'to' => $revokedSessions],
+                ], $result);
+
+            return $result;
+        });
+    }
+
+    public function deleteUser(string $userId, array $data): array
+    {
+        return $this->execute("foundation.user.delete.{$userId}", $data, function () use ($userId, $data) {
+            $user = $this->scopedUser($userId, $data, true);
+            $this->assertVersion($user, $data['expected_version'], 'user');
+            if ($user->deleted_at !== null) {
+                throw ValidationException::withMessages(['user' => ['This user is already deleted.']]);
+            }
+            if ($userId === $data['actor_id']) {
+                throw ValidationException::withMessages(['user' => ['You cannot delete your own signed-in account.']]);
+            }
+            if (DB::table('work_items')->where('assigned_user_id', $userId)
+                ->where('status', 'OPEN')->exists()) {
+                throw ValidationException::withMessages([
+                    'user' => ['Reassign or close this user\'s open work before deleting the account.'],
+                ]);
+            }
+            $this->assertDeletionKeepsAdministratorCoverage($userId, (string) $user->status);
+
+            $now = now();
+            $version = (int) $user->record_version + 1;
+            $revokedAssignments = DB::table('role_assignments')->where('user_id', $userId)
+                ->where('is_active', true)->update([
+                    'is_active' => false,
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+            $revokedSessions = DB::table('user_sessions')->where('user_id', $userId)
+                ->whereNull('revoked_at')->update([
+                    'revoked_at' => $now,
+                    'revoked_by_user_id' => $data['actor_id'],
+                    'revoke_reason' => 'USER_DELETED',
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+            $revokedTokens = DB::table('identity_tokens')->where('user_id', $userId)
+                ->whereNull('used_at')->whereNull('revoked_at')
+                ->update(['revoked_at' => $now, 'updated_at' => $now]);
+            $revokedInvitations = DB::table('identity_invitations')->where('user_id', $userId)
+                ->whereNull('accepted_at')->whereNull('revoked_at')->update([
+                    'revoked_at' => $now,
+                    'record_version' => DB::raw('record_version + 1'),
+                    'updated_at' => $now,
+                ]);
+            $recoveryCodesRemoved = DB::table('user_mfa_recovery_codes')
+                ->where('user_id', $userId)->delete();
+            DB::table('users')->where('id', $userId)->update([
+                'password_hash' => Hash::make(Str::random(64)),
+                'status' => 'INACTIVE',
+                'mfa_secret' => null,
+                'mfa_enabled_at' => null,
+                'mfa_required_by_admin' => false,
+                'deleted_at' => $now,
+                'record_version' => $version,
+                'updated_at' => $now,
+            ]);
+
+            $result = $this->result('user', $userId, 'DELETED', $version, [
+                'deleted' => true,
+                'assignments_revoked' => $revokedAssignments,
+                'sessions_revoked' => $revokedSessions,
+            ]);
+            $this->record('DELETE_USER', 'foundation.user.deleted', 'user', $userId,
+                $data['company_id'], $data['plant_id'], $data, $version, [
+                    'status' => ['from' => $user->status, 'to' => 'INACTIVE'],
+                    'deleted_at' => ['from' => null, 'to' => $now->toISOString()],
+                    'assignments_revoked' => ['from' => 0, 'to' => $revokedAssignments],
+                    'sessions_revoked' => ['from' => 0, 'to' => $revokedSessions],
+                    'tokens_revoked' => ['from' => 0, 'to' => $revokedTokens],
+                    'invitations_revoked' => ['from' => 0, 'to' => $revokedInvitations],
+                    'recovery_codes_removed' => ['from' => 0, 'to' => $recoveryCodesRemoved],
+                ], $result);
 
             return $result;
         });
@@ -913,6 +1120,75 @@ final class FoundationAdminService
 
         if (! $allowed) {
             throw new AuthorizationException('Creating organisations and plants requires the protected ERP Administrator role.');
+        }
+    }
+
+    private function userRequiresRoleMfa(string $userId): bool
+    {
+        return DB::table('role_assignments as assignment')
+            ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+            ->where('assignment.user_id', $userId)
+            ->where('assignment.is_active', true)
+            ->where('role.code', 'ERP_ADMIN')
+            ->where('role.status', 'ACTIVE')
+            ->where(fn ($query) => $query->whereNull('assignment.effective_from')
+                ->orWhere('assignment.effective_from', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('assignment.effective_to')
+                ->orWhere('assignment.effective_to', '>', now()))
+            ->exists();
+    }
+
+    private function assertDeletionKeepsAdministratorCoverage(string $userId, string $status): void
+    {
+        if ($status !== 'ACTIVE') {
+            return;
+        }
+
+        $protectedAssignments = DB::table('role_assignments as assignment')
+            ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+            ->where('assignment.user_id', $userId)
+            ->where('assignment.is_active', true)
+            ->where('role.code', 'ERP_ADMIN')
+            ->where('role.status', 'ACTIVE')
+            ->where(fn ($query) => $query->whereNull('assignment.effective_from')
+                ->orWhere('assignment.effective_from', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('assignment.effective_to')
+                ->orWhere('assignment.effective_to', '>', now()))
+            ->get(['assignment.company_id', 'assignment.plant_id']);
+
+        foreach ($protectedAssignments as $protected) {
+            $replacement = DB::table('role_assignments as assignment')
+                ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+                ->join('users as user', 'user.id', '=', 'assignment.user_id')
+                ->where('assignment.user_id', '<>', $userId)
+                ->where('assignment.is_active', true)
+                ->where('role.code', 'ERP_ADMIN')
+                ->where('role.status', 'ACTIVE')
+                ->where('user.status', 'ACTIVE')
+                ->whereNull('user.deleted_at')
+                ->where(fn ($query) => $query->whereNull('assignment.effective_from')
+                    ->orWhere('assignment.effective_from', '<=', now()))
+                ->where(fn ($query) => $query->whereNull('assignment.effective_to')
+                    ->orWhere('assignment.effective_to', '>', now()));
+
+            if ($protected->company_id === null) {
+                $replacement->whereNull('assignment.company_id');
+            } else {
+                $replacement->where(fn ($query) => $query->whereNull('assignment.company_id')
+                    ->orWhere('assignment.company_id', $protected->company_id));
+            }
+            if ($protected->plant_id === null) {
+                $replacement->whereNull('assignment.plant_id');
+            } else {
+                $replacement->where(fn ($query) => $query->whereNull('assignment.plant_id')
+                    ->orWhere('assignment.plant_id', $protected->plant_id));
+            }
+
+            if (! $replacement->exists()) {
+                throw ValidationException::withMessages([
+                    'user' => ['Assign another active ERP Administrator in every affected context before deleting this user.'],
+                ]);
+            }
         }
     }
 

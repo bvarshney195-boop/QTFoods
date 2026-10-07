@@ -70,6 +70,41 @@ final class UserAdminController
         )]);
     }
 
+    public function resetPassword(string $userId, Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'temporary_password' => [
+                'required', 'string', 'confirmed', 'max:1024',
+                Password::min(9)->letters()->numbers()->mixedCase(),
+            ],
+        ]);
+
+        return response()->json(['data' => $this->service->resetUserPassword(
+            $userId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
+    public function delete(string $userId, Request $request): JsonResponse
+    {
+        return response()->json(['data' => $this->service->deleteUser(
+            $userId,
+            $this->commandContext($request, true)
+        )]);
+    }
+
+    public function setMfaRequirement(string $userId, Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'required' => ['required', 'boolean'],
+        ]);
+
+        return response()->json(['data' => $this->service->setUserMfaRequirement(
+            $userId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
     public function showAssignment(string $assignmentId, Request $request): JsonResponse
     {
         return response()->json(['data' => $this->query->assignment(

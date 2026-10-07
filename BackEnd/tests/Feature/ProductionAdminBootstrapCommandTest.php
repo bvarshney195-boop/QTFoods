@@ -94,7 +94,7 @@ final class ProductionAdminBootstrapCommandTest extends TestCase
 
         config()->set([
             'qtfoods.identity.bootstrap_admin_email' => self::EMAIL,
-            'qtfoods.identity.bootstrap_admin_password' => 'UniqueBootstrapPass123',
+            'qtfoods.identity.bootstrap_admin_password' => 'TestMfa9x',
             'qtfoods.identity.bootstrap_admin_password_confirmation' => 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD',
         ]);
         $this->artisan('qt:identity:initialize-bootstrap-password')
@@ -104,7 +104,7 @@ final class ProductionAdminBootstrapCommandTest extends TestCase
         $primary = $this->postJson('/api/v1/auth/login', [
             'email' => self::EMAIL,
             'method' => 'password',
-            'password' => 'UniqueBootstrapPass123',
+            'password' => 'TestMfa9x',
         ])->assertStatus(202)
             ->assertJsonPath('data.phase', 'SELECT_SECOND_FACTOR')
             ->assertJsonPath('data.primary_method', 'PASSWORD')
@@ -163,10 +163,17 @@ final class ProductionAdminBootstrapCommandTest extends TestCase
         $this->bootstrap()->assertExitCode(0);
         config()->set([
             'qtfoods.identity.bootstrap_admin_email' => self::EMAIL,
-            'qtfoods.identity.bootstrap_admin_password' => 'weak',
-            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'WRONG',
+            'qtfoods.identity.bootstrap_admin_password' => 'TestMf8x',
+            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'INITIALIZE_PRODUCTION_ADMIN_PASSWORD',
         ]);
 
+        $this->artisan('qt:identity:initialize-bootstrap-password')->assertExitCode(2);
+        self::assertNull(DB::table('users')->where('email', self::EMAIL)->value('password_changed_at'));
+
+        config()->set([
+            'qtfoods.identity.bootstrap_admin_password' => 'TestMfa9x',
+            'qtfoods.identity.bootstrap_admin_password_confirmation' => 'WRONG',
+        ]);
         $this->artisan('qt:identity:initialize-bootstrap-password')->assertExitCode(2);
         self::assertNull(DB::table('users')->where('email', self::EMAIL)->value('password_changed_at'));
     }

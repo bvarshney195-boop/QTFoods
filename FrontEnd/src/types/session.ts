@@ -16,6 +16,8 @@ export type ErpSession = {
   security?: {
     email_verified: boolean;
     mfa_enabled: boolean;
+    mfa_required: boolean;
+    password_change_required: boolean;
     password_changed_at: string | null;
     last_login_at: string | null;
     current_session_id: string | null;

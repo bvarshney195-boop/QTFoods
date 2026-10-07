@@ -212,7 +212,7 @@ final class IdentityLifecycleEndpointTest extends TestCase
         ])->assertOk();
     }
 
-    public function test_totp_and_one_time_recovery_codes_complete_a_two_step_login(): void
+    public function test_totp_and_one_time_recovery_codes_are_complete_primary_methods_for_a_standard_user(): void
     {
         $this->postJson('/api/v1/auth/login', [
             'email' => 'demo.user@qtfoods.local', 'password' => 'prototype',
@@ -233,27 +233,53 @@ final class IdentityLifecycleEndpointTest extends TestCase
 
         $this->postJson('/api/v1/auth/logout', [])->assertOk();
         $challenge = $this->postJson('/api/v1/auth/login', [
-            'email' => 'demo.user@qtfoods.local', 'password' => 'prototype',
-        ])->assertStatus(202)->assertJsonPath('data.mfa_required', true);
+            'email' => 'demo.user@qtfoods.local', 'method' => 'totp',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'TOTP_PRIMARY');
         $this->postJson('/api/v1/auth/mfa/challenge', [
             'challenge_id' => $challenge->json('data.challenge_id'),
             'code' => app(MfaService::class)->codeForSecret($secret),
-        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+AUTHENTICATOR');
+        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'AUTHENTICATOR');
 
         $this->postJson('/api/v1/auth/logout', [])->assertOk();
         $recoveryChallenge = $this->postJson('/api/v1/auth/login', [
-            'email' => 'demo.user@qtfoods.local', 'password' => 'prototype',
-        ])->assertStatus(202);
+            'email' => 'demo.user@qtfoods.local', 'method' => 'totp',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'TOTP_PRIMARY');
         $this->postJson('/api/v1/auth/mfa/challenge', [
             'challenge_id' => $recoveryChallenge->json('data.challenge_id'),
             'code' => $recoveryCodes[0],
-        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'PASSWORD+RECOVERY_CODE');
+        ])->assertOk()->assertJsonPath('data.authentication.mfa_method', 'RECOVERY_CODE');
         self::assertSame(1, DB::table('user_mfa_recovery_codes')->whereNotNull('used_at')->count());
 
         self::assertSame('287082', app(MfaService::class)->codeForSecret(
             'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
             59
         ));
+    }
+
+    public function test_user_cannot_disable_mfa_required_by_account_policy(): void
+    {
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'demo.user@qtfoods.local', 'password' => 'prototype',
+        ])->assertOk();
+
+        $setup = $this->postJson('/api/v1/auth/mfa/setup', [
+            'current_password' => 'prototype',
+        ])->assertOk();
+        $secret = $setup->json('data.secret');
+        $this->postJson('/api/v1/auth/mfa/confirm', [
+            'code' => app(MfaService::class)->codeForSecret($secret),
+        ])->assertOk();
+
+        $user = $this->user('demo.user@qtfoods.local');
+        DB::table('users')->where('id', $user->id)->update(['mfa_required_by_admin' => true]);
+
+        $this->postJson('/api/v1/auth/mfa/disable', [
+            'current_password' => 'prototype',
+            'code' => app(MfaService::class)->codeForSecret($secret),
+        ])->assertUnprocessable()
+            ->assertJsonPath('error.fields.mfa.0', 'Multi-factor authentication is required by account policy and cannot be disabled.');
+
+        self::assertNotNull($this->user('demo.user@qtfoods.local')->mfa_enabled_at);
     }
 
     public function test_user_can_review_and_revoke_device_sessions_and_permissions_protect_admin_controls(): void

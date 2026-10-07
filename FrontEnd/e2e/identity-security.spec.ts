@@ -17,17 +17,23 @@ test('named user changes password, enables TOTP, and signs in with both factors'
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 
-  await loginAndSelect(page, 'e2e.security.admin@qtfoods.local', 'SecurityInitial123');
+  await beginPasswordSignIn(page, 'e2e.security.admin@qtfoods.local', 'SecurityInitial123');
+  await expect(page.getByRole('heading', { name: 'Two-step verification required' })).toBeVisible();
+  await page.getByRole('button', { name: /^Email one-time code/ }).click();
+  const emailCode = page.locator('.development-preview code');
+  await expect(emailCode).toBeVisible();
+  await page.getByLabel('Six-digit email code').fill((await emailCode.textContent())?.trim() ?? '');
+  await page.getByRole('button', { name: 'Verify and continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Replace your temporary password' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Temporary password', exact: true }).fill('SecurityInitial123');
+  await page.getByLabel(/New permanent password/).fill('SecurityChanged123');
+  await page.getByLabel('Confirm permanent password').fill('SecurityChanged123');
+  await page.getByRole('button', { name: 'Replace password and continue' }).click();
+  await expect(page.getByRole('heading', { name: 'Choose where you are working' })).toBeVisible();
+  await page.getByRole('button', { name: /Training Plant/ }).click();
   await page.getByRole('button', { name: 'Account security' }).click();
   await expect(page.getByRole('heading', { name: 'Identity & devices' })).toBeVisible();
   await expect(page.getByText('Google Chrome')).toBeVisible();
-
-  const passwordSection = page.locator('.security-section').filter({ hasText: 'Change password' });
-  await passwordSection.getByLabel('Current password').fill('SecurityInitial123');
-  await passwordSection.getByLabel('New password').fill('SecurityChanged123');
-  await passwordSection.getByLabel('Confirm password').fill('SecurityChanged123');
-  await passwordSection.getByRole('button', { name: 'Change password' }).click();
-  await expect(page.getByRole('status')).toContainText('Password changed');
 
   const mfaSection = page.locator('.security-section').filter({ hasText: 'Multi-factor authentication' });
   await mfaSection.getByLabel('Current password').fill('SecurityChanged123');

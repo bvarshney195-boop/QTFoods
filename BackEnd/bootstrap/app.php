@@ -11,6 +11,7 @@ use App\Http\Middleware\EnsureContextSelected;
 use App\Http\Middleware\EnsureActiveDeviceSession;
 use App\Http\Middleware\EnsureMetricsAccess;
 use App\Http\Middleware\EnsurePermission;
+use App\Http\Middleware\EnsurePermanentPassword;
 use App\Http\Middleware\EnsureScreenAccess;
 use App\Http\Middleware\EnforceSecureTransport;
 use Symfony\Component\HttpFoundation\Response;
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'erp.device' => EnsureActiveDeviceSession::class,
             'erp.context' => EnsureContextSelected::class,
             'erp.permission' => EnsurePermission::class,
+            'erp.password' => EnsurePermanentPassword::class,
             'erp.screen' => EnsureScreenAccess::class,
             'observability.metrics' => EnsureMetricsAccess::class,
         ]);

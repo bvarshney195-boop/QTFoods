@@ -29,6 +29,8 @@ final class SessionService
             'security' => [
                 'email_verified' => $user->email_verified_at !== null,
                 'mfa_enabled' => $user->mfa_enabled_at !== null,
+                'mfa_required' => (bool) $user->mfa_required_by_admin || $this->requiresRoleMfa($user),
+                'password_change_required' => $user->password_changed_at === null,
                 'password_changed_at' => $this->timestamp($user->password_changed_at),
                 'last_login_at' => $this->timestamp($user->last_login_at),
                 'current_session_id' => $request->session()->get('identity.device_session_id'),
@@ -40,6 +42,21 @@ final class SessionService
             'contexts' => $contexts->values()->all(),
             'selected_context' => $selectedContext,
         ];
+    }
+
+    private function requiresRoleMfa(User $user): bool
+    {
+        return DB::table('role_assignments as assignment')
+            ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+            ->where('assignment.user_id', $user->id)
+            ->where('assignment.is_active', true)
+            ->where('role.status', 'ACTIVE')
+            ->where('role.code', 'ERP_ADMIN')
+            ->where(fn (Builder $query) => $query->whereNull('assignment.effective_from')
+                ->orWhere('assignment.effective_from', '<=', now()))
+            ->where(fn (Builder $query) => $query->whereNull('assignment.effective_to')
+                ->orWhere('assignment.effective_to', '>', now()))
+            ->exists();
     }
 
     public function selectContext(User $user, Request $request, string $companyId, ?string $plantId): array

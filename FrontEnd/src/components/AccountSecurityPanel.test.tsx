@@ -59,6 +59,20 @@ describe('account security panel', () => {
     expect(await screen.findByLabelText('One-time MFA recovery codes')).toHaveTextContent('AAAA-BBBB-CCCC');
   });
 
+  it('does not offer self-service disable when account policy requires MFA', async () => {
+    const policySession = session();
+    policySession.security!.mfa_enabled = true;
+    policySession.security!.mfa_required = true;
+
+    render(<AccountSecurityPanel session={policySession} onClose={vi.fn()} />);
+
+    const mfaSection = screen.getByText('Multi-factor authentication').closest('section');
+    expect(mfaSection).not.toBeNull();
+    expect(within(mfaSection!).getByText(/Required by account policy/)).toBeInTheDocument();
+    expect(within(mfaSection!).queryByRole('button', { name: 'Disable MFA' })).not.toBeInTheDocument();
+    expect(within(mfaSection!).getByRole('button', { name: 'Replace recovery codes' })).toBeInTheDocument();
+  });
+
   it('lists the current logical device and can explicitly sign it out', async () => {
     identityMocks.revokeDeviceSession.mockResolvedValue({ id: 'session-1', revoked: true, current: true });
     const expired = vi.fn();
@@ -113,6 +127,7 @@ function session(): ErpSession {
     user: { id: 'user-1', name: 'Demo User', email: 'demo@example.local' },
     security: {
       email_verified: true, mfa_enabled: false, password_changed_at: null,
+      mfa_required: false, password_change_required: false,
       last_login_at: null, current_session_id: 'session-1',
     },
     roles: ['ERP_ADMIN'], allowed_screens: [], allowed_actions: [], contexts: [], selected_context: null,

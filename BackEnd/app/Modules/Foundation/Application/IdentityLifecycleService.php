@@ -562,7 +562,7 @@ final class IdentityLifecycleService
         }
 
         $currentSessionId = $this->deviceSessions->currentId($request);
-        return DB::transaction(function () use ($user, $password, $currentSessionId): array {
+        $result = DB::transaction(function () use ($user, $password, $currentSessionId): array {
             $locked = DB::table('users')->where('id', $user->id)->lockForUpdate()->firstOrFail();
             $now = now();
             $version = (int) $locked->record_version + 1;
@@ -598,6 +598,9 @@ final class IdentityLifecycleService
 
             return ['changed' => true, 'other_sessions_revoked' => $revoked];
         });
+        $user->refresh();
+
+        return $result;
     }
 
     private function deliverInvitation(array $result): array

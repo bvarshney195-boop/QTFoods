@@ -205,7 +205,7 @@ final class ProductionAdminBootstrapper
 
         $validator = Validator::make(['email' => $email, 'password' => $password], [
             'email' => ['required', 'email:rfc', 'max:255'],
-            'password' => ['required', 'string', 'max:1024', Password::min(16)->letters()->numbers()->mixedCase()],
+            'password' => ['required', 'string', 'max:1024', Password::min(9)->letters()->numbers()->mixedCase()],
         ]);
         if ($validator->fails()) {
             throw new InvalidArgumentException($validator->errors()->first());

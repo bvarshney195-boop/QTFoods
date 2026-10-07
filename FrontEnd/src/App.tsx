@@ -15,6 +15,8 @@ import {
 import AppShell from './app/AppShell';
 import ACC_CTX from './pages/ACC_CTX';
 import ACC_LOGIN from './pages/ACC_LOGIN';
+import { RequiredPasswordChange } from './components/RequiredPasswordChange';
+import { changePassword } from './api/identity';
 import type { ErpSession } from './types/session';
 
 export default function App() {
@@ -129,6 +131,21 @@ export default function App() {
     }
   }
 
+  async function handleRequiredPasswordChange(currentPassword: string, password: string, confirmation: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await changePassword(currentPassword, password, confirmation);
+      const refreshed = await currentSession();
+      setSession(refreshed);
+      setChoosingContext(!refreshed.selected_context);
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : 'Unable to replace the temporary password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleLogout() {
     setBusy(true);
     setError(null);
@@ -158,6 +175,18 @@ export default function App() {
         busy={busy}
         error={error}
         onRetry={error === 'Unable to contact the ERP service.' ? restoreSession : undefined}
+      />
+    );
+  }
+
+  if (session.security?.password_change_required) {
+    return (
+      <RequiredPasswordChange
+        session={session}
+        busy={busy}
+        error={error}
+        onSubmit={handleRequiredPasswordChange}
+        onLogout={handleLogout}
       />
     );
   }

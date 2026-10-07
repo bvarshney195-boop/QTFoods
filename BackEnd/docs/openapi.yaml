@@ -834,6 +834,84 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /admin/users/{userId}/password-reset:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      operationId: resetUserPassword
+      summary: Issue a write-only temporary password and revoke existing access credentials
+      description: The user must replace the temporary password before context selection or ERP business access.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [temporary_password, temporary_password_confirmation]
+              properties:
+                temporary_password: { type: string, format: password, minLength: 9, maxLength: 1024, writeOnly: true }
+                temporary_password_confirmation: { type: string, format: password, minLength: 9, maxLength: 1024, writeOnly: true }
+      responses:
+        "200": { $ref: "#/components/responses/FoundationCommand" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/users/{userId}/delete:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      operationId: deleteUser
+      summary: Revoke all access and retain an auditable deleted-user tombstone
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200": { $ref: "#/components/responses/FoundationCommand" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /admin/users/{userId}/mfa:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      operationId: setUserMfaRequirement
+      summary: Require or disable user MFA under administrator policy
+      description: Role-required MFA cannot be disabled. Changing this policy revokes active sessions.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [required]
+              properties:
+                required: { type: boolean }
+      responses:
+        "200": { $ref: "#/components/responses/FoundationCommand" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
   /admin/users/{userId}/assignments:
     post:
       operationId: createRoleAssignment
@@ -10459,10 +10537,12 @@ components:
             email: { type: string, format: email }
         security:
           type: object
-          required: [email_verified, mfa_enabled, password_changed_at, last_login_at, current_session_id]
+          required: [email_verified, mfa_enabled, mfa_required, password_change_required, password_changed_at, last_login_at, current_session_id]
           properties:
             email_verified: { type: boolean }
             mfa_enabled: { type: boolean }
+            mfa_required: { type: boolean }
+            password_change_required: { type: boolean }
             password_changed_at: { type: [string, "null"], format: date-time }
             last_login_at: { type: [string, "null"], format: date-time }
             current_session_id: { type: [string, "null"], format: uuid }
@@ -10755,7 +10835,7 @@ components:
         updated_at: { type: string, format: date-time }
     UserAdmin:
       type: object
-      required: [id, email, name, status, email_verified, email_verified_at, mfa_enabled, mfa_enabled_at, last_login_at, active_session_count, invitation, assignments, active_assignment_count, record_version, allowed_actions, created_at, updated_at]
+      required: [id, email, name, status, email_verified, email_verified_at, mfa_enabled, mfa_enabled_at, mfa_required, mfa_requirement_source, password_change_required, deleted_at, last_login_at, active_session_count, invitation, assignments, active_assignment_count, record_version, allowed_actions, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
@@ -10765,6 +10845,10 @@ components:
         email_verified_at: { type: [string, "null"], format: date-time }
         mfa_enabled: { type: boolean }
         mfa_enabled_at: { type: [string, "null"], format: date-time }
+        mfa_required: { type: boolean }
+        mfa_requirement_source: { type: string, enum: [ROLE, ADMIN, NONE] }
+        password_change_required: { type: boolean }
+        deleted_at: { type: [string, "null"], format: date-time }
         last_login_at: { type: [string, "null"], format: date-time }
         active_session_count: { type: integer, minimum: 0 }
         invitation:
@@ -10776,7 +10860,7 @@ components:
         record_version: { type: integer, minimum: 1 }
         allowed_actions:
           type: array
-          items: { type: string, enum: [UPDATE, ASSIGN_ROLE, MANAGE_INVITATION, SEND_VERIFICATION, MANAGE_SESSIONS] }
+          items: { type: string, enum: [UPDATE, ASSIGN_ROLE, MANAGE_INVITATION, SEND_VERIFICATION, MANAGE_SESSIONS, RESET_PASSWORD, MANAGE_MFA, DELETE] }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     UserWorkspace:

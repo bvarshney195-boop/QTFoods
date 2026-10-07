@@ -82,6 +82,8 @@ function financeSession(): ErpSession {
     security: {
       email_verified: true,
       mfa_enabled: false,
+      mfa_required: false,
+      password_change_required: false,
       password_changed_at: null,
       last_login_at: null,
       current_session_id: 'session-1',

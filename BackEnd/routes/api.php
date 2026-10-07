@@ -74,19 +74,19 @@ Route::middleware('web')->prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::post('/auth/password/change', [IdentityController::class, 'changePassword'])
             ->middleware('throttle:identity-account-security');
-        Route::post('/auth/mfa/setup', [MfaController::class, 'setup'])->middleware('throttle:identity-account-security');
-        Route::post('/auth/mfa/confirm', [MfaController::class, 'confirm'])->middleware('throttle:identity-account-security');
-        Route::post('/auth/mfa/disable', [MfaController::class, 'disable'])->middleware('throttle:identity-account-security');
+        Route::post('/auth/mfa/setup', [MfaController::class, 'setup'])->middleware(['erp.password', 'throttle:identity-account-security']);
+        Route::post('/auth/mfa/confirm', [MfaController::class, 'confirm'])->middleware(['erp.password', 'throttle:identity-account-security']);
+        Route::post('/auth/mfa/disable', [MfaController::class, 'disable'])->middleware(['erp.password', 'throttle:identity-account-security']);
         Route::post('/auth/mfa/recovery-codes', [MfaController::class, 'recoveryCodes'])
-            ->middleware('throttle:identity-account-security');
-        Route::get('/auth/sessions', [DeviceSessionController::class, 'index']);
-        Route::post('/auth/sessions/revoke-others', [DeviceSessionController::class, 'revokeOthers']);
+            ->middleware(['erp.password', 'throttle:identity-account-security']);
+        Route::get('/auth/sessions', [DeviceSessionController::class, 'index'])->middleware('erp.password');
+        Route::post('/auth/sessions/revoke-others', [DeviceSessionController::class, 'revokeOthers'])->middleware('erp.password');
         Route::post('/auth/sessions/{sessionId}/revoke', [DeviceSessionController::class, 'revoke'])
-            ->whereUuid('sessionId');
-        Route::get('/contexts', [ContextController::class, 'index']);
-        Route::post('/contexts/select', [ContextController::class, 'select']);
+            ->whereUuid('sessionId')->middleware('erp.password');
+        Route::get('/contexts', [ContextController::class, 'index'])->middleware('erp.password');
+        Route::post('/contexts/select', [ContextController::class, 'select'])->middleware('erp.password');
 
-        Route::middleware('erp.context')->group(function () {
+        Route::middleware(['erp.password', 'erp.context'])->group(function () {
             Route::middleware('erp.screen:WRK-HOME')->group(function () {
                 Route::get('/experience/search', [ExperienceController::class, 'search']);
                 Route::get('/experience/workspace', [ExperienceController::class, 'workspace']);
@@ -163,6 +163,15 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/admin/users/{userId}', [UserAdminController::class, 'update'])
                 ->whereUuid('userId')
                 ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:UPDATE']);
+            Route::post('/admin/users/{userId}/password-reset', [UserAdminController::class, 'resetPassword'])
+                ->whereUuid('userId')
+                ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:PASSWORD-RESET']);
+            Route::post('/admin/users/{userId}/delete', [UserAdminController::class, 'delete'])
+                ->whereUuid('userId')
+                ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:DELETE']);
+            Route::post('/admin/users/{userId}/mfa', [UserAdminController::class, 'setMfaRequirement'])
+                ->whereUuid('userId')
+                ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:MFA']);
             Route::post('/admin/user-invitations', [IdentityAdminController::class, 'invite'])
                 ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:INVITE']);
             Route::post('/admin/user-invitations/{invitationId}/resend', [IdentityAdminController::class, 'resend'])

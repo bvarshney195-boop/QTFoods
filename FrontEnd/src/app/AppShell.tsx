@@ -279,7 +279,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           <button className="global-search-trigger" type="button" onClick={() => setGlobalSearchOpen(true)}><span>⌕</span><b>Search everything</b><kbd>Ctrl K</kbd></button>
           <NotificationCentre onNavigate={(href) => { window.location.hash = href.replace(/^#/, ''); }} />
           {current && <button className={`icon favourite-button ${favourites.includes(current.code) ? 'is-favourite' : ''}`} type="button" aria-label={favourites.includes(current.code) ? 'Remove current page from favourites' : 'Add current page to favourites'} title="Pin page" onClick={toggleFavourite}>★</button>}
-          <button ref={securityButtonRef} className="security-button" type="button" aria-label={`Account security for ${session.user.name}`} title={`${session.user.name} · ${primaryRole}`} aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>{session.user.name}</span><b>{session.security?.mfa_enabled ? '2-step on' : '2-step off'}</b></button>
+          <button ref={securityButtonRef} className="security-button" type="button" aria-label={`Account security for ${session.user.name}`} title={`${session.user.name} · ${primaryRole}`} aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>{session.user.name}</span><b>{session.security?.mfa_enabled ? '2-step on' : session.security?.mfa_required ? '2-step required' : '2-step off'}</b></button>
           {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
         </header>
 

@@ -25,6 +25,11 @@ final class AuthenticationMethodFlowTest extends TestCase
 
     public function test_email_otp_is_a_complete_primary_method_for_a_standard_user(): void
     {
+        DB::table('users')->where('email', 'demo.user@qtfoods.local')->update([
+            'mfa_secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP'),
+            'mfa_enabled_at' => now(),
+        ]);
+
         $challenge = $this->postJson('/api/v1/auth/login', [
             'email' => 'demo.user@qtfoods.local',
             'method' => 'email_otp',
@@ -40,6 +45,56 @@ final class AuthenticationMethodFlowTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.authentication.mfa_method', 'EMAIL_OTP');
         $this->assertAuthenticated();
+    }
+
+    public function test_password_is_a_complete_primary_method_for_an_enrolled_standard_user(): void
+    {
+        DB::table('users')->where('email', 'demo.user@qtfoods.local')->update([
+            'mfa_secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP'),
+            'mfa_enabled_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'demo.user@qtfoods.local',
+            'method' => 'password',
+            'password' => 'prototype',
+        ])->assertOk()
+            ->assertJsonPath('data.authentication.mfa_method', 'PASSWORD');
+        $this->assertAuthenticated();
+    }
+
+    public function test_admin_managed_mfa_policy_requires_two_independent_factors_for_a_standard_user(): void
+    {
+        DB::table('users')->where('email', 'demo.user@qtfoods.local')->update([
+            'mfa_secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP'),
+            'mfa_enabled_at' => now(),
+            'mfa_required_by_admin' => true,
+        ]);
+
+        $password = $this->postJson('/api/v1/auth/login', [
+            'email' => 'demo.user@qtfoods.local',
+            'method' => 'password',
+            'password' => 'prototype',
+        ])->assertStatus(202)
+            ->assertJsonPath('data.phase', 'SELECT_SECOND_FACTOR');
+        $this->assertGuest();
+
+        $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $password->json('data.challenge_id'),
+            'action' => 'select_totp',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'TOTP_SECOND');
+
+        $this->withSession([]);
+        $totp = $this->postJson('/api/v1/auth/login', [
+            'email' => 'demo.user@qtfoods.local',
+            'method' => 'totp',
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'TOTP_PRIMARY');
+        $this->postJson('/api/v1/auth/challenge', [
+            'challenge_id' => $totp->json('data.challenge_id'),
+            'action' => 'verify_totp',
+            'code' => app(MfaService::class)->codeForSecret('JBSWY3DPEHPK3PXP'),
+        ])->assertStatus(202)->assertJsonPath('data.phase', 'PASSWORD_SECOND_AFTER_TOTP');
+        $this->assertGuest();
     }
 
     public function test_email_otp_fails_closed_when_the_mailer_only_logs_messages(): void

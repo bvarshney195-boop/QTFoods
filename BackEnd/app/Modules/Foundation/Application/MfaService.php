@@ -133,7 +133,15 @@ final class MfaService
         string $currentPassword,
         string $code,
     ): array {
+        // Re-read policy and enrolment state so a concurrent administrator
+        // change cannot be bypassed by the user model cached in this session.
+        $user->refresh();
         $this->assertPassword($user, $currentPassword);
+        if ((bool) $user->mfa_required_by_admin || $this->requiresRoleMfa($user)) {
+            throw ValidationException::withMessages([
+                'mfa' => ['Multi-factor authentication is required by account policy and cannot be disabled.'],
+            ]);
+        }
         if ($user->mfa_enabled_at === null || ! is_string($user->mfa_secret)) {
             throw ValidationException::withMessages(['mfa' => ['Multi-factor authentication is not enabled.']]);
         }
@@ -164,6 +172,21 @@ final class MfaService
         );
 
         return ['enabled' => false];
+    }
+
+    private function requiresRoleMfa(User $user): bool
+    {
+        return DB::table('role_assignments as assignment')
+            ->join('roles as role', 'role.id', '=', 'assignment.role_id')
+            ->where('assignment.user_id', $user->id)
+            ->where('assignment.is_active', true)
+            ->where('role.status', 'ACTIVE')
+            ->where('role.code', 'ERP_ADMIN')
+            ->where(fn ($query) => $query->whereNull('assignment.effective_from')
+                ->orWhere('assignment.effective_from', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('assignment.effective_to')
+                ->orWhere('assignment.effective_to', '>', now()))
+            ->exists();
     }
 
     public function regenerateRecoveryCodes(
