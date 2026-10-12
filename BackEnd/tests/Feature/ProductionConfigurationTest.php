@@ -19,7 +19,7 @@ final class ProductionConfigurationTest extends TestCase
         self::assertContains('QT_ALLOW_DEMO_SEEDERS must be false.', $violations);
         self::assertContains('QT_ALLOW_DEMO_AUTHENTICATION must be false.', $violations);
         self::assertContains('QT_OUTBOX_TRANSPORT must be http or standalone in production.', $violations);
-        self::assertContains('MAIL_MAILER must use the configured SMTP delivery transport.', $violations);
+        self::assertContains('MAIL_MAILER must be resend or smtp in production.', $violations);
     }
 
     public function test_hardened_configuration_passes_the_production_guard_and_command(): void
@@ -77,12 +77,79 @@ final class ProductionConfigurationTest extends TestCase
     public function test_production_mail_timeout_must_be_bounded(): void
     {
         $this->configureSafeProductionEnvironment();
-        config()->set('mail.mailers.smtp.timeout', 60);
+        config()->set([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.timeout' => 60,
+        ]);
 
         self::assertContains(
             'MAIL_TIMEOUT must be between 1 and 30 seconds.',
             app(ProductionEnvironmentGuard::class)->violations('production'),
         );
+    }
+
+    public function test_resend_requires_its_https_transport_key_and_verified_sender(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'mail.mailers.resend.transport' => 'smtp',
+            'mail.mailers.resend.scheme' => 'http',
+            'services.resend.key' => 'not-a-resend-key',
+            'services.resend.base_url_override' => 'http://api.resend.com',
+            'mail.from.address' => 'noreply@unverified.test',
+        ]);
+
+        $violations = app(ProductionEnvironmentGuard::class)->violations('production');
+
+        self::assertContains('The Resend mailer must use Laravel\'s canonical HTTPS API transport.', $violations);
+        self::assertContains('RESEND_KEY must be a non-placeholder Resend API key beginning with re_.', $violations);
+        self::assertContains('MAIL_FROM_ADDRESS must be the verified Resend sender noreply@qtfoods.in.', $violations);
+    }
+
+    public function test_smtp_remains_fail_closed_when_explicitly_selected(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.require_tls' => false,
+        ]);
+
+        self::assertContains(
+            'SMTP must use a non-placeholder host, authenticated credentials, and required TLS.',
+            app(ProductionEnvironmentGuard::class)->violations('production'),
+        );
+
+        config()->set('mail.mailers.smtp.require_tls', true);
+        self::assertSame([], app(ProductionEnvironmentGuard::class)->violations('production'));
+    }
+
+    public function test_resend_rejects_non_canonical_or_insecure_api_overrides(): void
+    {
+        $this->configureSafeProductionEnvironment();
+
+        foreach (['http://api.resend.com', 'https://resend-proxy.secure.test'] as $endpoint) {
+            config()->set('services.resend.base_url_override', $endpoint);
+            self::assertContains(
+                'The Resend mailer must use Laravel\'s canonical HTTPS API transport.',
+                app(ProductionEnvironmentGuard::class)->violations('production'),
+            );
+        }
+
+        config()->set('services.resend.base_url_override', 'https://api.resend.com');
+        self::assertSame([], app(ProductionEnvironmentGuard::class)->violations('production'));
+    }
+
+    public function test_resend_does_not_require_unused_smtp_credentials(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'mail.mailers.smtp.host' => null,
+            'mail.mailers.smtp.username' => null,
+            'mail.mailers.smtp.password' => null,
+            'mail.mailers.smtp.require_tls' => false,
+        ]);
+
+        self::assertSame([], app(ProductionEnvironmentGuard::class)->violations('production'));
     }
 
     public function test_bootstrap_password_must_not_remain_in_the_runtime_environment(): void
@@ -323,13 +390,18 @@ final class ProductionConfigurationTest extends TestCase
             'filesystems.disks.evidence.bucket' => 'qtfoods-evidence-production',
             'filesystems.disks.evidence.endpoint' => 'https://objects.erp.secure.test',
             'filesystems.disks.private.driver' => 's3',
-            'mail.default' => 'smtp',
+            'mail.default' => 'resend',
+            'mail.mailers.resend.transport' => 'resend',
+            'mail.mailers.resend.scheme' => 'https',
+            'services.resend.key' => 're_Q7m2R9x4K6p8V1c5N3q0W2z7L4b9S6d8',
+            'services.resend.base_url_override' => null,
             'mail.mailers.smtp.scheme' => 'smtp',
             'mail.mailers.smtp.host' => 'smtp.secure.test',
             'mail.mailers.smtp.username' => 'erp-sender',
             'mail.mailers.smtp.password' => 'M4t8R2x7K9q5C1v6',
             'mail.mailers.smtp.require_tls' => true,
-            'mail.from.address' => 'no-reply@erp.secure.test',
+            'mail.from.address' => 'noreply@qtfoods.in',
+            'mail.from.name' => 'Q & T Foods ERP',
             'observability.metrics.token' => 'T7m2R9x4K6p8V1c5N3q0W2z7L4b9S6d8',
             'observability.readiness.database' => true,
             'observability.readiness.redis' => true,

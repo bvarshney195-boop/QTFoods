@@ -4,6 +4,12 @@ return [
     'default' => env('MAIL_MAILER', 'log'),
 
     'mailers' => [
+        'resend' => [
+            'transport' => 'resend',
+            // Laravel's native Resend transport uses the official SDK over its
+            // HTTPS API. Production validation rejects insecure base overrides.
+            'scheme' => 'https',
+        ],
         'smtp' => [
             'transport' => 'smtp',
             'scheme' => env('MAIL_SCHEME'),
@@ -29,7 +35,7 @@ return [
     ],
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'no-reply@qtfoods.local'),
+        'address' => env('MAIL_FROM_ADDRESS', 'noreply@qtfoods.in'),
         'name' => env('MAIL_FROM_NAME', 'Q & T Foods ERP'),
     ],
 ];

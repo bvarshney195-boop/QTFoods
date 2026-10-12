@@ -77,7 +77,10 @@ final class IdentityNotificationService
             $status = 'SENT';
         } catch (\Throwable $exception) {
             Log::error('Identity email delivery failed.', [
+                'mailer' => $mailer,
+                'transport' => $transport,
                 'recipient_domain' => str_contains($email, '@') ? strrchr($email, '@') : null,
+                'error_type' => $exception::class,
                 'exception' => $exception,
             ]);
             $status = 'FAILED';

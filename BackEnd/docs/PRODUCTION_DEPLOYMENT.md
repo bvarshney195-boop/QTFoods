@@ -11,7 +11,7 @@ The production stack is a single-host deployment baseline, not a high-availabili
 - Inbound TCP 80/443 and UDP 443 allowed for Caddy and ACME; PostgreSQL and Redis must remain private.
 - An approved externally managed S3-compatible provider with a pre-created private bucket, an exact HTTPS endpoint, TLS validation, versioning/retention controls where required, and private network or egress access from the application and recovery hosts.
 - An HTTPS frontend origin on the same site as the API, such as `https://erp.company.example` with `https://api.erp.company.example`. The session policy is deliberately `SameSite=Lax`.
-- SMTP credentials for a TLS-capable delivery service.
+- A Resend account with `qtfoods.in` verified for sending and a domain-restricted sending-access API key.
 - An absolute host backup path on approved encrypted/restricted storage, writable by UID/GID 65532, plus approved retention and recovery objectives before live data is accepted.
 - A protected log/metric collection path and an on-call alert destination. The repository emits telemetry but does not deploy the organisation's collector, dashboard, paging service, or incident rota.
 
@@ -29,7 +29,7 @@ Generate the Laravel key from 32 cryptographically random bytes. One portable op
 docker run --rm php:8.5-cli php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'
 ```
 
-Use independent random values for the Laravel key, PostgreSQL password, object-storage application credentials, SMTP password, metrics bearer token, and any enabled HTTP outbox or alert signing secret. Provision the object-storage bucket and least-privilege identity in the managed provider before deployment; Compose does not create provider accounts or buckets. Prefer injecting these values from the target platform's secret manager. The application checks minimum safety properties and known placeholders, but that cannot prove uniqueness, custody, rotation, provider-side retention, or encryption policy.
+Use independent random values for the Laravel key, PostgreSQL password, object-storage application credentials, Resend sending key, metrics bearer token, and any enabled HTTP outbox or alert signing secret. Provision the object-storage bucket and least-privilege identity in the managed provider before deployment; Compose does not create provider accounts, buckets, Resend domains, or API keys. Prefer injecting these values from the target platform's secret manager. The application checks minimum safety properties and known placeholders, but that cannot prove uniqueness, custody, rotation, provider-side retention, domain verification, or encryption policy.
 
 Important relationships:
 
@@ -39,7 +39,7 @@ Important relationships:
 - `QT_FRONTEND_URL` must match the public frontend used in invitation, verification, and reset links.
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT`, and `AWS_USE_PATH_STYLE_ENDPOINT` are provider-neutral S3-compatible settings. `AWS_ENDPOINT` must be the provider's exact HTTPS endpoint; do not put credentials, query parameters, or a bucket path in it.
 - Both Laravel `private` and `evidence` disks remain S3-backed and use the configured private bucket. `QT_PRIVATE_DOCUMENT_DISK=private`, `QT_EVIDENCE_DISK=evidence`, and `QT_READINESS_OBJECT_STORAGE=true` are enforced in production.
-- `MAIL_SCHEME=smtp` with `MAIL_REQUIRE_TLS=true` uses required STARTTLS; use `smtps` for implicit TLS where the provider requires it.
+- Production Railway delivery uses Laravel's native Resend HTTPS transport: `MAIL_MAILER=resend`, a secret `RESEND_KEY` beginning with `re_`, and the verified sender `MAIL_FROM_ADDRESS=noreply@qtfoods.in`. Leave `RESEND_BASE_URL` unset so the official SDK uses `https://api.resend.com`. SMTP remains supported only as an explicit fallback and still requires authenticated credentials plus required STARTTLS or implicit TLS.
 - `QT_METRICS_TOKEN` is a dedicated random value of at least 32 characters. Give it only to the scraper and rotate it independently of user or integration credentials.
 - `QT_OUTBOX_TRANSPORT=standalone` is the safe mode when no external event consumer exists. Events remain `PENDING` in PostgreSQL with no delivery attempt, receiver acknowledgement, or synthetic success. Use `http` only with a real HTTPS receiver and an independent `QT_OUTBOX_SIGNING_SECRET` of at least 32 characters.
 - `QT_ALERT_TRANSPORT=log` emits alert-ready JSON to stderr. Set it to `http` only with an approved HTTPS `QT_ALERT_HTTP_ENDPOINT` and an independent `QT_ALERT_SIGNING_SECRET` of at least 32 characters.
@@ -63,6 +63,17 @@ QT_TRUSTED_HOSTS=${{RAILWAY_PUBLIC_DOMAIN}},healthcheck.railway.app
 QT_CORS_ALLOWED_ORIGINS=
 RAILWAY_DOCKERFILE_PATH=Dockerfile.render
 ```
+
+Before the first mail-enabled deployment, add `qtfoods.in` to Resend and wait until Resend reports the domain as verified. Create a sending-access API key restricted to that domain, then set these Railway service variables:
+
+```dotenv
+MAIL_MAILER=resend
+RESEND_KEY=re_REPLACE_WITH_THE_RAILWAY_SECRET
+MAIL_FROM_ADDRESS=noreply@qtfoods.in
+MAIL_FROM_NAME="Q & T Foods ERP"
+```
+
+Store the real `RESEND_KEY` as a Railway secret. Do not commit it, expose it to the frontend, or set `RESEND_BASE_URL`; remove obsolete Gmail/SMTP variables from the Railway service. Login OTPs, administrator invitations, password resets, and email-verification links all use Laravel's default mailer synchronously, so they use this same Resend transport. A provider/API failure is reported as `FAILED`, emits a structured error to stderr, and never claims that the message was sent.
 
 Set the outbox variables exactly as follows when there is no external consumer:
 
@@ -100,7 +111,7 @@ Run the application-level policy check from the built image without starting its
 docker compose --env-file /secure/path/qtfoods-production.env -f docker-compose.production.yml run --rm --no-deps app php artisan qt:deployment:verify
 ```
 
-Production boot fails closed if the key, URL, host/proxy/CORS policy, cookies, database/Redis/object-store credentials, SMTP/TLS settings, masking, structured logging, Redis queue/session/metric state, readiness probes, metrics token, alert transport, recovery-policy bounds, preview-link setting, or seeder policy is unsafe. A failed check must be corrected; do not bypass it by changing `APP_ENV`.
+Production boot fails closed if the key, URL, host/proxy/CORS policy, cookies, database/Redis/object-store credentials, Resend HTTPS/key/sender policy (or SMTP/TLS policy when explicitly selected), masking, structured logging, Redis queue/session/metric state, readiness probes, metrics token, alert transport, recovery-policy bounds, preview-link setting, or seeder policy is unsafe. A failed check must be corrected; do not bypass it by changing `APP_ENV`.
 
 ## Start and verify
 
@@ -142,7 +153,7 @@ The command creates only non-demo company/plant records, uses the active `ERP_AD
 
 The administrator can begin with Email OTP or the Google Authenticator path. Because `ERP_ADMIN` is an MFA-required role, Email OTP leads to authenticator enrollment and no authenticated session exists until TOTP succeeds. After using the password-setup link, password authentication also stops at the mandatory Email OTP or TOTP second-factor gate.
 
-If the hosting plan blocks SMTP, initialise only the bootstrapped administrator's first password through managed deployment secrets. Set `QT_BOOTSTRAP_ADMIN_EMAIL`, a unique password of at least 9 characters containing upper- and lower-case letters and a number in `QT_BOOTSTRAP_ADMIN_PASSWORD`, and `QT_BOOTSTRAP_ADMIN_PASSWORD_CONFIRMATION=INITIALIZE_PRODUCTION_ADMIN_PASSWORD`, then start an initialization deployment. The Render container runs `qt:identity:initialize-bootstrap-password` after migrations; it never prints the password and refuses to reset an account whose first password is already established. This deployment intentionally stops before serving HTTP while the temporary password remains configured. After the log reports `initialized`, remove all three variables and redeploy; the normal production guard then permits the service to start. The administrator can choose Password, select Google Authenticator as the required second factor, scan the QR code, and confirm a valid TOTP without Email OTP.
+If Resend delivery is temporarily unavailable during the controlled bootstrap window, initialise only the bootstrapped administrator's first password through managed deployment secrets. Set `QT_BOOTSTRAP_ADMIN_EMAIL`, a unique password of at least 9 characters containing upper- and lower-case letters and a number in `QT_BOOTSTRAP_ADMIN_PASSWORD`, and `QT_BOOTSTRAP_ADMIN_PASSWORD_CONFIRMATION=INITIALIZE_PRODUCTION_ADMIN_PASSWORD`, then start an initialization deployment. The container runs `qt:identity:initialize-bootstrap-password` after migrations; it never prints the password and refuses to reset an account whose first password is already established. This deployment intentionally stops before serving HTTP while the temporary password remains configured. After the log reports `initialized`, remove all three variables and redeploy; the normal production guard then permits the service to start. The administrator can choose Password, select Google Authenticator as the required second factor, scan the QR code, and confirm a valid TOTP without Email OTP.
 
 Retain the command JSON and then rerun `php artisan qt:security:verify-identities`. The deployment is not accepted if the new user, company or plant is classified as demo, if the role assignment is inactive, if email delivery is not `SENT`, or if the identity verifier fails.
 

@@ -108,12 +108,21 @@ final class ProductionEnvironmentGuard
         $privateDocumentDisk = (string) $this->config->get('qtfoods.private_document_disk', 'private');
         $this->reject($violations, $this->config->get("filesystems.disks.{$privateDocumentDisk}.driver") !== 's3', 'The production private-document disk must use the S3 driver.');
 
-        $this->reject($violations, $this->config->get('mail.default') !== 'smtp', 'MAIL_MAILER must use the configured SMTP delivery transport.');
-        $this->reject($violations, $this->unsafeMailConfiguration(), 'SMTP must use a non-placeholder host, authenticated credentials, and required TLS.');
-        $mailTimeout = (float) $this->config->get('mail.mailers.smtp.timeout');
-        $this->reject($violations, $mailTimeout < 1 || $mailTimeout > 30, 'MAIL_TIMEOUT must be between 1 and 30 seconds.');
+        $mailTransport = strtolower(trim((string) $this->config->get('mail.default')));
         $mailFrom = (string) $this->config->get('mail.from.address');
+        $this->reject($violations, ! in_array($mailTransport, ['resend', 'smtp'], true), 'MAIL_MAILER must be resend or smtp in production.');
+        if ($mailTransport === 'resend') {
+            $this->reject($violations, $this->unsafeResendConfiguration(), 'The Resend mailer must use Laravel\'s canonical HTTPS API transport.');
+            $this->reject($violations, $this->unsafeResendKey($this->config->get('services.resend.key')), 'RESEND_KEY must be a non-placeholder Resend API key beginning with re_.');
+            $this->reject($violations, strtolower(trim($mailFrom)) !== 'noreply@qtfoods.in', 'MAIL_FROM_ADDRESS must be the verified Resend sender noreply@qtfoods.in.');
+        } elseif ($mailTransport === 'smtp') {
+            $this->reject($violations, $this->unsafeMailConfiguration(), 'SMTP must use a non-placeholder host, authenticated credentials, and required TLS.');
+            $mailTimeout = (float) $this->config->get('mail.mailers.smtp.timeout');
+            $this->reject($violations, $mailTimeout < 1 || $mailTimeout > 30, 'MAIL_TIMEOUT must be between 1 and 30 seconds.');
+        }
         $this->reject($violations, filter_var($mailFrom, FILTER_VALIDATE_EMAIL) === false || $this->placeholder($mailFrom) || str_ends_with(strtolower($mailFrom), '.local'), 'MAIL_FROM_ADDRESS must use a deliverable, non-placeholder production domain.');
+        $mailFromName = trim((string) $this->config->get('mail.from.name'));
+        $this->reject($violations, $mailFromName === '' || $this->placeholder($mailFromName), 'MAIL_FROM_NAME must identify the production sender.');
         $this->reject($violations, $this->config->get('logging.default') !== 'stderr', 'LOG_CHANNEL must be stderr.');
         $this->reject($violations, $this->config->get('logging.channels.stderr.formatter') !== JsonFormatter::class, 'LOG_STDERR_FORMATTER must use Monolog JSON formatting.');
         $this->reject($violations, strtolower((string) $this->config->get('deployment.log_level')) !== 'info', 'LOG_LEVEL must be info so successful request and operational events are retained.');
@@ -301,6 +310,41 @@ final class ProductionEnvironmentGuard
             || ($scheme === 'smtp' && ! (bool) ($smtp['require_tls'] ?? false))
             || $this->unsafeSecret($smtp['username'] ?? null, 4)
             || $this->unsafeSecret($smtp['password'] ?? null);
+    }
+
+    private function unsafeResendKey(mixed $value): bool
+    {
+        return $this->unsafeSecret($value, 16)
+            || preg_match('/^re_[A-Za-z0-9_-]+$/D', (string) $value) !== 1;
+    }
+
+    private function unsafeResendConfiguration(): bool
+    {
+        $resend = (array) $this->config->get('mail.mailers.resend', []);
+        if (($resend['transport'] ?? null) !== 'resend'
+            || strtolower((string) ($resend['scheme'] ?? '')) !== 'https') {
+            return true;
+        }
+
+        $override = $this->config->get('services.resend.base_url_override');
+        if ($override === null || $override === '') {
+            return false;
+        }
+        if (! is_string($override) || trim($override) !== $override) {
+            return true;
+        }
+
+        $parts = parse_url($override);
+
+        return ! is_array($parts)
+            || ($parts['scheme'] ?? null) !== 'https'
+            || strtolower((string) ($parts['host'] ?? '')) !== 'api.resend.com'
+            || isset($parts['port'])
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || (isset($parts['path']) && $parts['path'] !== '' && $parts['path'] !== '/')
+            || isset($parts['query'])
+            || isset($parts['fragment']);
     }
 
     private function unsafeAlertConfiguration(): bool
