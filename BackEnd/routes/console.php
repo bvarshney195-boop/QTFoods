@@ -5,6 +5,7 @@ use App\Modules\Foundation\Application\IdentityLifecycleService;
 use App\Shared\Deployment\ProductionAdminBootstrapper;
 use App\Shared\Deployment\ProductionEnvironmentGuard;
 use App\Shared\Deployment\ProductionIdentityVerifier;
+use App\Shared\Deployment\SystemDefinitionInitializer;
 use App\Shared\Observability\OperationalMonitor;
 use App\Shared\Outbox\OutboxProcessor;
 use App\Shared\Outbox\OutboxReadinessVerifier;
@@ -40,6 +41,32 @@ Artisan::command('qt:security:verify-identities', function () {
 
     return $result['status'] === 'pass' ? 0 : 2;
 })->purpose('Fail if demo principals, shared preset credentials, active demo sessions, or synthetic-context leaks remain.');
+
+Artisan::command('qt:system:initialize
+    {--confirmation= : Must equal INITIALIZE_SYSTEM_DEFINITIONS}',
+    function (SystemDefinitionInitializer $initializer) {
+        if (! hash_equals(
+            SystemDefinitionInitializer::CONFIRMATION,
+            (string) $this->option('confirmation'),
+        )) {
+            $this->error('System-definition initialization requires explicit confirmation.');
+
+            return 2;
+        }
+
+        try {
+            $result = $initializer->initialize();
+        } catch (RuntimeException $exception) {
+            $this->error($exception->getMessage());
+
+            return 2;
+        }
+
+        $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return 0;
+    }
+)->purpose('Idempotently install approved global system roles and permissions without demo or tenant data.');
 
 Artisan::command('qt:identity:bootstrap-admin
     {email : Registered mailbox for the first real ERP administrator}

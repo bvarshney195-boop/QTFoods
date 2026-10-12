@@ -118,7 +118,17 @@ The migration service also runs `qt:security:verify-identities` after migrations
 
 ## Bootstrap the first production administrator
 
-Run this controlled command once from the application container or managed-service shell after migrations and approved system definitions are present:
+Fresh migrations create the authorization schema but do not load the approved global role and permission definitions. On Railway, open a shell for the application service after migrations and run this one-time, idempotent command before creating the first administrator:
+
+```bash
+php artisan qt:system:initialize --confirmation=INITIALIZE_SYSTEM_DEFINITIONS --no-interaction
+```
+
+The command installs six active global system roles, 350 active global system permissions, and the reviewed role-permission matrix. `ERP_ADMIN` receives its complete approved 347-permission assignment; the three remaining permissions are deliberately scoped to partner self-service. A successful first run reports `"status": "initialized"`; a safe repeat reports `"status": "already_current"` with no database changes. It creates no company, plant, user, identity token, role assignment, audit event, outbox event, transaction, or sample record.
+
+Keep `QT_ALLOW_DEMO_SEEDERS=false`. Do not run `php artisan db:seed` in production: `DatabaseSeeder` contains demo identities, companies, transactions, and the shared prototype credential, and remains fail-closed under the production setting.
+
+Then run this controlled administrator command once from the same Railway service shell:
 
 ```bash
 php artisan qt:identity:bootstrap-admin bvarshney195@gmail.com \
