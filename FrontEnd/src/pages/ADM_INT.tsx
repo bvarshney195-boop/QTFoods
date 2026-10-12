@@ -88,17 +88,18 @@ export default function ADM_INT() {
 
   function clearFeedback() { setError(null); setSuccess(null); }
   const summary = workspace?.summary;
+  const deliveryEnabled = workspace?.runtime.delivery_enabled ?? true;
   return <>
     <PageHeader code="ADM-INT" batch="B04" title="Integration Operations" description="Transactional-outbox delivery, receiver acknowledgements, bounded retry, and operator quarantine controls." />
-    <div className="live-notice integration-notice"><span></span><b>Durable delivery control</b> The scheduler dispatches outbox batches to Redis workers; receiver acknowledgements and every attempt remain queryable.{workspace?.allowed_actions.includes('PROCESS_DUE') && <button className="secondary compact-button" type="button" onClick={() => void processDue()} disabled={busy}>{busy ? 'Processing…' : 'Process due now'}</button>}</div>
+    <div className="live-notice integration-notice"><span></span>{deliveryEnabled ? <><b>Durable delivery control</b> The scheduler dispatches outbox batches to Redis workers; receiver acknowledgements and every attempt remain queryable.</> : <><b>Standalone retention</b> Business events remain pending in PostgreSQL; no external delivery or acknowledgement is claimed.</>}{workspace?.allowed_actions.includes('PROCESS_DUE') && <button className="secondary compact-button" type="button" onClick={() => void processDue()} disabled={busy}>{busy ? 'Processing…' : 'Process due now'}</button>}</div>
     <div className="kpi-grid control-kpis integration-kpis">
-      <div className="kpi"><span>Pending</span><b>{loading && !workspace ? '-' : summary?.pending ?? 0}</b><small>ready for delivery</small></div>
+      <div className="kpi"><span>Pending</span><b>{loading && !workspace ? '-' : summary?.pending ?? 0}</b><small>{deliveryEnabled ? 'ready for delivery' : 'retained locally'}</small></div>
       <div className="kpi"><span>Retry</span><b>{loading && !workspace ? '-' : summary?.retry ?? 0}</b><small>backoff active</small></div>
       <div className="kpi"><span>Delivered</span><b>{loading && !workspace ? '-' : summary?.delivered ?? 0}</b><small>acknowledged</small></div>
       <div className="kpi"><span>Quarantined</span><b>{loading && !workspace ? '-' : summary?.quarantined ?? 0}</b><small>operator review</small></div>
     </div>
     {(error || success) && <div className={error ? 'form-error panel-message' : 'form-success panel-message'} role={error ? 'alert' : 'status'}><span></span>{error ?? success}</div>}
-    {workspace && <section className="panel runtime-strip"><div><span>Queue</span><b>{workspace.runtime.queue_connection}</b></div><div><span>Transport</span><b>{workspace.runtime.transport}</b></div><div><span>Retry policy</span><b>{workspace.runtime.max_attempts} attempts</b><small>{workspace.runtime.base_retry_seconds}s exponential base</small></div><div><span>Last attempt</span><b>{formatDate(workspace.runtime.last_attempt_at)}</b></div><div><span>Evidence store</span><b>{workspace.runtime.evidence_driver}</b><small>{workspace.runtime.evidence_disk}</small></div></section>}
+    {workspace && <section className="panel runtime-strip"><div><span>Queue</span><b>{workspace.runtime.queue_connection}</b></div><div><span>Transport</span><b>{workspace.runtime.transport}</b></div><div><span>Retry policy</span><b>{deliveryEnabled ? `${workspace.runtime.max_attempts} attempts` : 'Delivery disabled'}</b><small>{deliveryEnabled ? `${workspace.runtime.base_retry_seconds}s exponential base` : 'Events remain pending'}</small></div><div><span>Last attempt</span><b>{formatDate(workspace.runtime.last_attempt_at)}</b></div><div><span>Evidence store</span><b>{workspace.runtime.evidence_driver}</b><small>{workspace.runtime.evidence_disk}</small></div></section>}
     <form className="panel control-filter integration-filter" onSubmit={search}>
       <label>Search<input aria-label="Search outbox" value={draft.q ?? ''} onChange={(e) => setDraft({ ...draft, q: e.target.value })} placeholder="Type, aggregate, business key, ack…" /></label>
       <label>Status<select aria-label="Outbox status" value={draft.status ?? ''} onChange={(e) => setDraft({ ...draft, status: e.target.value })}><option value="">All statuses</option>{workspace?.lookups.statuses.map((value) => <option key={value}>{value}</option>)}</select></label>

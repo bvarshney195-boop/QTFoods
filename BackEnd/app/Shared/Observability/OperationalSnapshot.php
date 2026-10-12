@@ -18,11 +18,15 @@ final class OperationalSnapshot
     {
         $now = CarbonImmutable::now('UTC');
         $health = $this->dependencies->check();
+        $outboxTransport = strtolower(trim((string) config('qtfoods.outbox.transport', 'log')));
+        $outboxDeliveryEnabled = $outboxTransport !== 'standalone';
         $snapshot = [
             'checked_at' => $now->toIso8601String(),
             'dependencies' => $health['checks'],
             'outbox' => array_fill_keys(self::OUTBOX_STATUSES, 0) + [
-                'oldest_due_age_seconds' => 0,
+                'transport' => $outboxTransport,
+                'delivery_enabled' => $outboxDeliveryEnabled,
+                'oldest_due_age_seconds' => $outboxDeliveryEnabled ? 0 : null,
                 'failed_attempts_in_window' => 0,
             ],
             'failed_jobs' => 0,
@@ -77,13 +81,15 @@ final class OperationalSnapshot
         foreach (self::OUTBOX_STATUSES as $status) {
             $snapshot['outbox'][$status] = (int) ($outboxCounts[$status] ?? 0);
         }
-        $oldestDue = DB::table('outbox_events')->whereIn('status', ['PENDING', 'RETRY'])
-            ->min(DB::raw('COALESCE(next_retry_at, created_at)'));
-        if ($oldestDue !== null) {
-            $snapshot['outbox']['oldest_due_age_seconds'] = max(
-                0,
-                $now->getTimestamp() - CarbonImmutable::parse((string) $oldestDue)->getTimestamp(),
-            );
+        if ($snapshot['outbox']['delivery_enabled']) {
+            $oldestDue = DB::table('outbox_events')->whereIn('status', ['PENDING', 'RETRY'])
+                ->min(DB::raw('COALESCE(next_retry_at, created_at)'));
+            if ($oldestDue !== null) {
+                $snapshot['outbox']['oldest_due_age_seconds'] = max(
+                    0,
+                    $now->getTimestamp() - CarbonImmutable::parse((string) $oldestDue)->getTimestamp(),
+                );
+            }
         }
 
         $windowMinutes = max(1, (int) config('observability.monitoring.audit_window_minutes', 60));

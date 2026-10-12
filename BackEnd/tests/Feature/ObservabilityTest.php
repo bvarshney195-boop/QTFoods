@@ -112,6 +112,7 @@ final class ObservabilityTest extends TestCase
         $transport = new class implements OutboxTransport {
             public array $events = [];
             public function name(): string { return 'capture'; }
+            public function deliveryEnabled(): bool { return true; }
             public function deliver(array $event): array
             {
                 $this->events[] = $event;

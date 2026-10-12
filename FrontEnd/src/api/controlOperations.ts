@@ -135,6 +135,7 @@ export type OutboxWorkspace = {
   runtime: {
     queue_connection: string;
     transport: string;
+    delivery_enabled: boolean;
     batch_size: number;
     max_attempts: number;
     base_retry_seconds: number;
@@ -164,6 +165,7 @@ export type OutboxCommand = {
   delivered?: number;
   retry_scheduled?: number;
   quarantined?: number;
+  delivery_enabled?: boolean;
 };
 
 export async function listOutboxEvents(filters: OutboxFilters = {}): Promise<OutboxWorkspace> {

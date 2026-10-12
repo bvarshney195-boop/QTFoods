@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Modules\Foundation\Domain\User;
 use App\Shared\Audit\AuditService;
+use App\Shared\Observability\OperationalAlertEvaluator;
+use App\Shared\Observability\OperationalSnapshot;
 use App\Shared\Outbox\OutboxProcessor;
 use App\Shared\Outbox\OutboxService;
 use App\Shared\Outbox\OutboxTransport;
@@ -126,6 +128,7 @@ final class ControlOperationsEndpointTest extends TestCase
         $successId = $this->outbox('sales.return.created', 'success');
         $this->app->instance(OutboxTransport::class, new class implements OutboxTransport {
             public function name(): string { return 'test'; }
+            public function deliveryEnabled(): bool { return true; }
             public function deliver(array $event): array
             {
                 return ['acknowledgement_id' => 'ack-'.$event['id'], 'response' => ['accepted' => true]];
@@ -151,6 +154,7 @@ final class ControlOperationsEndpointTest extends TestCase
         $failureId = $this->outbox('sales.return.failed', 'failure');
         $this->app->instance(OutboxTransport::class, new class implements OutboxTransport {
             public function name(): string { return 'test'; }
+            public function deliveryEnabled(): bool { return true; }
             public function deliver(array $event): array { throw new RuntimeException('Receiver unavailable.'); }
         });
         $processor = $this->app->make(OutboxProcessor::class);
@@ -177,6 +181,52 @@ final class ControlOperationsEndpointTest extends TestCase
             'quarantine_reason' => 'Automatic quarantine after exhausting the configured retry policy.',
         ]);
         $this->assertSame(2, DB::table('outbox_delivery_attempts')->where('outbox_event_id', $failureId)->count());
+    }
+
+    public function test_standalone_outbox_retains_events_and_audit_without_delivery_attempts(): void
+    {
+        $auditId = $this->audit('STANDALONE_RETENTION_TEST', self::TRAINING_PLANT_ID, [
+            'delivery' => ['from' => null, 'to' => 'retained'],
+        ]);
+        $eventId = $this->outbox('sales.return.retained', 'standalone-retention');
+        config()->set('qtfoods.outbox.transport', 'standalone');
+        $this->app->forgetInstance(OutboxTransport::class);
+
+        $result = $this->app->make(OutboxProcessor::class)->process(10, 'standalone-worker', [
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::TRAINING_PLANT_ID,
+        ]);
+
+        self::assertFalse($result['delivery_enabled']);
+        self::assertSame('standalone', $result['transport']);
+        self::assertSame(0, $result['claimed']);
+        self::assertSame(0, $result['delivered']);
+        $this->assertDatabaseHas('outbox_events', [
+            'id' => $eventId,
+            'status' => 'PENDING',
+            'attempts' => 0,
+            'delivered_at' => null,
+            'acknowledged_at' => null,
+            'acknowledgement_id' => null,
+        ]);
+        $this->assertDatabaseHas('audit_events', ['id' => $auditId, 'command' => 'STANDALONE_RETENTION_TEST']);
+        self::assertSame(0, DB::table('outbox_delivery_attempts')->where('outbox_event_id', $eventId)->count());
+
+        $snapshot = $this->app->make(OperationalSnapshot::class)->capture();
+        self::assertFalse($snapshot['outbox']['delivery_enabled']);
+        self::assertSame('standalone', $snapshot['outbox']['transport']);
+        self::assertNull($snapshot['outbox']['oldest_due_age_seconds']);
+        self::assertNotContains(
+            'outbox.oldest_due',
+            collect($this->app->make(OperationalAlertEvaluator::class)->evaluate($snapshot))->pluck('code')->all(),
+        );
+
+        $this->getJson('/api/v1/admin/integrations')
+            ->assertOk()
+            ->assertJsonPath('runtime.transport', 'standalone')
+            ->assertJsonPath('runtime.delivery_enabled', false)
+            ->assertJsonPath('runtime.oldest_due_at', null)
+            ->assertJsonCount(0, 'allowed_actions');
     }
 
     public function test_operator_workspace_is_scoped_and_retry_quarantine_commands_are_versioned_and_idempotent(): void
@@ -227,6 +277,7 @@ final class ControlOperationsEndpointTest extends TestCase
         $hiddenId = $this->outbox('sales.hidden', 'hidden', self::FINANCE_PLANT_ID);
         $this->app->instance(OutboxTransport::class, new class implements OutboxTransport {
             public function name(): string { return 'test'; }
+            public function deliveryEnabled(): bool { return true; }
             public function deliver(array $event): array
             {
                 return ['acknowledgement_id' => 'operator-'.$event['id'], 'response' => []];

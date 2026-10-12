@@ -29,7 +29,7 @@ Generate the Laravel key from 32 cryptographically random bytes. One portable op
 docker run --rm php:8.5-cli php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'
 ```
 
-Use independent random values for the Laravel key, PostgreSQL password, object-storage application credentials, SMTP password, metrics bearer token, and any outbox or alert signing secret. Provision the object-storage bucket and least-privilege identity in the managed provider before deployment; Compose does not create provider accounts or buckets. Prefer injecting these values from the target platform's secret manager. The application checks minimum safety properties and known placeholders, but that cannot prove uniqueness, custody, rotation, provider-side retention, or encryption policy.
+Use independent random values for the Laravel key, PostgreSQL password, object-storage application credentials, SMTP password, metrics bearer token, and any enabled HTTP outbox or alert signing secret. Provision the object-storage bucket and least-privilege identity in the managed provider before deployment; Compose does not create provider accounts or buckets. Prefer injecting these values from the target platform's secret manager. The application checks minimum safety properties and known placeholders, but that cannot prove uniqueness, custody, rotation, provider-side retention, or encryption policy.
 
 Important relationships:
 
@@ -41,12 +41,47 @@ Important relationships:
 - Both Laravel `private` and `evidence` disks remain S3-backed and use the configured private bucket. `QT_PRIVATE_DOCUMENT_DISK=private`, `QT_EVIDENCE_DISK=evidence`, and `QT_READINESS_OBJECT_STORAGE=true` are enforced in production.
 - `MAIL_SCHEME=smtp` with `MAIL_REQUIRE_TLS=true` uses required STARTTLS; use `smtps` for implicit TLS where the provider requires it.
 - `QT_METRICS_TOKEN` is a dedicated random value of at least 32 characters. Give it only to the scraper and rotate it independently of user or integration credentials.
+- `QT_OUTBOX_TRANSPORT=standalone` is the safe mode when no external event consumer exists. Events remain `PENDING` in PostgreSQL with no delivery attempt, receiver acknowledgement, or synthetic success. Use `http` only with a real HTTPS receiver and an independent `QT_OUTBOX_SIGNING_SECRET` of at least 32 characters.
 - `QT_ALERT_TRANSPORT=log` emits alert-ready JSON to stderr. Set it to `http` only with an approved HTTPS `QT_ALERT_HTTP_ENDPOINT` and an independent `QT_ALERT_SIGNING_SECRET` of at least 32 characters.
 - `QT_BACKUP_HOST_PATH` is a protected host path, never a repository directory in production. `QT_BACKUP_RETENTION_DAYS`, `QT_RECOVERY_RPO_MINUTES`, `QT_RECOVERY_RTO_MINUTES`, and `QT_RECOVERY_OBJECT_LIMIT` are bounded and checked at production boot.
 - `LOG_CHANNEL=stderr`, `LOG_LEVEL=info`, and the Monolog JSON formatter are enforced because request-completion and healthy operational events are emitted at info level.
 - Keep `QT_ALLOW_DEMO_SEEDERS=false`, `QT_ALLOW_DEMO_AUTHENTICATION=false`, `QT_IDENTITY_PREVIEW_LINKS=false`, and `APP_DEBUG=false`.
 
 The real production environment file is ignored by Git and excluded from the production Docker build context.
+
+### Railway standalone configuration
+
+For the repository's combined Laravel/React image, connect the `main` branch with the repository root as the service root. Set `RAILWAY_DOCKERFILE_PATH=Dockerfile.render`, leave the Railway Start Command unset so the image `CMD` is used, enable public HTTP networking, and set the health-check path to `/api/health`. Railway sends deployment health checks with the `healthcheck.railway.app` host, so include that exact host alongside the public application host in `QT_TRUSTED_HOSTS`.
+
+Keep all non-outbox production variables from `.env.production.example`. For a same-origin Railway deployment, the relevant host values can use Railway references:
+
+```dotenv
+APP_ENV=production
+APP_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+QT_FRONTEND_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+QT_TRUSTED_HOSTS=${{RAILWAY_PUBLIC_DOMAIN}},healthcheck.railway.app
+QT_CORS_ALLOWED_ORIGINS=
+RAILWAY_DOCKERFILE_PATH=Dockerfile.render
+```
+
+Set the outbox variables exactly as follows when there is no external consumer:
+
+```dotenv
+QT_OUTBOX_TRANSPORT=standalone
+QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT=true
+QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT=true
+```
+
+Delete `QT_OUTBOX_HTTP_ENDPOINT` and `QT_OUTBOX_SIGNING_SECRET` from the Railway service rather than inserting placeholders. No receiver service is required in standalone mode. The application continues writing complete audit and outbox rows in the command transaction; the processor does not claim them, increment attempts, create delivery-attempt rows, or mark them delivered. Pending counts remain observable, while delivery-age alerts are inactive because no delivery objective exists.
+
+The web image does not run Laravel's queue worker or scheduler. If queued mail/default jobs and scheduled operational checks are required, create private `worker` and `scheduler` Railway services from the same commit, Dockerfile, and production variables with these Start Commands:
+
+```text
+php artisan qt:deployment:verify && php artisan queue:work redis --queue=outbox,default --sleep=2 --tries=1 --timeout=120
+php artisan qt:deployment:verify && php artisan schedule:work
+```
+
+Standalone mode makes the outbox batch a no-op in those services. If a real consumer is later commissioned, set `QT_OUTBOX_TRANSPORT=http`, set its exact non-placeholder HTTPS URL and a random signing secret, deploy both worker and scheduler, and run the HTTP integration release probe below. Never use `log` as a production substitute for delivery.
 
 The production Dockerfile and repository-owned infrastructure services are digest-pinned to the versions verified with this repository. The external object-storage provider is governed and versioned by its operator, so record its service configuration and control changes separately. Review upstream release notes, update repository digests deliberately, rebuild, and rerun the full verification suite as a controlled dependency change.
 
@@ -101,9 +136,9 @@ If the hosting plan blocks SMTP, initialise only the bootstrapped administrator'
 
 Retain the command JSON and then rerun `php artisan qt:security:verify-identities`. The deployment is not accepted if the new user, company or plant is classified as demo, if the role assignment is inactive, if email delivery is not `SENT`, or if the identity verifier fails.
 
-## Security and integration release probes
+## HTTP integration release probe
 
-The configured event receiver must verify `X-QT-Signature`, use `Idempotency-Key` as the stable event identity, and return both `X-Acknowledgement-ID` and `X-Acknowledged-Event-ID`. The latter must exactly match `X-QT-Event-ID`; an unbound or mismatched acknowledgement is treated as a failed attempt.
+This probe applies only when `QT_OUTBOX_TRANSPORT=http`; standalone deployments deliberately cannot claim external-delivery acceptance. The configured event receiver must verify `X-QT-Signature`, use `Idempotency-Key` as the stable event identity, and return both `X-Acknowledgement-ID` and `X-Acknowledged-Event-ID`. The latter must exactly match `X-QT-Event-ID`; an unbound or mismatched acknowledgement is treated as a failed attempt.
 
 Create a unique probe only after the real receiver and durable object store are connected:
 
@@ -135,7 +170,7 @@ Successful and failed requests are logged as `http_request_completed` without bo
 
 `GET /api/metrics` uses Prometheus text format and requires the dedicated bearer token. It exposes bounded HTTP method/status/duration series plus dependency latency, queue depth, failed jobs, outbox state/age/failures, audit outcomes/context coverage, and current alert counts. Never put the token in a query string. Scrape over HTTPS, keep the endpoint out of public dashboards, alert on scrape failure, and rotate the token through the same controlled deployment process as other secrets.
 
-The scheduler runs `qt:observability:check` every five minutes. It evaluates dependency availability, failed jobs, quarantined/retrying/late outbox events, monitored queue depth, and recent audit records missing request/correlation/trace context. Thresholds are explicit `QT_ALERT_*` values in `.env.production.example`. The command exits 0 when healthy, 1 for warnings, and 2 for critical conditions; run it directly during commissioning:
+The scheduler runs `qt:observability:check` every five minutes. It evaluates dependency availability, failed jobs, quarantined/retrying outbox events, monitored queue depth, and recent audit records missing request/correlation/trace context. Oldest-due delivery age is evaluated only when external delivery is enabled; standalone mode continues exporting pending counts plus `qtfoods_outbox_delivery_enabled{transport="standalone"} 0`. Thresholds are explicit `QT_ALERT_*` values in `.env.production.example`. The command exits 0 when healthy, 1 for warnings, and 2 for critical conditions; run it directly during commissioning:
 
 ```bash
 docker compose --env-file /secure/path/qtfoods-production.env -f docker-compose.production.yml exec app php artisan qt:observability:check

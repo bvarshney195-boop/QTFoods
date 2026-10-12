@@ -30,6 +30,7 @@ final class ProcessOutboxBatch implements ShouldQueue
             'quarantined' => $result['quarantined'],
             'worker_id' => $result['worker_id'],
             'transport' => $result['transport'],
+            'delivery_enabled' => $result['delivery_enabled'],
         ]);
     }
 

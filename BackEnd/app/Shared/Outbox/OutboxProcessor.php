@@ -18,6 +18,7 @@ final class OutboxProcessor
     {
         $limit = min(max(1, $limit ?? (int) config('qtfoods.outbox.batch_size', 50)), 500);
         $workerId ??= gethostname().':'.getmypid().':'.Str::lower(Str::random(8));
+        $transport = $this->transport->name();
         $result = [
             'claimed' => 0,
             'delivered' => 0,
@@ -25,6 +26,14 @@ final class OutboxProcessor
             'quarantined' => 0,
             'event_ids' => [],
         ];
+
+        if (! $this->transport->deliveryEnabled()) {
+            return $result + [
+                'worker_id' => $workerId,
+                'transport' => $transport,
+                'delivery_enabled' => false,
+            ];
+        }
 
         for ($index = 0; $index < $limit; $index++) {
             $event = $this->claim($workerId, $scope);
@@ -79,7 +88,8 @@ final class OutboxProcessor
 
         return $result + [
             'worker_id' => $workerId,
-            'transport' => $this->transport->name(),
+            'transport' => $transport,
+            'delivery_enabled' => true,
         ];
     }
 

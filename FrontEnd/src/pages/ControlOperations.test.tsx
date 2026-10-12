@@ -94,6 +94,27 @@ describe('control operations workspaces', () => {
       expect.any(String)
     ));
   });
+
+  it('shows standalone retention without offering external delivery processing', async () => {
+    const workspace = outboxWorkspace();
+    apiMocks.listOutboxEvents.mockResolvedValue({
+      ...workspace,
+      runtime: {
+        ...workspace.runtime,
+        transport: 'standalone',
+        delivery_enabled: false,
+        oldest_due_at: null,
+      },
+      allowed_actions: [],
+    });
+
+    render(<ADM_INT />);
+
+    expect(await screen.findByText('Standalone retention')).toBeInTheDocument();
+    expect(screen.getByText(/no external delivery or acknowledgement is claimed/i)).toBeInTheDocument();
+    expect(screen.getByText('retained locally')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Process due now' })).not.toBeInTheDocument();
+  });
 });
 
 function auditWorkspace(): AuditWorkspace {
@@ -144,7 +165,7 @@ function outboxWorkspace(): OutboxWorkspace {
     }],
     meta: { current_page: 1, last_page: 1, per_page: 25, total: 1 },
     summary: { total: 4, pending: 1, processing: 0, retry: 1, delivered: 1, quarantined: 1 },
-    runtime: { queue_connection: 'redis', transport: 'http', batch_size: 50, max_attempts: 8, base_retry_seconds: 30, lock_timeout_seconds: 300, last_attempt_at: now, oldest_due_at: now, evidence_disk: 'evidence', evidence_driver: 's3' },
+    runtime: { queue_connection: 'redis', transport: 'http', delivery_enabled: true, batch_size: 50, max_attempts: 8, base_retry_seconds: 30, lock_timeout_seconds: 300, last_attempt_at: now, oldest_due_at: now, evidence_disk: 'evidence', evidence_driver: 's3' },
     lookups: { statuses: ['PENDING', 'PROCESSING', 'RETRY', 'DELIVERED', 'QUARANTINED'], event_types: ['sales.unsold_return.created'] },
     allowed_actions: ['PROCESS_DUE'],
   };

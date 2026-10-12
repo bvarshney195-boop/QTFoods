@@ -29,10 +29,12 @@ final class OperationalAlertEvaluator
         $this->above($alerts, 'outbox.retry', 'warning',
             (int) $snapshot['outbox']['RETRY'], (int) ($thresholds['outbox_retry'] ?? 20),
             'Transactional outbox retry volume exceeded policy.');
-        $this->above($alerts, 'outbox.oldest_due', 'warning',
-            (int) $snapshot['outbox']['oldest_due_age_seconds'],
-            (int) ($thresholds['outbox_oldest_due_seconds'] ?? 300),
-            'The oldest due outbox event exceeded its delivery-age objective.');
+        if (($snapshot['outbox']['delivery_enabled'] ?? true) === true) {
+            $this->above($alerts, 'outbox.oldest_due', 'warning',
+                (int) $snapshot['outbox']['oldest_due_age_seconds'],
+                (int) ($thresholds['outbox_oldest_due_seconds'] ?? 300),
+                'The oldest due outbox event exceeded its delivery-age objective.');
+        }
         $this->above($alerts, 'audit.missing_request_context', 'warning',
             (int) $snapshot['audit']['missing_request_context_in_window'],
             (int) ($thresholds['audit_missing_request_context'] ?? 0),

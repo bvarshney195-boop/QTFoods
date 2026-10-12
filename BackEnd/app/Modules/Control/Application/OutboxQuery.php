@@ -14,6 +14,7 @@ final class OutboxQuery
 
     public function workspace(array $scope, array $filters, array $permissions): array
     {
+        $deliveryEnabled = $this->deliveryEnabled();
         $base = $this->scoped($scope);
         $query = clone $base;
         $this->applyFilters($query, $filters);
@@ -55,7 +56,7 @@ final class OutboxQuery
                 'event_types' => (clone $base)->distinct()->orderBy('outbox.event_type')
                     ->pluck('outbox.event_type')->all(),
             ],
-            'allowed_actions' => in_array('ACTION:ADM-INT:PROCESS', $permissions, true)
+            'allowed_actions' => $deliveryEnabled && in_array('ACTION:ADM-INT:PROCESS', $permissions, true)
                 ? ['PROCESS_DUE']
                 : [],
         ];
@@ -171,6 +172,7 @@ final class OutboxQuery
 
     private function runtime(Builder $base, array $scope): array
     {
+        $deliveryEnabled = $this->deliveryEnabled();
         $lastAttempt = DB::table('outbox_delivery_attempts as attempt')
             ->join('outbox_events as event', 'event.id', '=', 'attempt.outbox_event_id')
             ->where('event.company_id', $scope['company_id'])
@@ -179,18 +181,31 @@ final class OutboxQuery
 
         return [
             'queue_connection' => (string) config('queue.default', env('QUEUE_CONNECTION', 'sync')),
-            'transport' => (string) config('qtfoods.outbox.transport', 'log'),
+            'transport' => $this->transport(),
+            'delivery_enabled' => $deliveryEnabled,
             'batch_size' => (int) config('qtfoods.outbox.batch_size', 50),
             'max_attempts' => (int) config('qtfoods.outbox.max_attempts', 8),
             'base_retry_seconds' => (int) config('qtfoods.outbox.base_retry_seconds', 30),
             'lock_timeout_seconds' => (int) config('qtfoods.outbox.lock_timeout_seconds', 300),
             'last_attempt_at' => $this->timestamp($lastAttempt),
-            'oldest_due_at' => $this->timestamp((clone $base)
-                ->whereIn('outbox.status', ['PENDING', 'RETRY'])
-                ->min(DB::raw('COALESCE(outbox.next_retry_at, outbox.created_at)'))),
+            'oldest_due_at' => $deliveryEnabled
+                ? $this->timestamp((clone $base)
+                    ->whereIn('outbox.status', ['PENDING', 'RETRY'])
+                    ->min(DB::raw('COALESCE(outbox.next_retry_at, outbox.created_at)')))
+                : null,
             'evidence_disk' => (string) config('qtfoods.evidence_disk', 'evidence'),
             'evidence_driver' => (string) config('filesystems.disks.'.config('qtfoods.evidence_disk', 'evidence').'.driver', 'unknown'),
         ];
+    }
+
+    private function deliveryEnabled(): bool
+    {
+        return $this->transport() !== 'standalone';
+    }
+
+    private function transport(): string
+    {
+        return strtolower(trim((string) config('qtfoods.outbox.transport', 'log')));
     }
 
     private function json(mixed $value): mixed

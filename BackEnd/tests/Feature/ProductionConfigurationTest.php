@@ -18,7 +18,7 @@ final class ProductionConfigurationTest extends TestCase
         self::assertContains('APP_URL must be an absolute HTTPS URL.', $violations);
         self::assertContains('QT_ALLOW_DEMO_SEEDERS must be false.', $violations);
         self::assertContains('QT_ALLOW_DEMO_AUTHENTICATION must be false.', $violations);
-        self::assertContains('QT_OUTBOX_TRANSPORT must be http in production.', $violations);
+        self::assertContains('QT_OUTBOX_TRANSPORT must be http or standalone in production.', $violations);
         self::assertContains('MAIL_MAILER must use the configured SMTP delivery transport.', $violations);
     }
 
@@ -46,6 +46,32 @@ final class ProductionConfigurationTest extends TestCase
         self::assertContains('QT_TRUSTED_HOSTS must contain exact DNS host names without schemes, ports, paths, or wildcards.', $violations);
         self::assertContains('CORS origins must be exact HTTPS origins without paths, wildcards, or embedded credentials.', $violations);
         self::assertContains('MAIL_FROM_ADDRESS must use a deliverable, non-placeholder production domain.', $violations);
+    }
+
+    public function test_standalone_outbox_retention_passes_without_an_http_receiver(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'qtfoods.outbox.transport' => 'standalone',
+            'qtfoods.outbox.http_endpoint' => null,
+            'qtfoods.outbox.signing_secret' => null,
+        ]);
+
+        self::assertSame([], app(ProductionEnvironmentGuard::class)->violations('production'));
+    }
+
+    public function test_http_outbox_still_requires_a_safe_endpoint_and_signing_secret(): void
+    {
+        $this->configureSafeProductionEnvironment();
+        config()->set([
+            'qtfoods.outbox.http_endpoint' => null,
+            'qtfoods.outbox.signing_secret' => null,
+        ]);
+
+        $violations = app(ProductionEnvironmentGuard::class)->violations('production');
+
+        self::assertContains('QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS endpoint.', $violations);
+        self::assertContains('QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.', $violations);
     }
 
     public function test_production_mail_timeout_must_be_bounded(): void

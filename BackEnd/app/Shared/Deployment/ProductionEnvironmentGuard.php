@@ -78,11 +78,18 @@ final class ProductionEnvironmentGuard
         $mfaRoles = (array) $this->config->get('qtfoods.identity.mfa_required_roles', []);
         $this->reject($violations, ! in_array('ERP_ADMIN', $mfaRoles, true), 'QT_MFA_REQUIRED_ROLES must include ERP_ADMIN.');
 
-        $this->reject($violations, $this->config->get('qtfoods.outbox.transport') !== 'http', 'QT_OUTBOX_TRANSPORT must be http in production.');
+        $outboxTransport = strtolower(trim((string) $this->config->get('qtfoods.outbox.transport')));
+        $this->reject(
+            $violations,
+            ! in_array($outboxTransport, ['http', 'standalone'], true),
+            'QT_OUTBOX_TRANSPORT must be http or standalone in production.',
+        );
         $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_acknowledgement'), 'QT_OUTBOX_REQUIRE_ACKNOWLEDGEMENT must be true.');
         $this->reject($violations, ! (bool) $this->config->get('qtfoods.outbox.require_bound_acknowledgement'), 'QT_OUTBOX_REQUIRE_BOUND_ACKNOWLEDGEMENT must be true.');
-        $this->reject($violations, $this->unsafeHttpEndpoint($this->config->get('qtfoods.outbox.http_endpoint')), 'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS endpoint.');
-        $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
+        if ($outboxTransport === 'http') {
+            $this->reject($violations, $this->unsafeHttpEndpoint($this->config->get('qtfoods.outbox.http_endpoint')), 'QT_OUTBOX_HTTP_ENDPOINT must be an exact non-placeholder HTTPS endpoint.');
+            $this->reject($violations, $this->unsafeSecret($this->config->get('qtfoods.outbox.signing_secret'), 32), 'QT_OUTBOX_SIGNING_SECRET must be a non-placeholder secret of at least 32 characters.');
+        }
         $outboxAgeThreshold = (int) $this->config->get('observability.monitoring.thresholds.outbox_oldest_due_seconds');
         $this->reject($violations, $outboxAgeThreshold < 1 || $outboxAgeThreshold > 86400, 'QT_ALERT_OUTBOX_OLDEST_DUE_SECONDS must be between 1 and 86400.');
 

@@ -11276,10 +11276,11 @@ components:
               items: { $ref: "#/components/schemas/OutboxDeliveryAttempt" }
     OutboxRuntime:
       type: object
-      required: [queue_connection, transport, batch_size, max_attempts, base_retry_seconds, lock_timeout_seconds, last_attempt_at, oldest_due_at, evidence_disk, evidence_driver]
+      required: [queue_connection, transport, delivery_enabled, batch_size, max_attempts, base_retry_seconds, lock_timeout_seconds, last_attempt_at, oldest_due_at, evidence_disk, evidence_driver]
       properties:
         queue_connection: { type: string }
         transport: { type: string }
+        delivery_enabled: { type: boolean }
         batch_size: { type: integer, minimum: 1, maximum: 500 }
         max_attempts: { type: integer, minimum: 1 }
         base_retry_seconds: { type: integer, minimum: 1 }
@@ -11328,7 +11329,7 @@ components:
         record_version: { type: integer, minimum: 2 }
     OutboxProcessingResult:
       type: object
-      required: [entity_type, id, status, record_version, claimed, delivered, retry_scheduled, quarantined, event_ids, worker_id, transport]
+      required: [entity_type, id, status, record_version, claimed, delivered, retry_scheduled, quarantined, event_ids, worker_id, transport, delivery_enabled]
       properties:
         entity_type: { type: string, const: outbox_processing_batch }
         id: { type: string, format: uuid }
@@ -11343,6 +11344,7 @@ components:
           items: { type: string, format: uuid }
         worker_id: { type: string }
         transport: { type: string }
+        delivery_enabled: { type: boolean }
     WorkQueue:
       type: object
       required: [data, summary, meta, links]

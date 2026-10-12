@@ -67,6 +67,9 @@ final class PrometheusExporter
         foreach (self::outboxStatuses() as $status) {
             $lines[] = 'qtfoods_outbox_events{status="'.$status.'"} '.(int) $snapshot['outbox'][$status];
         }
+        $lines[] = '# HELP qtfoods_outbox_delivery_enabled Whether external outbox delivery is enabled.';
+        $lines[] = '# TYPE qtfoods_outbox_delivery_enabled gauge';
+        $lines[] = 'qtfoods_outbox_delivery_enabled{transport="'.$this->label((string) $snapshot['outbox']['transport']).'"} '.($snapshot['outbox']['delivery_enabled'] ? '1' : '0');
         $lines[] = '# HELP qtfoods_outbox_oldest_due_age_seconds Age of the oldest due outbox event.';
         $lines[] = '# TYPE qtfoods_outbox_oldest_due_age_seconds gauge';
         $lines[] = 'qtfoods_outbox_oldest_due_age_seconds '.(int) $snapshot['outbox']['oldest_due_age_seconds'];

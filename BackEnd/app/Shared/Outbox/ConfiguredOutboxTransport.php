@@ -10,7 +10,12 @@ final class ConfiguredOutboxTransport implements OutboxTransport
 {
     public function name(): string
     {
-        return strtolower((string) config('qtfoods.outbox.transport', 'log'));
+        return strtolower(trim((string) config('qtfoods.outbox.transport', 'log')));
+    }
+
+    public function deliveryEnabled(): bool
+    {
+        return $this->name() !== 'standalone';
     }
 
     public function deliver(array $event): array
@@ -18,6 +23,7 @@ final class ConfiguredOutboxTransport implements OutboxTransport
         return match ($this->name()) {
             'log' => $this->log($event),
             'http' => $this->http($event),
+            'standalone' => throw new RuntimeException('Standalone outbox retention does not perform delivery.'),
             default => throw new RuntimeException('Unsupported configured outbox transport.'),
         };
     }
