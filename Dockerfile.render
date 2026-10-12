@@ -2,7 +2,7 @@ FROM node:24-bookworm-slim AS frontend
 
 WORKDIR /build/FrontEnd
 COPY FrontEnd/package.json FrontEnd/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
+RUN npm ci
 COPY FrontEnd/ ./
 
 # The Render image serves the SPA and API from one origin. An explicitly empty
@@ -24,8 +24,7 @@ COPY --from=composer:2@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a7
 WORKDIR /var/www/html
 
 COPY BackEnd/composer.json BackEnd/composer.lock ./
-RUN --mount=type=cache,target=/tmp/composer-cache,sharing=locked \
-    COMPOSER_CACHE_DIR=/tmp/composer-cache \
+RUN COMPOSER_CACHE_DIR=/tmp/composer-cache \
     COMPOSER_MAX_PARALLEL_HTTP=4 \
     COMPOSER_PROCESS_TIMEOUT=900 \
     composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-progress
