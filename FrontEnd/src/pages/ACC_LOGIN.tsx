@@ -225,11 +225,11 @@ export default function ACC_LOGIN({
                 <fieldset className="authentication-methods authentication-second-factors">
                   <legend>Choose a required second factor</legend>
                   <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_email_otp')}>
-                    <b>Email one-time code</b><span>Send a six-digit code to {authChallenge.email_hint}</span>
+                    <span><b>Email one-time code</b><small>Send a six-digit code to {authChallenge.email_hint}</small></span>
                   </button>
                   {authChallenge.available_methods.includes('totp') && (
                     <button type="button" className="authentication-method" disabled={working} onClick={() => void onChallenge?.('select_totp')}>
-                      <b>Google Authenticator</b><span>{authChallenge.totp_registered ? 'Use your registered authenticator or a recovery code' : 'Register a new authenticator now'}</span>
+                      <span><b>Google Authenticator</b><small>{authChallenge.totp_registered ? 'Use your registered authenticator or a recovery code' : 'Register a new authenticator now'}</small></span>
                     </button>
                   )}
                 </fieldset>

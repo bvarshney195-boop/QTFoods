@@ -355,6 +355,9 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
 .auth-full-page .auth-card .primary{margin-top:14px}
 .auth-full-page .authentication-methods{margin:14px 0}
 .auth-full-page .auth-card .authentication-method{height:100%;margin:0;cursor:pointer}
+.auth-full-page .authentication-second-factors .authentication-method{grid-template-columns:minmax(0,1fr);gap:0;padding:14px 16px}
+.auth-full-page .authentication-second-factors .authentication-method>span{display:block;min-width:0}
+.auth-full-page .authentication-second-factors .authentication-method small{margin-top:2px;overflow-wrap:anywhere}
 .auth-full-page .authentication-primary-methods{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .auth-full-page .authentication-primary-methods .authentication-method{grid-template-columns:18px minmax(0,1fr);padding:11px}
 .auth-full-page .authentication-primary-methods .authentication-method span{min-width:0}
