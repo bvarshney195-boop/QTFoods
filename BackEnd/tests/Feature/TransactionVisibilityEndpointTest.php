@@ -173,6 +173,14 @@ final class TransactionVisibilityEndpointTest extends TestCase
         )->assertOk()->assertJsonPath('data.record_version', 2)
             ->assertJsonPath('data.status', 'NORMAL');
         $this->assertDatabaseCount('transaction_visibility_events', 2);
+        // Restoring a record to NORMAL must not disclose previous confidential
+        // restriction reasons, actor identities, or visibility history.
+        $this->revoke(self::SALES_ID, self::SHOW_PERMISSION);
+        $this->getJson('/api/v1/sales/orders/'.$restrictedId)->assertOk();
+        $this->getJson('/api/v1/transaction-visibility/SALES_ORDER/'.$restrictedId.'/history')->assertNotFound();
+        $this->grant(self::SALES_ID, self::SHOW_PERMISSION);
+        $this->getJson('/api/v1/transaction-visibility/SALES_ORDER/'.$restrictedId.'/history')
+            ->assertOk()->assertJsonCount(2, 'data');
         $this->assertDatabaseHas('audit_events', [
             'command' => 'CHANGE_TRANSACTION_VISIBILITY',
             'entity_id' => $restrictedId,
