@@ -784,7 +784,13 @@ final class FoundationAdminService
     public function syncRolePermissions(string $roleId, array $data): array
     {
         return $this->execute("foundation.role.permissions.{$roleId}", $data, function () use ($roleId, $data) {
-            $role = $this->scopedCustomRole($roleId, $data, true);
+            // Protected global roles permit additive, audited visibility grants only.
+            // Their existing authority cannot be revoked or replaced from an organisation.
+            $role = $this->scopedRole($roleId, $data, true);
+            $systemRole = (bool) $role->is_system;
+            if (! $systemRole && $role->company_id !== $data['company_id']) {
+                throw ValidationException::withMessages(['role' => ['This role is outside the organisation.']]);
+            }
             $this->assertVersion($role, $data['expected_version'], 'role');
             $permissionIds = array_values(array_unique($data['permission_ids']));
             $visible = DB::table('permissions')->whereIn('id', $permissionIds)
@@ -800,6 +806,18 @@ final class FoundationAdminService
 
             $before = DB::table('role_permissions')->where('role_id', $roleId)
                 ->orderBy('permission_id')->pluck('permission_id')->map(fn ($id) => (string) $id)->all();
+            if ($systemRole) {
+                $removed = array_diff($before, $permissionIds);
+                $added = array_diff($permissionIds, $before);
+                $addedCodes = DB::table('permissions')->whereIn('id', $added)
+                    ->pluck('code')->all();
+                if ($removed !== [] || array_diff($addedCodes, ['ShowEntries']) !== []
+                    || ! in_array($role->code, ['ERP_ADMIN', 'FINANCE_REVIEWER'], true)) {
+                    throw ValidationException::withMessages([
+                        'permission_ids' => ['Protected roles permit only additive ShowEntries access for ERP Admin and Finance Manager. Existing permissions cannot be removed.'],
+                    ]);
+                }
+            }
             DB::table('role_permissions')->where('role_id', $roleId)->delete();
             if ($permissionIds !== []) {
                 DB::table('role_permissions')->insert(array_map(fn (string $permissionId) => [
