@@ -58,11 +58,6 @@ final class RouteAuthorizationMatrixTest extends TestCase
     ];
 
     private const STATE_AUTHORIZED_ROUTES = [
-        'PATCH api/v1/transaction-visibility/{transactionType}/{transactionId}' => [
-            'screen' => 'WRK-HOME',
-            'entity_type' => 'transaction_visibility',
-            'permission_prefix' => 'DidntShowCheckbox',
-        ],
         'POST api/v1/procurement/requisition-approvals/{approvalId}/approve' => [
             'screen' => 'PUR-REQ',
             'entity_type' => 'purchase_requisition',
@@ -482,6 +477,7 @@ final class RouteAuthorizationMatrixTest extends TestCase
 
             return match ($parameter) {
                 'kind' => 'DEVIATION',
+                'transactionType' => 'SALES_ORDER',
                 'slug' => 'authorization-matrix',
                 'token' => str_repeat('a', 64),
                 default => '00000000-0000-4000-8000-000000000000',
