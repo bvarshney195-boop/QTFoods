@@ -2,6 +2,7 @@
 
 namespace App\Modules\Work\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Arr;
@@ -17,6 +18,8 @@ final class WorkQueueQuery
         'due_at', '-due_at',
         'created_at', '-created_at',
     ];
+
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
 
     public function paginate(
         array $scope,
@@ -63,7 +66,7 @@ final class WorkQueueQuery
     {
         $canManage = in_array('ACTION:WRK-HOME:MANAGE', $permissions, true);
 
-        return DB::table('work_items as work')
+        $query = DB::table('work_items as work')
             ->leftJoin('users as assignee', 'assignee.id', '=', 'work.assigned_user_id')
             ->leftJoin('users as creator', 'creator.id', '=', 'work.created_by')
             ->leftJoin('users as completer', 'completer.id', '=', 'work.completed_by')
@@ -111,6 +114,9 @@ final class WorkQueueQuery
                 'work.created_at',
                 'work.updated_at',
             ]);
+        $this->visibility->applyWorkItemTargets($query, 'work.target_screen_code', 'work.target_record_id', $permissions);
+
+        return $query;
     }
 
     private function applyFilters(Builder $query, array $filters, string $actorId): void

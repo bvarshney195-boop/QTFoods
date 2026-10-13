@@ -2,6 +2,7 @@
 
 namespace App\Modules\Sales\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\JoinClause;
@@ -22,7 +23,9 @@ final class UnsoldSalesReturnQuery
         'FINANCE_RESOLVED',
     ];
 
-    public function paginate(array $scope, array $filters): array
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
+    public function paginate(array $scope, array $filters, array $permissions): array
     {
         $query = $this->scopedCases($scope)
             ->leftJoin('parties as p', function (JoinClause $join) {
@@ -46,6 +49,9 @@ final class UnsoldSalesReturnQuery
                 'c.created_at',
                 'c.updated_at',
             ]);
+        $this->visibility->apply($query, 'UNSOLD_RETURN', 'c.id', $permissions, $filters['visibility'] ?? null, 'unsold_return_visibility');
+        $this->visibility->apply($query, 'SHIPMENT', 'c.shipment_id', $permissions, null, 'unsold_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'c.sales_order_id', $permissions, null, 'unsold_order_visibility', false);
 
         $this->applyFilters($query, $filters);
 
@@ -82,10 +88,12 @@ final class UnsoldSalesReturnQuery
                 'prev' => $paginator->previousPageUrl(),
                 'next' => $paginator->nextPageUrl(),
             ],
+            'lookups' => ['visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
         ];
     }
 
-    public function find(string $caseId, array $scope): ?array
+    public function find(string $caseId, array $scope, array $permissions): ?array
     {
         $case = $this->scopedCases($scope)
             ->where('c.id', $caseId)
@@ -100,8 +108,11 @@ final class UnsoldSalesReturnQuery
                 'p.code as party_code',
                 'p.display_name as party_name',
                 'maker.name as maker_name',
-            ])
-            ->first();
+            ]);
+        $this->visibility->apply($case, 'UNSOLD_RETURN', 'c.id', $permissions, null, 'unsold_detail_visibility');
+        $this->visibility->apply($case, 'SHIPMENT', 'c.shipment_id', $permissions, null, 'unsold_detail_shipment_visibility', false);
+        $this->visibility->apply($case, 'SALES_ORDER', 'c.sales_order_id', $permissions, null, 'unsold_detail_order_visibility', false);
+        $case = $case->first();
 
         if (! $case) {
             return null;
@@ -441,6 +452,7 @@ final class UnsoldSalesReturnQuery
             'record_version' => (int) $case->record_version,
             'created_at' => $this->timestamp($case->created_at),
             'updated_at' => $this->timestamp($case->updated_at),
+            'visibility' => $this->visibility->metadata($case),
             'lines' => $lines,
             'status_history' => $history,
             'stock_movements' => $stockMovements,
@@ -555,6 +567,7 @@ final class UnsoldSalesReturnQuery
             ],
             'created_at' => $this->timestamp($row->created_at),
             'updated_at' => $this->timestamp($row->updated_at),
+            'visibility' => $this->visibility->metadata($row),
         ];
     }
 

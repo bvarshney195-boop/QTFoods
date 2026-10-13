@@ -6,8 +6,13 @@ export type WorkspacePayload = { settings: Record<string, unknown>; saved_views:
 export type NotificationPreferences = { urgent: boolean; high: boolean; overdue: boolean; include_completed: boolean };
 export type NotificationItem = { id: string; title: string; description: string | null; priority: string; status: string; is_overdue: boolean; read_at: string | null; assignee_name: string | null; target: { screen_code: string; href: string } | null; created_at: string };
 export type NotificationPayload = { data: NotificationItem[]; summary: { unread: number; total: number }; preferences: NotificationPreferences };
-export type AnalyticsMetric = { code: string; label: string; current: number; previous: number; change_percent: number | null; target: number | null; format: 'currency' | 'number' };
-export type AnalyticsPayload = { period: string; range: { from: string; to: string }; metrics: AnalyticsMetric[] };
+export type AnalyticsMetric = { code: string; label: string; current: number | string; previous: number | string; change_percent: number | null; target: number | null; format: 'currency' | 'number' };
+export type AnalyticsPayload = {
+  period: string;
+  range: { from: string; to: string };
+  metrics: AnalyticsMetric[];
+  operational_view?: { label: string; includes_restricted_entries: boolean; permission_filtered: boolean };
+};
 export type ImportPreview = { id: string; status: 'VALID' | 'INVALID'; row_count: number; error_count: number; preview: Record<string, string>[]; errors: Array<{ row: number; field: string; message: string; value: string | null }> };
 
 export const enterpriseSearch = async (q: string) => (await apiRequest<{ data: EnterpriseSearchResult[] }>(`/api/v1/experience/search?q=${encodeURIComponent(q)}`)).data;

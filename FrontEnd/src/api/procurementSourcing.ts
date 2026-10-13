@@ -284,6 +284,7 @@ export type PurchaseOrder = {
   cancelled_at: string | null;
   cancelled_by: SourcingActor | null;
   cancellation_reason: string | null;
+  visibility?: import('./p2Operations').VisibilityMetadata;
   allowed_actions: PurchaseOrderAction[];
   created_at: string;
   updated_at: string;
@@ -306,7 +307,8 @@ export type PurchaseOrderWorkspace = {
   data: PurchaseOrder[];
   meta: { current_page: number; last_page: number; per_page: number; total: number };
   summary: { total: number; draft: number; issued: number; cancelled: number; committed_total: string };
-  lookups: { statuses: PurchaseOrderStatus[]; sorts: string[]; awarded_rfqs: AwardedRfqLookup[]; currency: 'INR' };
+  lookups: { statuses: PurchaseOrderStatus[]; sorts: string[]; awarded_rfqs: AwardedRfqLookup[]; currency: 'INR'; visibility_filters?: ('ALL' | 'NORMAL' | 'RESTRICTED')[] };
+  operational_view?: { label: string; includes_restricted_entries: boolean; permission_filtered: boolean };
   allowed_actions: ('CREATE')[];
 };
 export type PurchaseOrderCreate = {

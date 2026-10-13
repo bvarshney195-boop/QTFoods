@@ -2,6 +2,8 @@
 
 namespace App\Modules\Reporting\Application;
 
+use App\Shared\Visibility\TransactionVisibilityPolicy;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -14,6 +16,8 @@ final class ReportingQuery
             ->where('run.company_id', $scope['company_id'])
             ->where('run.plant_id', $scope['plant_id'])
             ->where('run.status', 'GENERATED');
+        $this->applyRunAccess($query, $permissions);
+        $summaryBase = clone $query;
 
         if (! empty($filters['report_code'])) {
             $query->where('run.report_code', $filters['report_code']);
@@ -34,10 +38,12 @@ final class ReportingQuery
             'data' => $runs,
             'meta' => ['total' => count($runs)],
             'summary' => [
-                'total_runs' => DB::table('report_runs')->where($scope)->where('status', 'GENERATED')->count(),
-                'rows_snapshotted' => (int) DB::table('report_runs')->where($scope)->where('status', 'GENERATED')->sum('row_count'),
-                'exports_created' => DB::table('report_exports')->where($scope)->count(),
-                'latest_freshness_at' => DB::table('report_runs')->where($scope)->where('status', 'GENERATED')->max('source_freshness_at'),
+                'total_runs' => (clone $summaryBase)->count(),
+                'rows_snapshotted' => (int) (clone $summaryBase)->sum('run.row_count'),
+                'exports_created' => DB::table('report_exports as export')->join('report_runs as run', 'run.id', '=', 'export.report_run_id')
+                    ->where('export.company_id', $scope['company_id'])->where('export.plant_id', $scope['plant_id'])
+                    ->when(! in_array(TransactionVisibilityPolicy::SHOW_PERMISSION, $permissions, true), fn (Builder $builder) => $builder->where('run.view_classification', '<>', 'FULL_OPERATIONAL'))->count(),
+                'latest_freshness_at' => (clone $summaryBase)->max('run.source_freshness_at'),
             ],
             'definitions' => array_values(ReportDefinitionCatalog::all()),
             'allowed_actions' => $this->screenActions($permissions),
@@ -51,8 +57,9 @@ final class ReportingQuery
             ->where('run.id', $id)
             ->where('run.company_id', $scope['company_id'])
             ->where('run.plant_id', $scope['plant_id'])
-            ->where('run.status', 'GENERATED')
-            ->first(['run.*', 'creator.name as created_by_name']);
+            ->where('run.status', 'GENERATED');
+        $this->applyRunAccess($run, $permissions);
+        $run = $run->first(['run.*', 'creator.name as created_by_name']);
         if (! $run) {
             throw new NotFoundHttpException('Report run not found.');
         }
@@ -94,12 +101,14 @@ final class ReportingQuery
         return $payload;
     }
 
-    public function export(string $id, array $scope): object
+    public function export(string $id, array $scope, array $permissions): object
     {
-        $export = DB::table('report_exports')
-            ->where('id', $id)
-            ->where($scope)
-            ->first();
+        $query = DB::table('report_exports as export')->join('report_runs as run', 'run.id', '=', 'export.report_run_id')
+            ->where('export.id', $id)
+            ->where('export.company_id', $scope['company_id'])->where('export.plant_id', $scope['plant_id'])
+            ->select('export.*');
+        $this->applyRunAccess($query, $permissions);
+        $export = $query->first();
         if (! $export) {
             throw new NotFoundHttpException('Report export not found.');
         }
@@ -114,6 +123,13 @@ final class ReportingQuery
             'run_number' => $run->run_number,
             'report_code' => $run->report_code,
             'report_title' => $run->report_title,
+            'view_classification' => $run->view_classification,
+            'view_label' => match ($run->view_classification) {
+                'PERMISSION_FILTERED_OPERATIONAL' => 'Permission-Filtered Operational View',
+                'FULL_OPERATIONAL' => 'Full Operational View',
+                default => 'Authoritative Financial View',
+            },
+            'includes_restricted_entries' => (bool) $run->includes_restricted_entries,
             'status' => $run->status,
             'as_of_at' => $run->as_of_at,
             'source_freshness_at' => $run->source_freshness_at,
@@ -132,6 +148,13 @@ final class ReportingQuery
         }
 
         return $payload;
+    }
+
+    private function applyRunAccess(Builder $query, array $permissions): void
+    {
+        if (! in_array(TransactionVisibilityPolicy::SHOW_PERMISSION, $permissions, true)) {
+            $query->where('run.view_classification', '<>', 'FULL_OPERATIONAL');
+        }
     }
 
     private function screenActions(array $permissions): array

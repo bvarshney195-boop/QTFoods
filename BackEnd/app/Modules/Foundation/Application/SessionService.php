@@ -38,6 +38,7 @@ final class SessionService
             'roles' => $access['roles'],
             'allowed_screens' => $access['screens'],
             'allowed_actions' => $access['actions'],
+            'granted_permissions' => $access['permissions'],
             'delegated_authorities' => $access['delegations'],
             'contexts' => $contexts->values()->all(),
             'selected_context' => $selectedContext,

@@ -25,6 +25,7 @@ export function BusinessKpiDashboard({ allowedScreens }: { allowedScreens: strin
       <div><h2 id="business-dashboard-title">Business performance</h2><p>Live, permission-scoped measures with direct drill-through to source records.</p></div>
       <div><label className="analytics-period">Period<select aria-label="Analytics period" value={period} onChange={(event) => setPeriod(event.target.value)}><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">12 months</option></select></label><small>{dashboard ? `Updated ${time(dashboard.refreshed_at)}` : 'Loading live measures'}</small><button type="button" className="secondary compact-button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
     </div>
+    {analytics?.operational_view ? <div className="live-notice visibility-view-label"><span />{analytics.operational_view.label}</div> : null}
     {analytics && <div className="analytics-comparison" aria-label="Period trend and targets">{analytics.metrics.map((metric) => <article key={metric.code}>
       <div><span>{metric.label} trend</span><b className={(metric.change_percent ?? 0) < 0 ? 'text-bad' : 'text-good'}>{metric.change_percent === null ? 'New' : `${metric.change_percent >= 0 ? '+' : ''}${metric.change_percent}%`}</b></div>
       <small>{formatMetric(metric.previous, metric.format)} previous period</small>
@@ -41,7 +42,7 @@ export function BusinessKpiDashboard({ allowedScreens }: { allowedScreens: strin
   </section>;
 }
 
-function formatMetric(value: number, format: 'currency' | 'number') { return format === 'currency' ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value) : new Intl.NumberFormat('en-IN').format(value); }
+function formatMetric(value: number | string, format: 'currency' | 'number') { const numeric = Number(value); return format === 'currency' ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(numeric) : new Intl.NumberFormat('en-IN').format(numeric); }
 
 function time(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(value));

@@ -6,6 +6,7 @@ use App\Modules\Inventory\Application\StockPostingService;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,7 @@ final class InboundProcurementService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly TransactionVisibilityPolicy $visibility,
     ) {}
 
     public function createGateEntry(array $data): array
@@ -36,6 +38,12 @@ final class InboundProcurementService
                 return $replay;
             }
             $this->uniqueNumber('gate_entries', 'gate_entry_number', $data['gate_entry_number'], $data);
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION],
+                'PURCHASE_ORDER',
+                $data['purchase_order_id'],
+                $data,
+            );
             $order = $this->issuedOrder($data['purchase_order_id'], $data);
             $id = (string) Str::uuid();
             $now = CarbonImmutable::now();
@@ -138,6 +146,12 @@ final class InboundProcurementService
                 return $replay;
             }
             $this->uniqueNumber('receipts', 'receipt_number', $data['receipt_number'], $data);
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION],
+                'GATE_ENTRY',
+                $data['gate_entry_id'],
+                $data,
+            );
             $gate = $this->findLocked('gate_entries', $data['gate_entry_id'], $data, 'Gate entry');
             $this->assertStatus($gate, ['ARRIVED'], 'Select an arrived gate entry.');
             if (DB::table('receipts')->where('gate_entry_id', $gate->id)->whereNotNull('receipt_number')->exists()) {
@@ -671,6 +685,12 @@ final class InboundProcurementService
             if (! $quality || ! $quality->rejected_position_id) {
                 throw ValidationException::withMessages(["lines.{$index}.quality_line_id" => ['Select a completed incoming-QC line with rejected stock.']]);
             }
+            $this->visibility->assertOperationallyVisible(
+                $scope['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION],
+                'INCOMING_QUALITY_TASK',
+                (string) $quality->quality_task_id,
+                $scope,
+            );
             if ($supplierId !== null && $supplierId !== (string) $quality->supplier_party_id) {
                 throw ValidationException::withMessages(['lines' => ['A supplier return can contain rejected lines for one supplier only.']]);
             }

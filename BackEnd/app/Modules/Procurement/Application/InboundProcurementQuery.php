@@ -2,6 +2,7 @@
 
 namespace App\Modules\Procurement\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -10,35 +11,29 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class InboundProcurementQuery
 {
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function gateWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = DB::table('gate_entries as gate')
-            ->join('purchase_orders as po', 'po.id', '=', 'gate.purchase_order_id')
-            ->join('parties as supplier', 'supplier.id', '=', 'gate.supplier_party_id')
-            ->join('users as creator', 'creator.id', '=', 'gate.created_by')
-            ->where('gate.company_id', $scope['company_id'])->where('gate.plant_id', $scope['plant_id'])
-            ->select(['gate.*', 'po.po_number', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name', 'creator.name as creator_name']);
+        $base = $this->gateBase($scope, $permissions, $filters['visibility'] ?? null);
         $page = $this->page($base, $filters, ['gate.gate_entry_number', 'gate.vehicle_number', 'po.po_number', 'supplier.display_name'], 'gate.status');
 
         return [
             'data' => collect($page->items())->map(fn (object $row) => $this->gatePayload($row, $permissions))->all(),
             'meta' => $this->meta($page),
-            'summary' => $this->statusSummary('gate_entries', $scope, InboundProcurementService::GATE_STATUSES),
-            'lookups' => ['statuses' => InboundProcurementService::GATE_STATUSES, 'issued_orders' => $this->issuedOrders($scope)],
+            'summary' => $this->statusSummary($base, 'gate.status', InboundProcurementService::GATE_STATUSES),
+            'lookups' => ['statuses' => InboundProcurementService::GATE_STATUSES, 'issued_orders' => $this->issuedOrders($scope, $permissions), 'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, 'ACTION:INB-GATE:CREATE') ? ['CREATE'] : [],
         ];
     }
 
     public function gateDetail(string $id, array $scope, array $permissions): array
     {
-        $row = DB::table('gate_entries as gate')
-            ->join('purchase_orders as po', 'po.id', '=', 'gate.purchase_order_id')
-            ->join('parties as supplier', 'supplier.id', '=', 'gate.supplier_party_id')
-            ->join('users as creator', 'creator.id', '=', 'gate.created_by')
+        $query = $this->gateBase($scope, $permissions)
             ->leftJoin('receipts as receipt', 'receipt.gate_entry_id', '=', 'gate.id')
-            ->where('gate.id', $id)->where('gate.company_id', $scope['company_id'])->where('gate.plant_id', $scope['plant_id'])
-            ->first(['gate.*', 'po.po_number', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name',
-                'creator.name as creator_name', 'receipt.id as receipt_id', 'receipt.receipt_number', 'receipt.status as receipt_status']);
+            ->addSelect(['receipt.id as receipt_id', 'receipt.receipt_number', 'receipt.status as receipt_status']);
+        $row = $query->where('gate.id', $id)->first();
         if (! $row) {
             throw new NotFoundHttpException('Gate entry not found.');
         }
@@ -50,26 +45,28 @@ final class InboundProcurementQuery
 
     public function receiptWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->receiptBase($scope);
+        $base = $this->receiptBase($scope, $permissions, $filters['visibility'] ?? null);
         $page = $this->page($base, $filters, ['receipt.receipt_number', 'gate.gate_entry_number', 'po.po_number', 'supplier.display_name'], 'receipt.status');
 
         return [
             'data' => collect($page->items())->map(fn (object $row) => $this->receiptPayload($row, $permissions))->all(),
             'meta' => $this->meta($page),
-            'summary' => $this->statusSummary('receipts', $scope, InboundProcurementService::RECEIPT_STATUSES, 'receipt_number'),
+            'summary' => $this->statusSummary($base, 'receipt.status', InboundProcurementService::RECEIPT_STATUSES),
             'lookups' => [
                 'statuses' => InboundProcurementService::RECEIPT_STATUSES,
-                'arrived_gate_entries' => $this->arrivedGates($scope),
+                'arrived_gate_entries' => $this->arrivedGates($scope, $permissions),
                 'quality_hold_locations' => $this->locations($scope, true),
                 'released_locations' => $this->locations($scope, false),
+                'visibility_filters' => $this->visibility->filterOptions($permissions),
             ],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, 'ACTION:INB-GRN:CREATE') ? ['CREATE'] : [],
         ];
     }
 
     public function receiptDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->receiptBase($scope)->where('receipt.id', $id)->first();
+        $row = $this->receiptBase($scope, $permissions)->where('receipt.id', $id)->first();
         if (! $row) {
             throw new NotFoundHttpException('GRN not found.');
         }
@@ -109,21 +106,22 @@ final class InboundProcurementQuery
 
     public function qualityWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->qualityBase($scope);
+        $base = $this->qualityBase($scope, $permissions, $filters['visibility'] ?? null);
         $page = $this->page($base, $filters, ['task.task_number', 'receipt.receipt_number', 'po.po_number', 'supplier.display_name'], 'task.status');
 
         return [
             'data' => collect($page->items())->map(fn (object $row) => $this->qualityPayload($row, $permissions))->all(),
             'meta' => $this->meta($page),
-            'summary' => $this->statusSummary('quality_tasks', $scope, InboundProcurementService::QUALITY_STATUSES, 'task_number'),
-            'lookups' => ['statuses' => InboundProcurementService::QUALITY_STATUSES],
+            'summary' => $this->statusSummary($base, 'task.status', InboundProcurementService::QUALITY_STATUSES),
+            'lookups' => ['statuses' => InboundProcurementService::QUALITY_STATUSES, 'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => [],
         ];
     }
 
     public function qualityDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->qualityBase($scope)->where('task.id', $id)->first();
+        $row = $this->qualityBase($scope, $permissions)->where('task.id', $id)->first();
         if (! $row) {
             throw new NotFoundHttpException('Incoming QC task not found.');
         }
@@ -154,21 +152,22 @@ final class InboundProcurementQuery
 
     public function supplierReturnWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->supplierReturnBase($scope);
+        $base = $this->supplierReturnBase($scope, $permissions, $filters['visibility'] ?? null);
         $page = $this->page($base, $filters, ['supplier_return.return_number', 'supplier.display_name', 'supplier_return.reason'], 'supplier_return.status');
 
         return [
             'data' => collect($page->items())->map(fn (object $row) => $this->supplierReturnPayload($row, $permissions))->all(),
             'meta' => $this->meta($page),
-            'summary' => $this->statusSummary('supplier_returns', $scope, InboundProcurementService::RETURN_STATUSES),
-            'lookups' => ['statuses' => InboundProcurementService::RETURN_STATUSES, 'rejected_lines' => $this->rejectedLines($scope)],
+            'summary' => $this->statusSummary($base, 'supplier_return.status', InboundProcurementService::RETURN_STATUSES),
+            'lookups' => ['statuses' => InboundProcurementService::RETURN_STATUSES, 'rejected_lines' => $this->rejectedLines($scope, $permissions), 'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, 'ACTION:INB-RETURN:CREATE') ? ['CREATE'] : [],
         ];
     }
 
     public function supplierReturnDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->supplierReturnBase($scope)->where('supplier_return.id', $id)->first();
+        $row = $this->supplierReturnBase($scope, $permissions)->where('supplier_return.id', $id)->first();
         if (! $row) {
             throw new NotFoundHttpException('Supplier return not found.');
         }
@@ -191,9 +190,23 @@ final class InboundProcurementQuery
         return $payload;
     }
 
-    private function receiptBase(array $scope): Builder
+    private function gateBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('receipts as receipt')
+        $query = DB::table('gate_entries as gate')
+            ->join('purchase_orders as po', 'po.id', '=', 'gate.purchase_order_id')
+            ->join('parties as supplier', 'supplier.id', '=', 'gate.supplier_party_id')
+            ->join('users as creator', 'creator.id', '=', 'gate.created_by')
+            ->where('gate.company_id', $scope['company_id'])->where('gate.plant_id', $scope['plant_id'])
+            ->select(['gate.*', 'po.po_number', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name', 'creator.name as creator_name']);
+        $this->visibility->apply($query, 'GATE_ENTRY', 'gate.id', $permissions, $visibilityFilter, 'gate_visibility');
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'gate_po_visibility', false);
+
+        return $query;
+    }
+
+    private function receiptBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
+    {
+        $query = DB::table('receipts as receipt')
             ->join('gate_entries as gate', 'gate.id', '=', 'receipt.gate_entry_id')
             ->join('purchase_orders as po', 'po.id', '=', 'receipt.purchase_order_id')
             ->join('parties as supplier', 'supplier.id', '=', 'receipt.supplier_party_id')
@@ -204,11 +217,16 @@ final class InboundProcurementQuery
                 'supplier.code as supplier_code', 'supplier.display_name as supplier_name', 'creator.name as creator_name'])
             ->selectSub(fn (Builder $q) => $q->from('receipt_lines as line')->whereColumn('line.receipt_id', 'receipt.id')->selectRaw('COUNT(*)'), 'line_count')
             ->selectSub(fn (Builder $q) => $q->from('receipt_lines as line')->whereColumn('line.receipt_id', 'receipt.id')->selectRaw('COALESCE(SUM(received_quantity), 0)'), 'received_total');
+        $this->visibility->apply($query, 'GOODS_RECEIPT', 'receipt.id', $permissions, $visibilityFilter, 'receipt_visibility');
+        $this->visibility->apply($query, 'GATE_ENTRY', 'gate.id', $permissions, null, 'receipt_gate_visibility', false);
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'receipt_po_visibility', false);
+
+        return $query;
     }
 
-    private function qualityBase(array $scope): Builder
+    private function qualityBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('quality_tasks as task')
+        $query = DB::table('quality_tasks as task')
             ->join('receipts as receipt', 'receipt.id', '=', 'task.receipt_id')
             ->join('purchase_orders as po', 'po.id', '=', 'receipt.purchase_order_id')
             ->join('parties as supplier', 'supplier.id', '=', 'receipt.supplier_party_id')
@@ -219,17 +237,25 @@ final class InboundProcurementQuery
                 'supplier.id as supplier_id', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name',
                 'creator.name as creator_name', 'completer.name as completer_name'])
             ->selectSub(fn (Builder $q) => $q->from('incoming_quality_lines as line')->whereColumn('line.quality_task_id', 'task.id')->selectRaw('COUNT(*)'), 'line_count');
+        $this->visibility->apply($query, 'INCOMING_QUALITY_TASK', 'task.id', $permissions, $visibilityFilter, 'quality_visibility');
+        $this->visibility->apply($query, 'GOODS_RECEIPT', 'receipt.id', $permissions, null, 'quality_receipt_visibility', false);
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'quality_po_visibility', false);
+
+        return $query;
     }
 
-    private function supplierReturnBase(array $scope): Builder
+    private function supplierReturnBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('supplier_returns as supplier_return')
+        $query = DB::table('supplier_returns as supplier_return')
             ->join('parties as supplier', 'supplier.id', '=', 'supplier_return.supplier_party_id')
             ->join('users as creator', 'creator.id', '=', 'supplier_return.created_by')
             ->where('supplier_return.company_id', $scope['company_id'])->where('supplier_return.plant_id', $scope['plant_id'])
             ->select(['supplier_return.*', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name', 'creator.name as creator_name'])
             ->selectSub(fn (Builder $q) => $q->from('supplier_return_lines as line')->whereColumn('line.supplier_return_id', 'supplier_return.id')->selectRaw('COUNT(*)'), 'line_count')
             ->selectSub(fn (Builder $q) => $q->from('supplier_return_lines as line')->whereColumn('line.supplier_return_id', 'supplier_return.id')->selectRaw('COALESCE(SUM(return_quantity), 0)'), 'return_total');
+        $this->visibility->apply($query, 'SUPPLIER_RETURN', 'supplier_return.id', $permissions, $visibilityFilter, 'supplier_return_visibility');
+
+        return $this->visibility->excludeRestrictedSupplierReturnSources($query, 'supplier_return.id', $permissions);
     }
 
     private function gatePayload(object $row, array $permissions): array
@@ -250,6 +276,7 @@ final class InboundProcurementQuery
             'created_by' => ['id' => (string) $row->created_by, 'name' => $row->creator_name],
             'cleared_at' => $this->timestamp($row->cleared_at), 'cancelled_at' => $this->timestamp($row->cancelled_at),
             'cancellation_reason' => $row->cancellation_reason, 'allowed_actions' => $actions,
+            'visibility' => $this->visibility->metadata($row),
             'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at),
         ];
     }
@@ -272,6 +299,7 @@ final class InboundProcurementQuery
             'created_by' => ['id' => (string) $row->created_by, 'name' => $row->creator_name],
             'posted_at' => $this->timestamp($row->posted_at), 'cancelled_at' => $this->timestamp($row->cancelled_at),
             'cancellation_reason' => $row->cancellation_reason, 'allowed_actions' => $actions,
+            'visibility' => $this->visibility->metadata($row),
             'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at),
         ];
     }
@@ -289,6 +317,7 @@ final class InboundProcurementQuery
             'completed_by' => $row->completed_by ? ['id' => (string) $row->completed_by, 'name' => $row->completer_name] : null,
             'completed_at' => $this->timestamp($row->completed_at),
             'allowed_actions' => $row->status === 'PENDING' && $this->can($permissions, 'ACTION:QC-IN:COMPLETE') ? ['COMPLETE'] : [],
+            'visibility' => $this->visibility->metadata($row),
             'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at),
         ];
     }
@@ -309,30 +338,40 @@ final class InboundProcurementQuery
             'created_by' => ['id' => (string) $row->created_by, 'name' => $row->creator_name],
             'posted_at' => $this->timestamp($row->posted_at), 'cancelled_at' => $this->timestamp($row->cancelled_at),
             'cancellation_reason' => $row->cancellation_reason, 'allowed_actions' => $actions,
+            'visibility' => $this->visibility->metadata($row),
             'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at),
         ];
     }
 
-    private function issuedOrders(array $scope): array
+    private function issuedOrders(array $scope, array $permissions): array
     {
-        return DB::table('purchase_orders as po')->join('parties as supplier', 'supplier.id', '=', 'po.supplier_party_id')
+        $query = DB::table('purchase_orders as po')->join('parties as supplier', 'supplier.id', '=', 'po.supplier_party_id')
             ->where('po.company_id', $scope['company_id'])->where('po.plant_id', $scope['plant_id'])->where('po.status', 'ISSUED')
-            ->orderBy('po.required_by_date')->get(['po.id', 'po.po_number', 'po.required_by_date', 'supplier.id as supplier_id',
+            ->orderBy('po.required_by_date')->select(['po.id', 'po.po_number', 'po.required_by_date', 'supplier.id as supplier_id',
                 'supplier.code as supplier_code', 'supplier.display_name as supplier_name'])
+            ;
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'issued_po_visibility', false);
+
+        return $query->get()
             ->map(fn (object $row) => ['id' => (string) $row->id, 'number' => $row->po_number,
                 'required_by_date' => (string) $row->required_by_date,
                 'supplier' => ['id' => (string) $row->supplier_id, 'code' => $row->supplier_code, 'name' => $row->supplier_name]])->all();
     }
 
-    private function arrivedGates(array $scope): array
+    private function arrivedGates(array $scope, array $permissions): array
     {
-        return DB::table('gate_entries as gate')->join('purchase_orders as po', 'po.id', '=', 'gate.purchase_order_id')
+        $query = DB::table('gate_entries as gate')->join('purchase_orders as po', 'po.id', '=', 'gate.purchase_order_id')
             ->join('parties as supplier', 'supplier.id', '=', 'gate.supplier_party_id')
             ->where('gate.company_id', $scope['company_id'])->where('gate.plant_id', $scope['plant_id'])
             ->where('gate.status', 'ARRIVED')->whereNotExists(fn (Builder $q) => $q->from('receipts as receipt')
                 ->whereColumn('receipt.gate_entry_id', 'gate.id')->whereNotNull('receipt.receipt_number'))
-            ->orderBy('gate.arrived_at')->get(['gate.id', 'gate.gate_entry_number', 'gate.purchase_order_id', 'po.po_number',
+            ->orderBy('gate.arrived_at')->select(['gate.id', 'gate.gate_entry_number', 'gate.purchase_order_id', 'po.po_number',
                 'gate.supplier_document_number', 'supplier.id as supplier_id', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name'])
+            ;
+        $this->visibility->apply($query, 'GATE_ENTRY', 'gate.id', $permissions, null, 'arrived_gate_visibility', false);
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'arrived_po_visibility', false);
+
+        return $query->get()
             ->map(function (object $row): array {
                 $lines = DB::table('purchase_order_lines as po_line')->join('items as item', 'item.id', '=', 'po_line.item_id')
                     ->where('po_line.purchase_order_id', $row->purchase_order_id)->orderBy('po_line.line_number')
@@ -364,18 +403,23 @@ final class InboundProcurementQuery
             ->map(fn (object $row) => ['id' => (string) $row->id, 'code' => $row->code, 'name' => $row->name, 'location_type' => $row->location_type])->all();
     }
 
-    private function rejectedLines(array $scope): array
+    private function rejectedLines(array $scope, array $permissions): array
     {
-        return DB::table('incoming_quality_lines as quality')
+        $query = DB::table('incoming_quality_lines as quality')
             ->join('quality_tasks as task', 'task.id', '=', 'quality.quality_task_id')
             ->join('receipts as receipt', 'receipt.id', '=', 'quality.receipt_id')
             ->join('items as item', 'item.id', '=', 'quality.item_id')->join('lots as lot', 'lot.id', '=', 'quality.lot_id')
             ->join('parties as supplier', 'supplier.id', '=', 'receipt.supplier_party_id')
             ->where('quality.company_id', $scope['company_id'])->where('quality.plant_id', $scope['plant_id'])
             ->where('task.status', 'COMPLETED')->where('quality.rejected_quantity', '>', 0)->whereNotNull('quality.rejected_position_id')
-            ->orderBy('task.completed_at')->get(['quality.*', 'task.task_number', 'receipt.supplier_party_id', 'receipt.receipt_number',
+            ->orderBy('task.completed_at')->select(['quality.*', 'task.task_number', 'receipt.supplier_party_id', 'receipt.receipt_number',
                 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code',
                 'supplier.code as supplier_code', 'supplier.display_name as supplier_name'])
+            ;
+        $this->visibility->apply($query, 'INCOMING_QUALITY_TASK', 'task.id', $permissions, null, 'rejected_quality_visibility', false);
+        $this->visibility->apply($query, 'GOODS_RECEIPT', 'receipt.id', $permissions, null, 'rejected_receipt_visibility', false);
+
+        return $query->get()
             ->map(function (object $row): array {
                 $returned = $this->decimal(DB::table('supplier_return_lines as line')->join('supplier_returns as supplier_return', 'supplier_return.id', '=', 'line.supplier_return_id')
                     ->where('line.incoming_quality_line_id', $row->id)->where('supplier_return.status', 'POSTED')->sum('line.return_quantity'));
@@ -404,12 +448,10 @@ final class InboundProcurementQuery
         return $query->paginate((int) ($filters['per_page'] ?? 25));
     }
 
-    private function statusSummary(string $table, array $scope, array $statuses, ?string $liveColumn = null): array
+    private function statusSummary(Builder $base, string $statusColumn, array $statuses): array
     {
-        $base = DB::table($table)->where('company_id', $scope['company_id'])->where('plant_id', $scope['plant_id']);
-        if ($liveColumn) $base->whereNotNull($liveColumn);
         $summary = ['total' => (clone $base)->count()];
-        foreach ($statuses as $status) $summary[strtolower($status)] = (clone $base)->where('status', $status)->count();
+        foreach ($statuses as $status) $summary[strtolower($status)] = (clone $base)->where($statusColumn, $status)->count();
         return $summary;
     }
 

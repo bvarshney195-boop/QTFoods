@@ -9,9 +9,11 @@ import { FeedbackToast } from './FeedbackToast';
 import { SummaryStrip } from './ManufacturingWorkspaceShell';
 import { StructuredCommandForm, validateStructuredCommand, type StructuredCommandSchema } from './StructuredCommandForm';
 import { formatBusinessDate, formatZonedDateTime } from '../utils/dateTime';
+import { changeTransactionVisibility } from '../api/transactionVisibility';
+import { TransactionVisibilityControl, TRANSACTION_VISIBILITY_HELPER } from './TransactionVisibilityControl';
 
 export type P2Column = { label: string; key: string; format?: 'date' | 'datetime' | 'money' | 'unitCost' | 'number' | 'text' };
-export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean };
+export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean; visibilityType?: string };
 export type P2Creator = {
   action: string;
   label: string;
@@ -39,7 +41,7 @@ export type GovernedP2Config = {
   resolveAction?: (action: string, record: P2Record, workspace: P2Workspace) => P2ActionSpec | null;
 };
 
-type EditorState = P2EditorSpec;
+type EditorState = P2EditorSpec & { visibilityType?: string; restrictEntry?: boolean };
 type Feedback = { error: string | null; success: string | null; fields: Record<string, string> };
 
 export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
@@ -51,6 +53,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await listP2(config.listPath, { q: search || undefined, status: config.supportsStatus === false ? undefined : status || undefined });
+      const next = await listP2(config.listPath, { q: search || undefined, status: config.supportsStatus === false ? undefined : status || undefined, visibility: visibilityFilter || undefined });
       setWorkspace(next);
       setLoadError(null);
       setSelected((current) => current && config.collections.some((item) => collectionContainsId(workspacePath(next, item.key), current.id)) ? current : null);
@@ -68,26 +71,30 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     } finally {
       setLoading(false);
     }
-  }, [config.listPath, config.supportsStatus, config.title, contextKey, search, status]);
+  }, [config.listPath, config.supportsStatus, config.title, contextKey, search, status, visibilityFilter]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { setCollectionKey(config.collections[0]?.key ?? 'data'); setSelected(null); setEditor(null); setSearch(''); setStatus(''); setFeedback(clear()); }, [contextKey, config.code, config.collections]);
+  useEffect(() => { setCollectionKey(config.collections[0]?.key ?? 'data'); setSelected(null); setEditor(null); setSearch(''); setStatus(''); setVisibilityFilter(''); setFeedback(clear()); }, [contextKey, config.code, config.collections]);
 
   const collection = config.collections.find((item) => item.key === collectionKey) ?? config.collections[0];
   const records = useMemo(() => {
     const values = workspacePath(workspace, collection?.key ?? 'data');
-    return Array.isArray(values) ? values.map((value) => ({ ...(value as P2Record), _kind: collection?.kind ?? collection?.key })) : [];
+    return Array.isArray(values) ? values.map((value) => ({ ...(value as P2Record), _kind: collection?.kind ?? collection?.key, _visibility_type: collection?.visibilityType })) : [];
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
+  const grantedPermissions = session.granted_permissions ?? [...session.allowed_actions, ...session.allowed_screens.map((screen) => `SCREEN:${screen}:VIEW`)];
+  const visibilityOptions = Array.isArray(workspace?.lookups && (workspace.lookups as Record<string, unknown>).visibility_filters)
+    ? ((workspace!.lookups as Record<string, unknown>).visibility_filters as string[])
+    : [];
 
   async function open(record: P2Record) {
     setEditor(null); setFeedback(clear());
     if (!collection?.detailPath) { setSelected(record); return; }
     setSelected(null);
-    try { setSelected({ ...(await getP2(collection.detailPath(record))), _kind: collection.kind ?? collection.key }); }
+    try { setSelected({ ...(await getP2(collection.detailPath(record))), _kind: collection.kind ?? collection.key, _visibility_type: collection.visibilityType }); }
     catch (error) { setFailure(setFeedback, error, 'Unable to load record detail.'); }
   }
 
@@ -95,7 +102,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     if (!workspace) return;
     const body = creator.template(workspace);
     setSelected(null); setFeedback(clear());
-    setEditor({ label: creator.label, help: creator.help, path: typeof creator.path === 'function' ? creator.path(workspace) : creator.path, expectedVersion: creator.expectedVersion?.(workspace), body, schema: creator.schema });
+    setEditor({ label: creator.label, help: creator.help, path: typeof creator.path === 'function' ? creator.path(workspace) : creator.path, expectedVersion: creator.expectedVersion?.(workspace), body, schema: creator.schema, visibilityType: collection?.visibilityType, restrictEntry: false });
   }
 
   async function submit(event: FormEvent) {
@@ -106,9 +113,20 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       focusFirstInvalid(fields);
       return;
     }
+    if (editor.restrictEntry && !grantedPermissions.includes('ShowEntries')
+      && !window.confirm('Restricting this entry will remove it from your operational view immediately. A user with both visibility permissions must recover it. Continue?')) return;
     setBusy(true);
     try {
       const result = await commandP2(editor.path, editor.body, editor.expectedVersion);
+      if (editor.restrictEntry && editor.visibilityType) {
+        try {
+          await changeTransactionVisibility(editor.visibilityType, result.id, 'RESTRICTED', 0);
+        } catch (visibilityError) {
+          setEditor(null); setSelected(null); await refresh();
+          setFeedback({ error: `The record was created normally, but its visibility could not be restricted: ${failureMessage(visibilityError, 'visibility update failed')}`, success: null, fields: {} });
+          return;
+        }
+      }
       setEditor(null); setSelected(null); setFeedback({ error: null, success: `${editor.label} saved successfully. Current status: ${label(result.status)}.`, fields: {} });
       await refresh();
     } catch (error) { setFailure(setFeedback, error, `Unable to complete ${editor.label.toLowerCase()}.`); }
@@ -139,14 +157,28 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     finally { setBusy(false); }
   }
 
+  async function visibilityChanged(next: NonNullable<P2Record['visibility']>) {
+    await refresh();
+    if (next.is_restricted && !grantedPermissions.includes('ShowEntries')) {
+      setSelected(null);
+      setFeedback({ error: null, success: 'Entry restricted. It has been removed from your operational view.', fields: {} });
+      return;
+    }
+    if (selected && collection?.detailPath) {
+      setSelected({ ...(await getP2(collection.detailPath(selected))), _kind: selected._kind, _visibility_type: selected._visibility_type });
+    }
+    setFeedback({ error: null, success: next.is_restricted ? 'Entry restricted immediately.' : 'Entry returned to normal visibility.', fields: {} });
+  }
+
   const drawer = (editor || selected || feedback.error) ? <div className="p2-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setEditor(null); setSelected(null); setFeedback(clear()); } }}><aside className="panel requisition-editor p2-drawer" role="dialog" aria-modal="true" aria-label={editor?.label ?? (selected ? 'Record details' : 'Action error')}><div className="requisition-detail-body">
     {feedback.error ? <div className="form-error" role="alert"><span>{feedback.error}</span></div> : null}
-    {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} /> : selected ? <><button className="drawer-close" type="button" aria-label="Close record details" onClick={() => { setSelected(null); setFeedback(clear()); }}>×</button><RecordDetail record={selected} busy={busy} onAction={act} /></> : <button className="secondary" type="button" onClick={() => setFeedback(clear())}>Close</button>}
+    {editor ? <CommandEditor editor={editor} setEditor={setEditor} workspace={workspace} busy={busy} submit={submit} close={() => { setEditor(null); setFeedback(clear()); }} fields={feedback.fields} permissions={grantedPermissions} /> : selected ? <><button className="drawer-close" type="button" aria-label="Close record details" onClick={() => { setSelected(null); setFeedback(clear()); }}>×</button><RecordDetail record={selected} busy={busy} onAction={act} permissions={grantedPermissions} onVisibilityChanged={visibilityChanged} /></> : <button className="secondary" type="button" onClick={() => setFeedback(clear())}>Close</button>}
   </div></aside></div> : null;
 
   return <>
     <PageHeader code={config.code} batch={config.batch ?? 'P2 operational'} title={config.title} description={config.description} onNew={contextualCreator ? () => startCreator(contextualCreator) : undefined} />
     <details className="business-guidance"><summary>How this workspace works</summary><p>{config.notice}</p></details>
+    {workspace?.operational_view ? <div className="live-notice visibility-view-label"><span />{workspace.operational_view.label}</div> : null}
     {workspace?.summary ? <SummaryStrip summary={workspace.summary} /> : null}
     {config.collections.length > 1 || availableCreators.length > 1 ? <div className="workspace-tabs p2-command-tabs">
       {config.collections.map((item) => <button key={item.key} className={item.key === collectionKey ? 'active' : ''} onClick={() => { setCollectionKey(item.key); setSelected(null); setEditor(null); setStatus(''); }}>{item.label}</button>)}
@@ -158,6 +190,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
         <div className="requisition-toolbar p2-toolbar">
           <label>Search<input aria-label={`${config.title} search`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Number, customer, reference or description" /></label>
           {config.supportsStatus === false ? <div /> : <label>Status<select aria-label={`${config.title} status`} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select></label>}
+          {grantedPermissions.includes('ShowEntries') && visibilityOptions.length > 1 ? <label>Visibility<select aria-label={`${config.title} visibility`} value={visibilityFilter} onChange={(event) => setVisibilityFilter(event.target.value)}><option value="">All entries</option>{visibilityOptions.filter((item) => item !== 'ALL').map((item) => <option value={item} key={item}>{label(item)}</option>)}</select></label> : null}
           <button className="secondary compact-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
         </div>
         {loading && workspace ? <div className="register-updating" role="status"><span aria-hidden="true" />Updating records… Current data remains visible.</div> : null}
@@ -172,15 +205,15 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
 
 function Register({ records, columns, showStatus, selectedId, onOpen }: { records: P2Record[]; columns: P2Column[]; showStatus: boolean; selectedId?: string; onOpen: (record: P2Record) => void }) {
   if (!records.length) return <Empty text="No live records match the selected context and filters." />;
-  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th>Action</th></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td className={column.format === 'money' || column.format === 'number' || column.format === 'unitCost' ? 'numeric-cell' : undefined} key={column.key}>{renderValue(read(record, column.key), column.format)}</td>)}{showStatus ? <td>{record.status ? <StatusBadge status={String(record.status)} /> : <span className="muted">Not applicable</span>}</td> : null}<td><button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="requisition-table p2-register"><thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{showStatus ? <th>Status</th> : null}<th>Action</th></tr></thead><tbody>{records.map((record) => <tr key={`${record._kind}:${record.id}`} className={selectedId === record.id ? 'selected-row' : ''}>{columns.map((column) => <td className={column.format === 'money' || column.format === 'number' || column.format === 'unitCost' ? 'numeric-cell' : undefined} key={column.key}>{renderValue(read(record, column.key), column.format)}</td>)}{showStatus ? <td>{record.status ? <StatusBadge status={String(record.status)} /> : <span className="muted">Not applicable</span>}</td> : null}<td>{record.visibility?.is_restricted ? <StatusBadge status="RESTRICTED" /> : null}<button className="secondary compact-button" type="button" onClick={() => void onOpen(record)}>Open</button></td></tr>)}</tbody></table></div>;
 }
 
 function RegisterSkeleton({ columns }: { columns: number }) {
   return <div className="register-skeleton" role="status" aria-label="Loading records">{Array.from({ length: 5 }, (_, row) => <div key={row}>{Array.from({ length: columns + 1 }, (_, cell) => <span key={cell} />)}</div>)}</div>;
 }
 
-function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string> }) {
-  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body: refreshCollectionAllocation(body, editor.body, workspace) })} /><div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions sticky-form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div></fieldset></form>;
+function CommandEditor({ editor, setEditor, workspace, busy, submit, close, fields, permissions }: { editor: EditorState; setEditor: (value: EditorState) => void; workspace: P2Workspace | null; busy: boolean; submit: (event: FormEvent) => void; close: () => void; fields: Record<string, string>; permissions: string[] }) {
+  return <form className="p2-command-editor" onSubmit={submit} noValidate><fieldset disabled={busy}><div className="detail-status"><StatusBadge status="DRAFT ENTRY" /><span>* Required fields</span></div><h2>{editor.label}</h2><p>{editor.help}</p><StructuredCommandForm value={editor.body} workspace={workspace} errors={fields} schema={editor.schema} onChange={(body) => setEditor({ ...editor, body: refreshCollectionAllocation(body, editor.body, workspace) })} />{editor.visibilityType && permissions.includes('DidntShowCheckbox') ? <label className="create-visibility-option"><span><input type="checkbox" checked={Boolean(editor.restrictEntry)} onChange={(event) => setEditor({ ...editor, restrictEntry: event.target.checked })} /> Restrict Entry</span><small>{TRANSACTION_VISIBILITY_HELPER}</small></label> : null}<div className="callout">Available choices come from your selected company and workplace. Totals, stock, credit, accounting periods, and approvals are checked automatically when you save.</div><div className="form-actions sticky-form-actions"><button className="secondary" type="button" onClick={close}>Close</button><button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div></fieldset></form>;
 }
 
 function refreshCollectionAllocation(body: unknown, previous: unknown, workspace: P2Workspace | null): unknown {
@@ -231,8 +264,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: boolean; onAction: (action: string) => void }) {
-  const hidden = ['allowed_actions', '_kind', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'];
+function RecordDetail({ record, busy, onAction, permissions, onVisibilityChanged }: { record: P2Record; busy: boolean; onAction: (action: string) => void; permissions: string[]; onVisibilityChanged: (visibility: NonNullable<P2Record['visibility']>) => Promise<void> }) {
+  const hidden = ['allowed_actions', '_kind', '_visibility_type', 'visibility', 'lines', 'events', 'revisions', 'transactions', 'proof', 'invoice', 'result_json', 'diagnostic_snapshot', 'validation_json', 'payload_json'];
   const facts = Object.entries(record).filter(([key, value]) => !hidden.includes(key) && !technicalKey(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))).slice(0, 22);
   const technical = Object.entries(record).filter(([key, value]) => !hidden.includes(key) && technicalKey(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)));
   const collections = Object.entries(record).filter(([, value]) => Array.isArray(value)) as [string, unknown[]][];
@@ -242,6 +275,7 @@ function RecordDetail({ record, busy, onAction }: { record: P2Record; busy: bool
   return <div className="requisition-detail p2-detail">
     <header className="business-record-header"><div><small>{label(String(record._kind ?? 'record'))}</small><h2>{identifier}</h2></div>{record.status ? <StatusBadge status={String(record.status)} /> : null}</header>
     {(customer || record.requested_delivery_date || record.total_amount) ? <div className="business-record-summary">{customer ? <span><small>Customer</small><b>{String(customer)}</b></span> : null}{record.requested_delivery_date ? <span><small>Due</small><b>{formatBusinessDate(String(record.requested_delivery_date))}</b></span> : null}{record.total_amount ? <span><small>Total</small><b>{renderValue(record.total_amount, 'money')}</b></span> : null}</div> : null}
+    {record._visibility_type ? <TransactionVisibilityControl transactionType={record._visibility_type} transactionId={record.id} visibility={record.visibility} permissions={permissions} onChanged={onVisibilityChanged} /> : null}
     <dl className="control-definition">{facts.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{renderValue(value, moneyKey(key) ? (key.includes('unit_cost') ? 'unitCost' : 'money') : key.endsWith('_at') ? 'datetime' : key.includes('date') ? 'date' : 'text')}</dd></div>)}</dl>
     {objects.map(([key, value]) => <section className="p2-object-evidence" key={key}><h4>{label(key)}</h4><ObjectFacts value={value as Record<string, unknown>} /></section>)}
     {collections.map(([key, values]) => <section className="p2-related" key={key}><h4>{label(key)}</h4><RelatedRows values={values} /></section>)}

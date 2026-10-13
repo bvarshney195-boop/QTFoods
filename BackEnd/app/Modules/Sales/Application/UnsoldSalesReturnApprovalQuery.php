@@ -2,6 +2,7 @@
 
 namespace App\Modules\Sales\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\JoinClause;
@@ -13,9 +14,11 @@ final class UnsoldSalesReturnApprovalQuery
 {
     public const STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function paginate(array $scope, array $filters, string $reviewerId, array $permissions): array
     {
-        $query = $this->base($scope);
+        $query = $this->base($scope, $permissions);
         $this->applyFilters($query, $filters);
 
         [$sortColumn, $sortDirection] = $this->sort($filters['sort'] ?? '-created_at');
@@ -53,7 +56,7 @@ final class UnsoldSalesReturnApprovalQuery
 
     public function find(string $approvalId, array $scope, string $reviewerId, array $permissions): ?array
     {
-        $approval = $this->base($scope)->where('approval.id', $approvalId)->first();
+        $approval = $this->base($scope, $permissions)->where('approval.id', $approvalId)->first();
         if (! $approval) {
             return null;
         }
@@ -143,9 +146,9 @@ final class UnsoldSalesReturnApprovalQuery
         ];
     }
 
-    private function base(array $scope): Builder
+    private function base(array $scope, array $permissions): Builder
     {
-        return DB::table('approval_requests as approval')
+        $query = DB::table('approval_requests as approval')
             ->join('unsold_return_cases as return_case', function (JoinClause $join) {
                 $join
                     ->on('return_case.id', '=', 'approval.entity_id')
@@ -207,6 +210,9 @@ final class UnsoldSalesReturnApprovalQuery
                     ->selectRaw('COALESCE(SUM(totals.destroy_quantity), 0)')
                     ->whereColumn('totals.return_case_id', 'approval.entity_id');
             }, 'destroy_quantity');
+        $this->visibility->apply($query, 'UNSOLD_RETURN', 'return_case.id', $permissions, null, 'return_approval_visibility', false);
+
+        return $query;
     }
 
     private function applyFilters(Builder $query, array $filters): void

@@ -6,6 +6,7 @@ use App\Modules\Finance\Application\AccountsPayableQuery;
 use App\Modules\Finance\Application\AccountsPayableService;
 use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,6 +29,7 @@ final class AccountsPayableController
             'q' => ['sometimes', 'string', 'max:100'], 'status' => ['sometimes', 'string', Rule::in(AccountsPayableService::INVOICE_STATUSES)],
             'proposal_status' => ['sometimes', 'string', Rule::in(AccountsPayableService::PROPOSAL_STATUSES)],
             'payment_status' => ['sometimes', 'string', Rule::in(AccountsPayableService::PAYMENT_STATUSES)],
+            'visibility' => ['sometimes', 'string', Rule::in(OperationalVisibilityScope::FILTERS)],
         ]);
         return response()->json($this->query->workspace($this->selectedScope($request, true), $filters, $this->currentPermissions($request)));
     }

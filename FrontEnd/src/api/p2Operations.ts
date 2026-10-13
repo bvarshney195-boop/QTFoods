@@ -6,6 +6,17 @@ export type P2Record = Record<string, unknown> & {
   record_version?: number;
   allowed_actions?: string[];
   _kind?: string;
+  _visibility_type?: string;
+  visibility?: VisibilityMetadata;
+};
+
+export type VisibilityMetadata = {
+  status: 'NORMAL' | 'RESTRICTED';
+  is_restricted: boolean;
+  record_version: number;
+  restricted_by?: string | null;
+  restricted_at?: string | null;
+  restriction_reason?: string | null;
 };
 
 export type P2Workspace = {
@@ -14,6 +25,7 @@ export type P2Workspace = {
   summary?: Record<string, unknown>;
   lookups?: Record<string, unknown>;
   allowed_actions?: string[];
+  operational_view?: { label: string; includes_restricted_entries: boolean; permission_filtered: boolean };
   [key: string]: unknown;
 };
 

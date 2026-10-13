@@ -5,6 +5,8 @@ namespace App\Modules\Reporting\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\OperationalVisibilityScope;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +22,7 @@ final class ReportingService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly OperationalVisibilityScope $visibility,
     ) {}
 
     public function generate(array $data): array
@@ -54,6 +57,7 @@ final class ReportingService
             }
 
             $definition = ReportDefinitionCatalog::get($data['report_code']);
+            $viewClassification = $this->viewClassification($data['report_code'], $data['permissions']);
             $parameters = $this->parameters($definition, $data['parameters'] ?? []);
             [$rows, $totals, $freshness] = match ($data['report_code']) {
                 'TRIAL_BALANCE' => $this->trialBalance($cutoff, $parameters, $data),
@@ -71,6 +75,9 @@ final class ReportingService
             $freshness ??= $generatedAt;
             $snapshot = [
                 'definition' => $data['report_code'],
+                'view_classification' => $viewClassification,
+                'view_label' => $this->viewLabel($viewClassification),
+                'includes_restricted_entries' => $viewClassification !== 'PERMISSION_FILTERED_OPERATIONAL',
                 'as_of_at' => $cutoff->utc()->toIso8601String(),
                 'source_freshness_at' => CarbonImmutable::parse($freshness)->utc()->toIso8601String(),
                 'parameters' => $parameters,
@@ -88,6 +95,8 @@ final class ReportingService
                 'run_number' => $data['run_number'],
                 'report_code' => $data['report_code'],
                 'report_title' => $definition['title'],
+                'view_classification' => $viewClassification,
+                'includes_restricted_entries' => $viewClassification !== 'PERMISSION_FILTERED_OPERATIONAL',
                 'status' => 'GENERATED',
                 'as_of_at' => $cutoff->utc(),
                 'source_freshness_at' => CarbonImmutable::parse($freshness)->utc(),
@@ -124,6 +133,7 @@ final class ReportingService
                 'run_number' => $data['run_number'],
                 'row_count' => count($rows),
                 'sha256' => $checksum,
+                'view_classification' => $viewClassification,
             ];
             $this->record(
                 'GENERATE_REPORT', 'reporting.run.generated', 'report_run', $runId, $data, 1,
@@ -150,12 +160,13 @@ final class ReportingService
             if (! $run) {
                 throw new NotFoundHttpException('Report run not found.');
             }
+            $this->assertRunAccessible($run, $data['permissions']);
             $columns = $this->json($run->columns_json);
             $rows = DB::table('report_run_rows')->where('report_run_id', $runId)->orderBy('row_number')
                 ->pluck('data_json')->map(fn (mixed $value): array => $this->json($value))->all();
             $format = Str::upper($format);
             [$payload, $mime, $extension] = $format === 'CSV'
-                ? [$this->csv($columns, $rows), 'text/csv; charset=UTF-8', 'csv']
+                ? [$this->csv($columns, $rows, $this->viewLabel((string) $run->view_classification)), 'text/csv; charset=UTF-8', 'csv']
                 : [$this->jsonExport($run, $columns, $rows), 'application/json', 'json'];
             $checksum = hash('sha256', $payload);
             $exportId = (string) Str::uuid();
@@ -307,6 +318,7 @@ final class ReportingService
             })
             ->join('inventory_quality_statuses as quality', 'quality.code', '=', 'position.quality_status')
             ->where('position.company_id', $data['company_id'])->where('position.plant_id', $data['plant_id']);
+        $this->visibility->applyInventoryAttribution($query, 'position.lot_id', $data['permissions']);
         if (! $parameters['include_zero']) {
             $query->where('position.quantity_base', '>', 0);
         }
@@ -338,7 +350,7 @@ final class ReportingService
                 'available' => $this->decimal($available),
             ];
         })->all();
-        $freshness = DB::table('stock_positions')->where($this->scope($data))->max('updated_at');
+        $freshness = (clone $query)->max('position.updated_at');
 
         return [$rows, [
             'on_hand' => $this->sum($rows, 'on_hand'), 'reserved' => $this->sum($rows, 'reserved'),
@@ -361,6 +373,7 @@ final class ReportingService
             })
             ->where('sales_order.company_id', $data['company_id'])->where('sales_order.plant_id', $data['plant_id'])
             ->where('sales_order.order_type', 'SALES')->whereDate('sales_order.order_date', '<=', $cutoff->toDateString());
+        $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $data['permissions'], null, 'report_order_visibility', false);
         if (! $parameters['include_closed']) {
             $query->whereNotIn('sales_order.status', ['COMPLETED', 'CANCELLED']);
         }
@@ -392,8 +405,7 @@ final class ReportingService
                 'fulfilment_percent' => $percent,
             ];
         })->all();
-        $freshness = DB::table('sales_orders')->where($this->scope($data))->where('order_type', 'SALES')
-            ->whereDate('order_date', '<=', $cutoff->toDateString())->max('updated_at');
+        $freshness = (clone $query)->max('sales_order.updated_at');
 
         return [$rows, [
             'currency' => 'INR', 'order_value' => $this->sum($rows, 'order_value'),
@@ -455,9 +467,13 @@ final class ReportingService
         return 'HEALTHY';
     }
 
-    private function csv(array $columns, array $rows): string
+    private function csv(array $columns, array $rows, string $viewLabel): string
     {
-        $lines = [implode(',', array_map(fn (array $column): string => $this->csvCell($column['label']), $columns))];
+        $lines = [
+            $this->csvCell('View').','.$this->csvCell($viewLabel),
+            '',
+            implode(',', array_map(fn (array $column): string => $this->csvCell($column['label']), $columns)),
+        ];
         foreach ($rows as $row) {
             $lines[] = implode(',', array_map(
                 fn (array $column): string => $this->csvCell($row[$column['key']] ?? null),
@@ -483,6 +499,9 @@ final class ReportingService
                 'run_number' => $run->run_number,
                 'report_code' => $run->report_code,
                 'report_title' => $run->report_title,
+                'view_classification' => $run->view_classification,
+                'view_label' => $this->viewLabel($run->view_classification),
+                'includes_restricted_entries' => (bool) $run->includes_restricted_entries,
                 'as_of_at' => $run->as_of_at,
                 'source_freshness_at' => $run->source_freshness_at,
                 'parameters' => $this->json($run->parameters_json),
@@ -533,6 +552,32 @@ final class ReportingService
     private function scope(array $data): array
     {
         return ['company_id' => $data['company_id'], 'plant_id' => $data['plant_id']];
+    }
+
+    private function viewClassification(string $reportCode, array $permissions): string
+    {
+        if (in_array($reportCode, ['TRIAL_BALANCE', 'RECEIVABLE_AGING'], true)) return 'AUTHORITATIVE';
+
+        return in_array(TransactionVisibilityPolicy::SHOW_PERMISSION, $permissions, true)
+            ? 'FULL_OPERATIONAL'
+            : 'PERMISSION_FILTERED_OPERATIONAL';
+    }
+
+    private function assertRunAccessible(object $run, array $permissions): void
+    {
+        if (($run->view_classification ?? 'AUTHORITATIVE') === 'FULL_OPERATIONAL'
+            && ! in_array(TransactionVisibilityPolicy::SHOW_PERMISSION, $permissions, true)) {
+            throw new NotFoundHttpException('Report run not found.');
+        }
+    }
+
+    private function viewLabel(string $classification): string
+    {
+        return match ($classification) {
+            'PERMISSION_FILTERED_OPERATIONAL' => 'Permission-Filtered Operational View',
+            'FULL_OPERATIONAL' => 'Full Operational View',
+            default => 'Authoritative Financial View',
+        };
     }
 
     private function begin(string $namespace, array $data): ?array

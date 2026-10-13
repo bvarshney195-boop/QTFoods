@@ -83,7 +83,11 @@ final class ReportingController
 
     public function download(string $exportId, Request $request): Response
     {
-        $export = $this->query->export($exportId, $this->selectedScope($request, true));
+        $export = $this->query->export(
+            $exportId,
+            $this->selectedScope($request, true),
+            $this->currentPermissions($request),
+        );
 
         return response((string) $export->payload_text, 200, [
             'Content-Type' => (string) $export->mime_type,
