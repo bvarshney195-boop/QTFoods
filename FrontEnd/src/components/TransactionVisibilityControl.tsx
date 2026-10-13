@@ -35,6 +35,9 @@ export function TransactionVisibilityControl({
   async function toggle(next: boolean) {
     if (!canChange || busy) return;
     if (next && !canShow && !window.confirm('Restricting this entry will remove it from your operational view immediately. A user with both visibility permissions must recover it. Continue?')) return;
+    // Update the controlled input synchronously so a click changes its state.
+    // The server remains authoritative: roll back if the mutation fails.
+    setRestricted(next);
     setBusy(true); setError(null);
     try {
       const changed = await changeTransactionVisibility(
