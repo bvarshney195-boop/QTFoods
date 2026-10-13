@@ -58,6 +58,11 @@ final class RouteAuthorizationMatrixTest extends TestCase
     ];
 
     private const STATE_AUTHORIZED_ROUTES = [
+        'PATCH api/v1/transaction-visibility/{transactionType}/{transactionId}' => [
+            'screen' => 'WRK-HOME',
+            'entity_type' => 'transaction_visibility',
+            'permission_prefix' => 'DidntShowCheckbox',
+        ],
         'POST api/v1/procurement/requisition-approvals/{approvalId}/approve' => [
             'screen' => 'PUR-REQ',
             'entity_type' => 'purchase_requisition',
