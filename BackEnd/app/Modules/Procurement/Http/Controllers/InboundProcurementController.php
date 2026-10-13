@@ -6,6 +6,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
 use App\Modules\Procurement\Application\InboundProcurementQuery;
 use App\Modules\Procurement\Application\InboundProcurementService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -159,6 +160,7 @@ final class InboundProcurementController
         return $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'between:1,100'],
             'q' => ['sometimes', 'string', 'max:100'], 'status' => ['sometimes', 'string', Rule::in($statuses)],
+            'visibility' => ['sometimes', 'string', Rule::in(OperationalVisibilityScope::FILTERS)],
         ]);
     }
 

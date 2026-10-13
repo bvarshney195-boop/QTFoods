@@ -29,6 +29,7 @@ export type ErpSession = {
   roles: string[];
   allowed_screens: string[];
   allowed_actions: string[];
+  granted_permissions?: string[];
   delegated_authorities?: Array<{
     id: string;
     permission_code: string;

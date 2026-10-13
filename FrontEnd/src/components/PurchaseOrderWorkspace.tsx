@@ -12,8 +12,10 @@ import {
   type PurchaseOrderWorkspace as Workspace,
 } from '../api/procurementSourcing';
 import { useErpSession } from '../app/ErpSessionContext';
+import { changeTransactionVisibility } from '../api/transactionVisibility';
 import { PageHeader } from './PageHeader';
 import { StatusBadge } from './StatusBadge';
+import { TransactionVisibilityControl, TRANSACTION_VISIBILITY_HELPER } from './TransactionVisibilityControl';
 
 type CreateForm = {
   po_number: string;
@@ -48,6 +50,8 @@ export function PurchaseOrderWorkspace() {
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState('');
+  const [restrictOnCreate, setRestrictOnCreate] = useState(false);
   const [sort, setSort] = useState('NEWEST');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -60,18 +64,21 @@ export function PurchaseOrderWorkspace() {
   const amendKey = useRef<string | null>(null);
   const issueKey = useRef<string | null>(null);
   const cancelKey = useRef<string | null>(null);
+  const permissions = session.granted_permissions ?? session.allowed_actions;
+  const canRestrict = permissions.includes('DidntShowCheckbox');
+  const canShowRestricted = permissions.includes('ShowEntries');
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setWorkspace(await listPurchaseOrders({ page, q: search || undefined, status: statusFilter || undefined, sort }));
+      setWorkspace(await listPurchaseOrders({ page, q: search || undefined, status: statusFilter || undefined, visibility: visibilityFilter || undefined, sort }));
     } catch (caught) {
       setError(message(caught, 'Unable to load purchase orders.'));
     } finally {
       setLoading(false);
     }
-  }, [contextKey, page, search, sort, statusFilter]);
+  }, [contextKey, page, search, sort, statusFilter, visibilityFilter]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
@@ -80,6 +87,8 @@ export function PurchaseOrderWorkspace() {
     setSearchDraft('');
     setSearch('');
     setStatusFilter('');
+    setVisibilityFilter('');
+    setRestrictOnCreate(false);
     setSort('NEWEST');
     setPage(1);
     clearFeedback();
@@ -115,6 +124,7 @@ export function PurchaseOrderWorkspace() {
   function startNew() {
     setSelected(null);
     setCreateForm(blankCreateForm());
+    setRestrictOnCreate(false);
     setMode('CREATE');
     clearFeedback();
   }
@@ -154,6 +164,7 @@ export function PurchaseOrderWorkspace() {
       setError('Correct the highlighted order fields.');
       return;
     }
+    if (restrictOnCreate && !canShowRestricted && !window.confirm('Restricting this entry will remove it from your operational view immediately. A user with both visibility permissions must recover it. Continue?')) return;
     setBusy(true);
     try {
       createKey.current ??= crypto.randomUUID();
@@ -167,8 +178,23 @@ export function PurchaseOrderWorkspace() {
       }, createKey.current);
       createKey.current = null;
       setMode('NONE');
-      await refreshAndChoose(result.id);
-      setSuccess('Draft purchase order created from the awarded supplier quote.');
+      if (restrictOnCreate) {
+        try {
+          await changeTransactionVisibility('PURCHASE_ORDER', result.id, 'RESTRICTED', 0);
+        } catch (caught) {
+          await refreshAndChoose(result.id);
+          setError(message(caught, 'The order was created, but its visibility stayed normal.'));
+          return;
+        }
+      }
+      await refresh();
+      if (restrictOnCreate && !canShowRestricted) {
+        setSelected(null);
+        setSuccess('Draft purchase order created and restricted. It is now hidden from this operational view.');
+      } else {
+        setSelected(await getPurchaseOrder(result.id));
+        setSuccess('Draft purchase order created from the awarded supplier quote.');
+      }
     } catch (caught) {
       capture(caught, 'Unable to create the purchase order.');
     } finally {
@@ -264,6 +290,17 @@ export function PurchaseOrderWorkspace() {
     setSelected(await getPurchaseOrder(id));
   }
 
+  async function visibilityChanged() {
+    await refresh();
+    if (!selected) return;
+    if (!canShowRestricted) {
+      setSelected(null);
+      setSuccess('Visibility saved. This order is now hidden from your operational view.');
+      return;
+    }
+    setSelected(await getPurchaseOrder(selected.id));
+  }
+
   function clearFeedback() {
     setError(null);
     setSuccess(null);
@@ -292,6 +329,7 @@ export function PurchaseOrderWorkspace() {
       onNew={workspace?.allowed_actions.includes('CREATE') ? startNew : undefined}
     />
     <div className="live-notice procurement-notice"><span>LIVE</span>Every order remains linked to its approved requisition, awarded RFQ and supplier quote.</div>
+    {workspace?.operational_view ? <div className="live-notice visibility-view-label"><span />{workspace.operational_view.label}</div> : null}
     <div className="kpi-grid procurement-kpis">
       <Kpi text="Orders" value={workspace?.summary.total ?? 0} detail="selected plant" />
       <Kpi text="Draft" value={workspace?.summary.draft ?? 0} detail="not yet issued" />
@@ -300,15 +338,16 @@ export function PurchaseOrderWorkspace() {
     </div>
     <div className="module-grid requisition-workspace">
       <section className="panel">
-        <form className="requisition-toolbar" onSubmit={applySearch}><label>Search<span><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="PO, RFQ, requisition or supplier" /><button className="secondary" type="submit">Search</button></span></label><label>Status<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{workspace?.lookups.statuses.map((status) => <option key={status}>{status}</option>)}</select></label><label>Order<select value={sort} onChange={(event) => setSort(event.target.value)}>{workspace?.lookups.sorts.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label></form>
+        <form className="requisition-toolbar" onSubmit={applySearch}><label>Search<span><input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="PO, RFQ, requisition or supplier" /><button className="secondary" type="submit">Search</button></span></label><label>Status<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{workspace?.lookups.statuses.map((status) => <option key={status}>{status}</option>)}</select></label>{canShowRestricted ? <label>Visibility<select value={visibilityFilter} onChange={(event) => { setVisibilityFilter(event.target.value); setPage(1); }}><option value="">All entries</option><option value="NORMAL">Normal only</option><option value="RESTRICTED">Restricted only</option></select></label> : null}<label>Order<select value={sort} onChange={(event) => setSort(event.target.value)}>{workspace?.lookups.sorts.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label></form>
         {loading && !workspace ? <div className="empty-state">Loading purchase orders…</div> : null}
-        {workspace ? <><div className="table-wrap"><table className="requisition-table"><thead><tr><th>Purchase order</th><th>Supplier</th><th>Source</th><th>Required</th><th>Total</th><th>Status</th><th /></tr></thead><tbody>{workspace.data.map((order) => <tr key={order.id} className={selected?.id === order.id ? 'selected-row' : ''}><td><b className="link">{order.po_number}</b><small>revision {order.revision_number} · v{order.record_version}</small></td><td><b>{order.supplier.name}</b><small>{order.supplier.code}</small></td><td><b>{order.rfq.number}</b><small>{order.requisition.number}</small></td><td>{date(order.required_by_date)}</td><td>{money(order.total_amount, order.currency)}</td><td><StatusBadge status={order.status} /></td><td><button className="secondary compact-button" type="button" onClick={() => void choose(order.id)}>Open</button></td></tr>)}</tbody></table></div>{!workspace.data.length ? <div className="empty-state">No purchase orders match the current filters.</div> : null}<div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {workspace.meta.current_page} of {workspace.meta.last_page}</span><button disabled={page >= workspace.meta.last_page} onClick={() => setPage((value) => value + 1)}>Next</button></div></> : null}
+        {workspace ? <><div className="table-wrap"><table className="requisition-table"><thead><tr><th>Purchase order</th><th>Supplier</th><th>Source</th><th>Required</th><th>Total</th><th>Status</th><th /></tr></thead><tbody>{workspace.data.map((order) => <tr key={order.id} className={selected?.id === order.id ? 'selected-row' : ''}><td><b className="link">{order.po_number}</b><small>revision {order.revision_number} · v{order.record_version}</small></td><td><b>{order.supplier.name}</b><small>{order.supplier.code}</small></td><td><b>{order.rfq.number}</b><small>{order.requisition.number}</small></td><td>{date(order.required_by_date)}</td><td>{money(order.total_amount, order.currency)}</td><td><StatusBadge status={order.status} />{order.visibility?.is_restricted ? <StatusBadge status="RESTRICTED" /> : null}</td><td><button className="secondary compact-button" type="button" onClick={() => void choose(order.id)}>Open</button></td></tr>)}</tbody></table></div>{!workspace.data.length ? <div className="empty-state">No purchase orders match the current filters.</div> : null}<div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {workspace.meta.current_page} of {workspace.meta.last_page}</span><button disabled={page >= workspace.meta.last_page} onClick={() => setPage((value) => value + 1)}>Next</button></div></> : null}
       </section>
       <aside className="panel requisition-editor"><div className="panel-head"><h3>{mode === 'CREATE' ? 'New purchase order' : mode === 'AMEND' ? `Amend ${selected?.po_number}` : selected?.po_number ?? 'Purchase-order detail'}</h3>{selected?.allowed_actions.includes('AMEND') && mode === 'NONE' ? <button className="secondary compact-button" onClick={startAmendment}>Amend order</button> : null}</div><div className="requisition-detail-body">
         {detailLoading ? <div className="empty-state">Loading purchase-order detail…</div> : null}
         {error ? <div className="form-error" role="alert"><span>{error}</span></div> : null}
         {success ? <div className="form-success" role="status"><span />{success}</div> : null}
-        {mode === 'CREATE' ? <CreateEditor form={createForm} setForm={setCreateForm} workspace={workspace} busy={busy} errors={fieldErrors} onSave={create} onClose={() => setMode('NONE')} /> : null}
+        {mode === 'CREATE' ? <CreateEditor form={createForm} setForm={setCreateForm} workspace={workspace} busy={busy} errors={fieldErrors} restrictEntry={restrictOnCreate} canRestrict={canRestrict} onRestrict={setRestrictOnCreate} onSave={create} onClose={() => setMode('NONE')} /> : null}
+        {mode !== 'CREATE' && selected ? <TransactionVisibilityControl transactionType="PURCHASE_ORDER" transactionId={selected.id} visibility={selected.visibility} permissions={permissions} onChanged={visibilityChanged} /> : null}
         {mode === 'AMEND' && selected ? <AmendmentEditor form={amendmentForm} setForm={setAmendmentForm} order={selected} total={amendmentTotal} busy={busy} errors={fieldErrors} onSave={amend} onClose={() => setMode('NONE')} /> : null}
         {mode === 'NONE' && selected ? <OrderDetail order={selected} busy={busy} reason={cancellationReason} errors={fieldErrors} onReason={setCancellationReason} onIssue={() => void issue()} onCancel={() => void cancel()} /> : null}
         {mode === 'NONE' && !selected && !detailLoading ? <div className="empty-state">Choose an order to inspect its lines and revision history, or create one from an awarded RFQ.</div> : null}
@@ -317,12 +356,12 @@ export function PurchaseOrderWorkspace() {
   </>;
 }
 
-function CreateEditor({ form, setForm, workspace, busy, errors, onSave, onClose }: {
+function CreateEditor({ form, setForm, workspace, busy, errors, restrictEntry, canRestrict, onRestrict, onSave, onClose }: {
   form: CreateForm; setForm: React.Dispatch<React.SetStateAction<CreateForm>>; workspace: Workspace | null;
-  busy: boolean; errors: Record<string, string>; onSave: (event: FormEvent) => void; onClose: () => void;
+  busy: boolean; errors: Record<string, string>; restrictEntry: boolean; canRestrict: boolean; onRestrict: (value: boolean) => void; onSave: (event: FormEvent) => void; onClose: () => void;
 }) {
   const selected = workspace?.lookups.awarded_rfqs.find((rfq) => rfq.id === form.rfq_id);
-  return <form className="requisition-form" onSubmit={onSave}><fieldset disabled={busy}><div className="requisition-field-grid"><label>Purchase-order number<input maxLength={80} value={form.po_number} onChange={(event) => setForm((value) => ({ ...value, po_number: event.target.value }))} /><Field text={errors.po_number} /></label><label>Awarded RFQ<select value={form.rfq_id} onChange={(event) => setForm((value) => ({ ...value, rfq_id: event.target.value }))}><option value="">Select awarded RFQ</option>{workspace?.lookups.awarded_rfqs.map((rfq) => <option key={rfq.id} value={rfq.id}>{rfq.number} · {rfq.supplier.name} · {money(rfq.total_amount, 'INR')}</option>)}</select><Field text={errors.rfq_id} /></label><label>Order date<input type="date" value={form.order_date} onChange={(event) => setForm((value) => ({ ...value, order_date: event.target.value }))} /><Field text={errors.order_date} /></label><label>Incoterm<input maxLength={12} value={form.incoterm_code} onChange={(event) => setForm((value) => ({ ...value, incoterm_code: event.target.value }))} /></label><label className="wide">Delivery terms<textarea rows={3} maxLength={4000} value={form.delivery_terms} onChange={(event) => setForm((value) => ({ ...value, delivery_terms: event.target.value }))} /></label><label className="wide">Order notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={(event) => setForm((value) => ({ ...value, notes: event.target.value }))} /></label></div>{selected ? <div className="source-award-card"><b>{selected.supplier.name}</b><span>{selected.requisition_number} → {selected.number}</span><strong>{money(selected.total_amount, 'INR')}</strong><small>authority ceiling {money(selected.authority_ceiling, 'INR')} · delivery {date(selected.promised_delivery_date)}</small></div> : null}<div className="form-actions requisition-save-actions"><button className="secondary" type="button" onClick={onClose}>Close</button><button className="primary" type="submit">Create draft order</button></div></fieldset></form>;
+  return <form className="requisition-form" onSubmit={onSave}><fieldset disabled={busy}><div className="requisition-field-grid"><label>Purchase-order number<input maxLength={80} value={form.po_number} onChange={(event) => setForm((value) => ({ ...value, po_number: event.target.value }))} /><Field text={errors.po_number} /></label><label>Awarded RFQ<select value={form.rfq_id} onChange={(event) => setForm((value) => ({ ...value, rfq_id: event.target.value }))}><option value="">Select awarded RFQ</option>{workspace?.lookups.awarded_rfqs.map((rfq) => <option key={rfq.id} value={rfq.id}>{rfq.number} · {rfq.supplier.name} · {money(rfq.total_amount, 'INR')}</option>)}</select><Field text={errors.rfq_id} /></label><label>Order date<input type="date" value={form.order_date} onChange={(event) => setForm((value) => ({ ...value, order_date: event.target.value }))} /><Field text={errors.order_date} /></label><label>Incoterm<input maxLength={12} value={form.incoterm_code} onChange={(event) => setForm((value) => ({ ...value, incoterm_code: event.target.value }))} /></label><label className="wide">Delivery terms<textarea rows={3} maxLength={4000} value={form.delivery_terms} onChange={(event) => setForm((value) => ({ ...value, delivery_terms: event.target.value }))} /></label><label className="wide">Order notes<textarea rows={3} maxLength={4000} value={form.notes} onChange={(event) => setForm((value) => ({ ...value, notes: event.target.value }))} /></label></div>{selected ? <div className="source-award-card"><b>{selected.supplier.name}</b><span>{selected.requisition_number} → {selected.number}</span><strong>{money(selected.total_amount, 'INR')}</strong><small>authority ceiling {money(selected.authority_ceiling, 'INR')} · delivery {date(selected.promised_delivery_date)}</small></div> : null}{canRestrict ? <label className="create-visibility-option"><span><input type="checkbox" checked={restrictEntry} onChange={(event) => onRestrict(event.target.checked)} /> Restrict Entry</span><small>{TRANSACTION_VISIBILITY_HELPER}</small></label> : null}<div className="form-actions requisition-save-actions"><button className="secondary" type="button" onClick={onClose}>Close</button><button className="primary" type="submit">Create draft order</button></div></fieldset></form>;
 }
 
 function AmendmentEditor({ form, setForm, order, total, busy, errors, onSave, onClose }: {

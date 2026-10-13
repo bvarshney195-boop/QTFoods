@@ -2,6 +2,8 @@
 
 namespace App\Modules\Inventory\Application;
 
+use App\Shared\Visibility\OperationalSummaryService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -15,9 +17,14 @@ final class InventoryFoundationQuery
     public const LOT_SORTS = ['CODE', 'SKU', 'EXPIRY', 'NEWEST', 'OLDEST'];
     public const AVAILABILITY_FILTERS = ['AVAILABLE', 'BLOCKED', 'RESERVED', 'EXPIRED', 'EXPIRING_30'];
 
+    public function __construct(
+        private readonly OperationalVisibilityScope $visibility,
+        private readonly OperationalSummaryService $summaries,
+    ) {}
+
     public function stockWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->stockBase($scope);
+        $base = $this->stockBase($scope, $permissions);
         $query = clone $base;
         $this->applyStockFilters($query, $filters);
         $this->applyStockSort($query, $filters['sort'] ?? 'SKU');
@@ -29,15 +36,16 @@ final class InventoryFoundationQuery
                 fn (object $position) => $this->stockPayload($position, $permissions),
             )->all(),
             'meta' => $this->meta($positions),
-            'summary' => $this->stockSummary($scope),
-            'lookups' => $this->stockLookups($scope),
+            'summary' => $this->stockSummary($scope, $permissions),
+            'lookups' => $this->stockLookups($scope, $permissions),
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => [],
         ];
     }
 
     public function stockDetail(string $positionId, array $scope, array $permissions): array
     {
-        $position = $this->stockBase($scope)->where('position.id', $positionId)
+        $position = $this->stockBase($scope, $permissions)->where('position.id', $positionId)
             ->first($this->stockFields());
         if (! $position) {
             throw new NotFoundHttpException('Stock position not found.');
@@ -71,7 +79,7 @@ final class InventoryFoundationQuery
             'status_actor.name as status_actor_name',
         ])->paginate((int) ($filters['per_page'] ?? 25));
         $items = collect($owners->items());
-        $metrics = $this->positionMetrics('inventory_owner_id', $items->pluck('id')->all(), $scope['plant_id']);
+        $metrics = $this->positionMetrics('inventory_owner_id', $items->pluck('id')->all(), $scope['plant_id'], $permissions);
 
         return [
             'data' => $items->map(fn (object $owner) => $this->ownerPayload(
@@ -91,6 +99,7 @@ final class InventoryFoundationQuery
                 'parties' => $this->partyLookups($scope['company_id']),
             ],
             'allowed_actions' => $this->can($permissions, 'ACTION:INV-STK:OWNER-CREATE') ? ['CREATE'] : [],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
         ];
     }
 
@@ -107,22 +116,22 @@ final class InventoryFoundationQuery
         if (! $owner) {
             throw new NotFoundHttpException('Inventory owner not found.');
         }
-        $metrics = $this->positionMetrics('inventory_owner_id', [$ownerId], $scope['plant_id'])->get($ownerId);
+        $metrics = $this->positionMetrics('inventory_owner_id', [$ownerId], $scope['plant_id'], $permissions)->get($ownerId);
         $payload = $this->ownerPayload($owner, $metrics, $permissions);
-        $payload['quality_totals'] = $this->qualityTotals('inventory_owner_id', $ownerId, $scope['plant_id']);
+        $payload['quality_totals'] = $this->qualityTotals('inventory_owner_id', $ownerId, $scope['plant_id'], $permissions);
 
         return $payload;
     }
 
     public function lotWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->lotBase($scope['company_id']);
+        $base = $this->lotBase($scope['company_id'], $permissions);
         $query = clone $base;
         $this->applyLotFilters($query, $filters);
         $this->applyLotSort($query, $filters['sort'] ?? 'CODE');
         $lots = $query->select($this->lotFields())->paginate((int) ($filters['per_page'] ?? 25));
         $items = collect($lots->items());
-        $metrics = $this->positionMetrics('lot_id', $items->pluck('id')->all(), $scope['plant_id']);
+        $metrics = $this->positionMetrics('lot_id', $items->pluck('id')->all(), $scope['plant_id'], $permissions);
         $today = today()->toDateString();
         $soon = today()->addDays(30)->toDateString();
 
@@ -148,25 +157,26 @@ final class InventoryFoundationQuery
                 'suppliers' => $this->supplierLookups($scope['company_id']),
             ],
             'allowed_actions' => $this->can($permissions, 'ACTION:INV-STK:LOT-CREATE') ? ['CREATE'] : [],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
         ];
     }
 
     public function lotDetail(string $lotId, array $scope, array $permissions): array
     {
-        $lot = $this->lotBase($scope['company_id'])->where('lot.id', $lotId)->first($this->lotFields());
+        $lot = $this->lotBase($scope['company_id'], $permissions)->where('lot.id', $lotId)->first($this->lotFields());
         if (! $lot) {
             throw new NotFoundHttpException('Lot not found.');
         }
-        $metrics = $this->positionMetrics('lot_id', [$lotId], $scope['plant_id'])->get($lotId);
+        $metrics = $this->positionMetrics('lot_id', [$lotId], $scope['plant_id'], $permissions)->get($lotId);
         $payload = $this->lotPayload($lot, $metrics, $permissions);
-        $payload['quality_totals'] = $this->qualityTotals('lot_id', $lotId, $scope['plant_id']);
+        $payload['quality_totals'] = $this->qualityTotals('lot_id', $lotId, $scope['plant_id'], $permissions);
 
         return $payload;
     }
 
-    private function stockBase(array $scope): Builder
+    private function stockBase(array $scope, array $permissions): Builder
     {
-        return DB::table('stock_positions as position')
+        $query = DB::table('stock_positions as position')
             ->join('items as sku', 'sku.id', '=', 'position.item_id')
             ->join('lots as lot', 'lot.id', '=', 'position.lot_id')
             ->join('inventory_owners as inventory_owner', 'inventory_owner.id', '=', 'position.inventory_owner_id')
@@ -175,6 +185,8 @@ final class InventoryFoundationQuery
             ->leftJoin('parties as owner_party', 'owner_party.id', '=', 'inventory_owner.party_id')
             ->where('position.company_id', $scope['company_id'])
             ->where('position.plant_id', $scope['plant_id']);
+
+        return $this->visibility->applyInventoryAttribution($query, 'position.lot_id', $permissions);
     }
 
     private function stockFields(): array
@@ -314,9 +326,9 @@ final class InventoryFoundationQuery
         ];
     }
 
-    private function stockSummary(array $scope): array
+    private function stockSummary(array $scope, array $permissions): array
     {
-        $rows = $this->stockBase($scope)->get([
+        $rows = $this->stockBase($scope, $permissions)->get([
             'position.id', 'position.item_id', 'position.lot_id', 'position.quantity_base',
             'position.reserved_quantity_base', 'position.uom_code', 'lot.status as lot_status', 'lot.expiry_date',
             'quality.availability_bucket',
@@ -343,6 +355,7 @@ final class InventoryFoundationQuery
         $soon = today()->addDays(30)->toDateString();
         $lotBase = DB::table('lots as lot')->join('stock_positions as position', 'position.lot_id', '=', 'lot.id')
             ->where('position.company_id', $scope['company_id'])->where('position.plant_id', $scope['plant_id']);
+        $this->visibility->applyInventoryAttribution($lotBase, 'position.lot_id', $permissions);
 
         ksort($byUom);
         $single = count($byUom) === 1 ? array_values($byUom)[0] : null;
@@ -363,10 +376,13 @@ final class InventoryFoundationQuery
                 ->distinct()->count('lot.id'),
             'expiring_30_lots' => (clone $lotBase)->whereBetween('lot.expiry_date', [$today, $soon])
                 ->distinct()->count('lot.id'),
+            'traceability_limitation_count' => $this->summaries->inventoryTraceabilityLimitations($scope, $permissions),
+            'quantity_basis' => 'TRACEABLE_PERMISSION_FILTERED_ON_HAND',
+            'authoritative_availability_unchanged' => true,
         ];
     }
 
-    private function stockLookups(array $scope): array
+    private function stockLookups(array $scope, array $permissions): array
     {
         return [
             'availability_filters' => self::AVAILABILITY_FILTERS,
@@ -386,12 +402,7 @@ final class InventoryFoundationQuery
                     ],
                 )->all(),
             'skus' => $this->skuLookups($scope['company_id']),
-            'lots' => DB::table('lots')->where('company_id', $scope['company_id'])->orderBy('internal_lot_code')
-                ->get(['id', 'internal_lot_code as code', 'status'])->map(
-                    fn (object $lot) => $this->reference($lot->id, $lot->code, $lot->code) + [
-                        'status' => (string) $lot->status,
-                    ],
-                )->all(),
+            'lots' => $this->visibleLotLookups($scope, $permissions),
             'locations' => DB::table('locations')->where('company_id', $scope['company_id'])
                 ->where('plant_id', $scope['plant_id'])->where('status', 'ACTIVE')->orderBy('code')
                 ->get(['id', 'code', 'name'])->map(
@@ -400,13 +411,15 @@ final class InventoryFoundationQuery
         ];
     }
 
-    private function lotBase(string $companyId): Builder
+    private function lotBase(string $companyId, array $permissions): Builder
     {
-        return DB::table('lots as lot')
+        $query = DB::table('lots as lot')
             ->join('items as sku', 'sku.id', '=', 'lot.item_id')
             ->leftJoin('parties as supplier', 'supplier.id', '=', 'lot.supplier_party_id')
             ->leftJoin('users as status_actor', 'status_actor.id', '=', 'lot.status_changed_by')
             ->where('lot.company_id', $companyId);
+
+        return $this->visibility->applyInventoryAttribution($query, 'lot.id', $permissions);
     }
 
     private function lotFields(): array
@@ -600,26 +613,33 @@ final class InventoryFoundationQuery
         ];
     }
 
-    private function positionMetrics(string $column, array $ids, string $plantId): Collection
+    private function positionMetrics(string $column, array $ids, string $plantId, array $permissions): Collection
     {
         if ($ids === []) {
             return collect();
         }
 
-        return DB::table('stock_positions')->where('plant_id', $plantId)->whereIn($column, $ids)
-            ->groupBy($column)->get([
-                $column,
+        $query = DB::table('stock_positions as metric_position')->where('metric_position.plant_id', $plantId)
+            ->whereIn("metric_position.{$column}", $ids);
+        $this->visibility->applyInventoryAttribution($query, 'metric_position.lot_id', $permissions);
+
+        return $query
+            ->groupBy("metric_position.{$column}")->get([
+                "metric_position.{$column} as {$column}",
                 DB::raw('COUNT(*) as position_count'),
-                DB::raw('COALESCE(SUM(quantity_base), 0) as total_quantity'),
-                DB::raw('COALESCE(SUM(reserved_quantity_base), 0) as reserved_quantity'),
+                DB::raw('COALESCE(SUM(metric_position.quantity_base), 0) as total_quantity'),
+                DB::raw('COALESCE(SUM(metric_position.reserved_quantity_base), 0) as reserved_quantity'),
             ])->keyBy($column);
     }
 
-    private function qualityTotals(string $column, string $id, string $plantId): array
+    private function qualityTotals(string $column, string $id, string $plantId, array $permissions): array
     {
-        return DB::table('stock_positions as position')
+        $query = DB::table('stock_positions as position')
             ->join('inventory_quality_statuses as quality', 'quality.code', '=', 'position.quality_status')
-            ->where('position.plant_id', $plantId)->where("position.{$column}", $id)
+            ->where('position.plant_id', $plantId)->where("position.{$column}", $id);
+        $this->visibility->applyInventoryAttribution($query, 'position.lot_id', $permissions);
+
+        return $query
             ->groupBy(['position.quality_status', 'quality.name', 'quality.availability_bucket'])
             ->orderBy('position.quality_status')
             ->get([
@@ -633,6 +653,20 @@ final class InventoryFoundationQuery
                 'total_quantity' => $this->decimal($row->total_quantity),
                 'reserved_quantity' => $this->decimal($row->reserved_quantity),
             ])->all();
+    }
+
+    private function visibleLotLookups(array $scope, array $permissions): array
+    {
+        $query = DB::table('lots as lookup_lot')->where('lookup_lot.company_id', $scope['company_id'])
+            ->orderBy('lookup_lot.internal_lot_code')
+            ->select(['lookup_lot.id', 'lookup_lot.internal_lot_code as code', 'lookup_lot.status']);
+        $this->visibility->applyInventoryAttribution($query, 'lookup_lot.id', $permissions);
+
+        return $query->get()->map(
+            fn (object $lot) => $this->reference($lot->id, $lot->code, $lot->code) + [
+                'status' => (string) $lot->status,
+            ],
+        )->all();
     }
 
     private function skuLookups(string $companyId): array

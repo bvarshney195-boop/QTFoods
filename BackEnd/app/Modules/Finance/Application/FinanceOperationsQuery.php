@@ -2,11 +2,15 @@
 
 namespace App\Modules\Finance\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class FinanceOperationsQuery
 {
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function workspace(string $area, array $scope, array $permissions, array $filters = []): array
     {
         return match ($area) {
@@ -33,9 +37,16 @@ final class FinanceOperationsQuery
             'export' => ['finance_exports', 'Finance export', 'finance_export_lines', 'finance_export_id'],
             default => throw new NotFoundHttpException('Finance record type not found.'),
         };
-        $record = DB::table($table)->where('id', $id)->where($scope)->first();
+        $recordQuery = DB::table("{$table} as record")->where('record.id', $id)
+            ->where('record.company_id', $scope['company_id'])->where('record.plant_id', $scope['plant_id'])
+            ->select('record.*');
+        if ($area === 'expense') {
+            $this->visibility->apply($recordQuery, 'EXPENSE', 'record.id', $permissions, null, 'expense_detail_visibility');
+        }
+        $record = $recordQuery->first();
         if (! $record) throw new NotFoundHttpException($label.' not found.');
         $payload = $this->payload($record);
+        if ($area === 'expense') $payload['visibility'] = $this->visibility->metadata($record);
         if ($lineTable) {
             $lineQuery = DB::table($lineTable)->where($foreignKey, $id);
             $payload['lines'] = (in_array($lineTable, ['overhead_allocations', 'asset_depreciation_entries'], true) ? $lineQuery->orderBy('created_at') : $lineQuery->orderBy('line_number'))
@@ -47,9 +58,28 @@ final class FinanceOperationsQuery
 
     private function expenses(array $scope, array $permissions, array $filters): array
     {
-        $query = DB::table('expense_claims')->where($scope); $this->filter($query, $filters, ['expense_number', 'description']);
-        $data = $query->orderByDesc('expense_date')->limit(100)->get()->map(fn (object $row) => $this->payload($row) + ['allowed_actions' => $this->recordActions('expense', $row->status, $permissions, $row)])->all();
-        return $this->base($data, ['count' => DB::table('expense_claims')->where($scope)->count(), 'pending_approval' => DB::table('expense_claims')->where($scope)->where('status', 'SUBMITTED')->count(), 'approved_value' => $this->decimal(DB::table('expense_claims')->where($scope)->where('status', 'APPROVED')->sum('total_amount'))], $scope, $permissions, 'FIN-EXP', ['categories' => FinanceOperationsService::EXPENSE_CATEGORIES, 'users' => $this->users(), 'accounts' => $this->accounts($scope)]);
+        $query = DB::table('expense_claims as expense')->where('expense.company_id', $scope['company_id'])->where('expense.plant_id', $scope['plant_id'])
+            ->select('expense.*');
+        $this->visibility->apply($query, 'EXPENSE', 'expense.id', $permissions, $filters['visibility'] ?? null, 'expense_visibility');
+        $this->filter($query, $filters, ['expense.expense_number', 'expense.description'], 'expense.status');
+        $data = (clone $query)->orderByDesc('expense.expense_date')->limit(100)->get()->map(fn (object $row) => $this->payload($row) + [
+            'visibility' => $this->visibility->metadata($row),
+            'allowed_actions' => $this->recordActions('expense', $row->status, $permissions, $row),
+        ])->all();
+        $result = $this->base($data, [
+            'count' => (clone $query)->count(),
+            'pending_approval' => (clone $query)->where('expense.status', 'SUBMITTED')->count(),
+            'approved_value' => $this->decimal((clone $query)->where('expense.status', 'APPROVED')->sum('expense.total_amount')),
+            'operational_total' => $this->decimal((clone $query)->where('expense.status', '<>', 'CANCELLED')->sum('expense.total_amount')),
+        ], $scope, $permissions, 'FIN-EXP', [
+            'categories' => FinanceOperationsService::EXPENSE_CATEGORIES,
+            'users' => $this->users(),
+            'accounts' => $this->accounts($scope),
+            'visibility_filters' => $this->visibility->filterOptions($permissions),
+        ]);
+        $result['operational_view'] = $this->visibility->viewDescriptor($permissions);
+
+        return $result;
     }
 
     private function ledger(array $scope, array $permissions, array $filters): array
@@ -120,6 +150,6 @@ final class FinanceOperationsQuery
     private function users(): array { return DB::table('users')->where('status', 'ACTIVE')->orderBy('name')->get(['id', 'name', 'email'])->map(fn (object $row) => $this->payload($row))->all(); }
     private function can(array $permissions, string $permission): bool { return in_array($permission, $permissions, true); }
     private function decimal(mixed $value): string { return bcadd((string) ($value ?? 0), '0', 6); }
-    private function filter(object $query, array $filters, array $columns): void { if (! empty($filters['status'])) $query->where('status', $filters['status']); if (! empty($filters['q'])) $query->where(function ($nested) use ($filters, $columns): void { foreach ($columns as $index => $column) $index === 0 ? $nested->where($column, 'like', '%'.$filters['q'].'%') : $nested->orWhere($column, 'like', '%'.$filters['q'].'%'); }); }
+    private function filter(object $query, array $filters, array $columns, string $statusColumn = 'status'): void { if (! empty($filters['status'])) $query->where($statusColumn, $filters['status']); if (! empty($filters['q'])) $query->where(function ($nested) use ($filters, $columns): void { foreach ($columns as $index => $column) $index === 0 ? $nested->where($column, 'like', '%'.$filters['q'].'%') : $nested->orWhere($column, 'like', '%'.$filters['q'].'%'); }); }
     private function payload(object $row): array { $values = (array) $row; foreach ($values as $key => $value) { if (is_string($value) && (str_ends_with($key, '_json') || $key === 'payload_json')) { try { $values[$key] = json_decode($value, true, flags: JSON_THROW_ON_ERROR); } catch (\Throwable) {} } } if (($values['asset_type'] ?? null) === 'FIXED_ASSET') { $values['historical_acquisition_cost'] = $this->decimal($values['acquisition_cost'] ?? 0); $values['current_carrying_amount'] = $this->decimal($values['net_book_value'] ?? 0); $values['carrying_amount_basis'] = ($values['status'] ?? null) === 'DISPOSED' ? 'DERECOGNISED_AFTER_DISPOSAL' : 'ACQUISITION_LESS_ACCUMULATED_DEPRECIATION'; } return $values; }
 }

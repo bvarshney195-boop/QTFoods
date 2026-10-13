@@ -5,6 +5,7 @@ namespace App\Modules\Finance\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -24,11 +25,15 @@ final class AccountsPayableService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly TransactionVisibilityPolicy $visibility,
     ) {}
 
     public function createInvoice(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'PURCHASE_ORDER', $data['purchase_order_id'], $data,
+            );
             $namespace = 'finance.payable-invoice.create';
             if ($replay = $this->begin($namespace, $data)) return $replay;
             $this->uniqueScoped('invoices', 'ap_number', $data['ap_number'], $data);
@@ -419,6 +424,9 @@ final class AccountsPayableService
             $invoiceId = (string) $line['invoice_id'];
             if (isset($seen[$invoiceId])) throw ValidationException::withMessages(["lines.{$index}.invoice_id" => ['Select each invoice at most once.']]);
             $seen[$invoiceId] = true;
+            $this->visibility->assertOperationallyVisible(
+                $scope['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'PAYABLE_INVOICE', $invoiceId, $scope,
+            );
             $invoice = DB::table('invoices')->where('id', $invoiceId)->where('company_id', $scope['company_id'])
                 ->where('plant_id', $scope['plant_id'])->where('invoice_type', 'PAYABLE')->whereIn('status', ['APPROVED', 'PARTIALLY_PAID'])
                 ->lockForUpdate()->first();

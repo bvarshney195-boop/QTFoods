@@ -4,6 +4,7 @@ namespace App\Modules\Experience\Http\Controllers;
 
 use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Domain\User;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class ExperienceController
 {
-    public function __construct(private readonly SessionService $sessions) {}
+    public function __construct(
+        private readonly SessionService $sessions,
+        private readonly OperationalVisibilityScope $visibility,
+    ) {}
 
     public function search(Request $request): JsonResponse
     {
@@ -98,7 +102,9 @@ final class ExperienceController
                 if ($preferences['high']) $q->orWhere('w.priority', 'HIGH');
                 if ($preferences['overdue']) $q->orWhere('w.due_at', '<', now());
             })
-            ->select(['w.*', 'assignee.name as assignee_name', 'ns.read_at'])->orderByRaw('CASE WHEN ns.read_at IS NULL THEN 0 ELSE 1 END')->orderBy('w.due_at')->limit(50)->get();
+            ->select(['w.*', 'assignee.name as assignee_name', 'ns.read_at']);
+        $this->visibility->applyWorkItemTargets($query, 'w.target_screen_code', 'w.target_record_id', $permissions);
+        $query = $query->orderByRaw('CASE WHEN ns.read_at IS NULL THEN 0 ELSE 1 END')->orderBy('w.due_at')->limit(50)->get();
         $data = $query->map(fn ($row) => ['id' => (string) $row->id, 'title' => $row->title, 'description' => $row->description, 'priority' => $row->priority, 'status' => $row->status, 'is_overdue' => $row->due_at !== null && CarbonImmutable::parse($row->due_at)->isPast() && $row->status === 'OPEN', 'read_at' => $row->read_at, 'assignee_name' => $row->assignee_name, 'target' => $row->target_screen_code ? ['screen_code' => $row->target_screen_code, 'href' => $row->target_screen_code.($row->target_record_id ? '?id='.$row->target_record_id : '')] : null, 'created_at' => $row->created_at])->all();
         return response()->json(['data' => $data, 'summary' => ['unread' => collect($data)->whereNull('read_at')->count(), 'total' => count($data)], 'preferences' => $preferences]);
     }
@@ -124,14 +130,15 @@ final class ExperienceController
     {
         $data = $request->validate(['period' => ['sometimes', Rule::in(['7d', '30d', '90d', '365d'])]]); [$user, $context] = $this->actor($request);
         $days = (int) rtrim($data['period'] ?? '30d', 'd'); $end = CarbonImmutable::now(); $start = $end->subDays($days); $priorStart = $start->subDays($days);
-        $sales = fn (CarbonImmutable $from, CarbonImmutable $to) => (float) DB::table('sales_orders')->where('company_id', $context['company_id'])->when($context['plant_id'], fn (Builder $q) => $q->where('plant_id', $context['plant_id']))->whereBetween('order_date', [$from->toDateString(), $to->toDateString()])->sum('total_amount');
-        $orders = fn (CarbonImmutable $from, CarbonImmutable $to) => DB::table('sales_orders')->where('company_id', $context['company_id'])->when($context['plant_id'], fn (Builder $q) => $q->where('plant_id', $context['plant_id']))->whereBetween('order_date', [$from->toDateString(), $to->toDateString()])->count();
+        $permissions = $this->sessions->permissions($user, $request);
+        $sales = fn (CarbonImmutable $from, CarbonImmutable $to): string => $this->salesMetric($context, $permissions, $from, $to, true);
+        $orders = fn (CarbonImmutable $from, CarbonImmutable $to): int => (int) $this->salesMetric($context, $permissions, $from, $to, false);
         $currentSales = $sales($start, $end); $priorSales = $sales($priorStart, $start); $currentOrders = $orders($start, $end); $priorOrders = $orders($priorStart, $start);
         $targets = DB::table('analytics_targets')->where($this->scope($user, $context))->pluck('target_value', 'metric_code')->map(fn ($v) => (float) $v)->all();
         return response()->json(['period' => $data['period'] ?? '30d', 'range' => ['from' => $start->toDateString(), 'to' => $end->toDateString()], 'metrics' => [
-            ['code' => 'SALES_VALUE', 'label' => 'Sales value', 'current' => $currentSales, 'previous' => $priorSales, 'change_percent' => $this->change($currentSales, $priorSales), 'target' => $targets['SALES_VALUE'] ?? null, 'format' => 'currency'],
+            ['code' => 'SALES_VALUE', 'label' => 'Sales value', 'current' => $currentSales, 'previous' => $priorSales, 'change_percent' => $this->change((float) $currentSales, (float) $priorSales), 'target' => $targets['SALES_VALUE'] ?? null, 'format' => 'currency'],
             ['code' => 'SALES_ORDERS', 'label' => 'Sales orders', 'current' => $currentOrders, 'previous' => $priorOrders, 'change_percent' => $this->change($currentOrders, $priorOrders), 'target' => $targets['SALES_ORDERS'] ?? null, 'format' => 'number'],
-        ]]);
+        ], 'operational_view' => $this->visibility->viewDescriptor($permissions)]);
     }
 
     public function saveTarget(Request $request): JsonResponse
@@ -192,13 +199,39 @@ final class ExperienceController
         ];
         foreach ($specs as [$screen, $table, $type, $number, $subtitle, $status]) {
             if (! $this->sessions->canViewScreen($user, $request, $screen) || ! Schema::hasColumn($table, $number)) continue;
-            $rows = DB::table($table)->where('company_id', $context['company_id'])->when($context['plant_id'] && Schema::hasColumn($table, 'plant_id'), fn (Builder $q) => $q->where('plant_id', $context['plant_id']))->whereRaw('LOWER(COALESCE('.$number.', ?)) LIKE ?', ['', $like])->select(['id', $number, $status])->limit(6)->get();
+            $rowsQuery = DB::table("{$table} as searched_transaction")->where('searched_transaction.company_id', $context['company_id'])
+                ->when($context['plant_id'] && Schema::hasColumn($table, 'plant_id'), fn (Builder $q) => $q->where('searched_transaction.plant_id', $context['plant_id']))
+                ->whereRaw('LOWER(COALESCE(searched_transaction.'.$number.', ?)) LIKE ?', ['', $like])
+                ->select(['searched_transaction.id', "searched_transaction.{$number}", "searched_transaction.{$status}"]);
+            if (in_array($type, ['SALES_ORDER', 'PURCHASE_ORDER'], true)) {
+                $this->visibility->apply($rowsQuery, $type, 'searched_transaction.id', $this->sessions->permissions($user, $request), null, 'search_visibility', false);
+            } elseif ($type === 'INVOICE') {
+                $rowsQuery
+                    ->join('sales_invoice_financials as searched_invoice', 'searched_invoice.invoice_id', '=', 'searched_transaction.invoice_id')
+                    ->join('shipments as searched_shipment', 'searched_shipment.id', '=', 'searched_invoice.shipment_id')
+                    ->leftJoin('sales_orders as searched_order', 'searched_order.id', '=', 'searched_invoice.sales_order_id');
+                $permissions = $this->sessions->permissions($user, $request);
+                $this->visibility->apply($rowsQuery, 'SHIPMENT', 'searched_shipment.id', $permissions, null, 'search_invoice_shipment_visibility', false);
+                $this->visibility->apply($rowsQuery, 'SALES_ORDER', 'searched_order.id', $permissions, null, 'search_invoice_order_visibility', false);
+            }
+            $rows = $rowsQuery->limit(6)->get();
             foreach ($rows as $row) $results[] = $this->result($type, $row->id, $row->{$number} ?: $subtitle, $row->{$number} ?: '', $subtitle, $row->{$status}, $screen);
         }
         if ($this->sessions->canViewScreen($user, $request, 'PRO-ORDER')) {
             $rows = DB::table('production_orders')->where('company_id', $context['company_id'])->when($context['plant_id'], fn (Builder $q) => $q->where('plant_id', $context['plant_id']))->whereRaw('LOWER(COALESCE(batch_number, ?)) LIKE ?', ['', $like])->select(['id', 'batch_number', 'status'])->limit(6)->get();
             foreach ($rows as $row) $results[] = $this->result('BATCH', $row->id, $row->batch_number, $row->batch_number, 'Production batch', $row->status, 'PRO-ORDER');
         }
+    }
+
+    private function salesMetric(array $context, array $permissions, CarbonImmutable $from, CarbonImmutable $to, bool $sum): string|int
+    {
+        $query = DB::table('sales_orders as metric_order')->where('metric_order.company_id', $context['company_id'])
+            ->when($context['plant_id'], fn (Builder $q) => $q->where('metric_order.plant_id', $context['plant_id']))
+            ->where('metric_order.order_type', 'SALES')
+            ->whereBetween('metric_order.order_date', [$from->toDateString(), $to->toDateString()]);
+        $this->visibility->apply($query, 'SALES_ORDER', 'metric_order.id', $permissions, null, 'metric_visibility', false);
+
+        return $sum ? bcadd((string) $query->sum('metric_order.total_amount'), '0', 6) : $query->count();
     }
 
     private function result(string $type, mixed $id, mixed $title, mixed $code, mixed $subtitle, mixed $status, string $screen): array { return ['type' => $type, 'id' => (string) $id, 'title' => (string) $title, 'code' => (string) $code, 'subtitle' => (string) $subtitle, 'status' => (string) $status, 'screen_code' => $screen, 'href' => $screen.'?id='.$id]; }

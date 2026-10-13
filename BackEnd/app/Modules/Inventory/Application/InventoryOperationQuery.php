@@ -2,6 +2,7 @@
 
 namespace App\Modules\Inventory\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -14,10 +15,12 @@ final class InventoryOperationQuery
     public const MOVEMENT_SORTS = ['NEWEST', 'OLDEST', 'TYPE'];
     public const MOVEMENT_DIRECTIONS = ['OUTBOUND', 'INBOUND', 'TRANSFER'];
 
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function workspace(string $resource, array $scope, array $filters, array $permissions): array
     {
         $config = $this->resource($resource);
-        $base = $this->operationBase($scope, $config['types']);
+        $base = $this->operationBase($scope, $config['types'], $permissions, $filters['visibility'] ?? null);
         $query = clone $base;
         $this->applyOperationFilters($query, $filters);
         $this->applyOperationSort($query, $filters['sort'] ?? 'NEWEST');
@@ -42,8 +45,10 @@ final class InventoryOperationQuery
                 'statuses' => InventoryOperationService::STATUSES,
                 'adjustment_directions' => InventoryOperationService::ADJUSTMENT_DIRECTIONS,
                 'sorts' => self::SORTS,
-                'positions' => $this->positionLookups($scope),
+                'positions' => $this->positionLookups($scope, $permissions),
+                'visibility_filters' => $this->visibility->filterOptions($permissions),
             ],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, "ACTION:{$config['screen']}:CREATE")
                 ? ['CREATE'] : [],
         ];
@@ -56,7 +61,7 @@ final class InventoryOperationQuery
         array $permissions,
     ): array {
         $config = $this->resource($resource);
-        $operation = $this->operationBase($scope, $config['types'])
+        $operation = $this->operationBase($scope, $config['types'], $permissions)
             ->where('operation.id', $operationId)->first();
         if (! $operation) {
             throw new NotFoundHttpException('Inventory operation not found.');
@@ -68,7 +73,7 @@ final class InventoryOperationQuery
             $line->source_position_id,
             $line->target_position_id,
         ])->filter()->unique()->values()->all();
-        $positions = $this->positions($scope, $positionIds)->keyBy('id');
+        $positions = $this->positions($scope, $positionIds, $permissions)->keyBy('id');
 
         $payload = $this->operationPayload($operation, $config['screen'], $permissions);
         $payload['lines'] = $lines->map(function (object $line) use ($positions): array {
@@ -97,14 +102,14 @@ final class InventoryOperationQuery
                 'notes' => $line->notes,
             ];
         })->all();
-        $payload['movements'] = $this->movementsForOperation($operationId, $scope);
+        $payload['movements'] = $this->movementsForOperation($operationId, $scope, $permissions);
 
         return $payload;
     }
 
-    public function movementWorkspace(array $scope, array $filters): array
+    public function movementWorkspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->movementBase($scope);
+        $base = $this->movementBase($scope, $permissions);
         $query = clone $base;
         $this->applyMovementFilters($query, $filters);
         $this->applyMovementSort($query, $filters['sort'] ?? 'NEWEST');
@@ -114,7 +119,7 @@ final class InventoryOperationQuery
             $movement->from_position_id,
             $movement->to_position_id,
         ])->filter()->unique()->values()->all();
-        $positions = $this->positions($scope, $positionIds)->keyBy('id');
+        $positions = $this->positions($scope, $positionIds, $permissions)->keyBy('id');
 
         return [
             'data' => $items->map(fn (object $movement) => $this->movementPayload($movement, $positions))->all(),
@@ -135,24 +140,25 @@ final class InventoryOperationQuery
                 'sorts' => self::MOVEMENT_SORTS,
             ],
             'allowed_actions' => [],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
         ];
     }
 
-    public function movementDetail(string $movementId, array $scope): array
+    public function movementDetail(string $movementId, array $scope, array $permissions): array
     {
-        $movement = $this->movementBase($scope)->where('movement.id', $movementId)->first();
+        $movement = $this->movementBase($scope, $permissions)->where('movement.id', $movementId)->first();
         if (! $movement) {
             throw new NotFoundHttpException('Stock movement not found.');
         }
         $ids = array_values(array_filter([$movement->from_position_id, $movement->to_position_id]));
-        $positions = $this->positions($scope, $ids)->keyBy('id');
+        $positions = $this->positions($scope, $ids, $permissions)->keyBy('id');
 
         return $this->movementPayload($movement, $positions);
     }
 
-    private function operationBase(array $scope, array $types): Builder
+    private function operationBase(array $scope, array $types, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('inventory_operations as operation')
+        $query = DB::table('inventory_operations as operation')
             ->join('users as creator', 'creator.id', '=', 'operation.created_by')
             ->leftJoin('users as poster', 'poster.id', '=', 'operation.posted_by')
             ->leftJoin('users as canceller', 'canceller.id', '=', 'operation.cancelled_by')
@@ -167,11 +173,12 @@ final class InventoryOperationQuery
                     ->whereColumn('line.operation_id', 'operation.id')->selectRaw('COUNT(*)'),
                 'line_count',
             );
+        return $this->visibility->apply($query, 'INVENTORY_OPERATION', 'operation.id', $permissions, $visibilityFilter, 'operation_visibility');
     }
 
-    private function movementBase(array $scope): Builder
+    private function movementBase(array $scope, array $permissions): Builder
     {
-        return DB::table('stock_movements as movement')
+        $query = DB::table('stock_movements as movement')
             ->join('users as actor', 'actor.id', '=', 'movement.actor_id')
             ->leftJoin('inventory_operations as operation', function ($join): void {
                 $join->on('operation.id', '=', 'movement.source_id')
@@ -183,6 +190,8 @@ final class InventoryOperationQuery
                 'movement.*', 'actor.name as actor_name',
                 'operation.operation_number', 'operation.operation_type', 'operation.status as operation_status',
             ]);
+
+        return $this->visibility->applyStockMovementSources($query, $permissions);
     }
 
     private function applyOperationFilters(Builder $query, array $filters): void
@@ -306,21 +315,22 @@ final class InventoryOperationQuery
             'cancelled_by' => $operation->cancelled_by
                 ? ['id' => (string) $operation->cancelled_by, 'name' => (string) $operation->canceller_name] : null,
             'cancellation_reason' => $operation->cancellation_reason,
+            'visibility' => $this->visibility->metadata($operation),
             'allowed_actions' => $allowed,
             'created_at' => $this->timestamp($operation->created_at),
             'updated_at' => $this->timestamp($operation->updated_at),
         ];
     }
 
-    private function movementsForOperation(string $operationId, array $scope): array
+    private function movementsForOperation(string $operationId, array $scope, array $permissions): array
     {
-        $movements = $this->movementBase($scope)->where('movement.source_type', 'INVENTORY_OPERATION')
+        $movements = $this->movementBase($scope, $permissions)->where('movement.source_type', 'INVENTORY_OPERATION')
             ->where('movement.source_id', $operationId)->orderBy('movement.posted_at')->get();
         $ids = $movements->flatMap(fn (object $movement) => [
             $movement->from_position_id,
             $movement->to_position_id,
         ])->filter()->unique()->values()->all();
-        $positions = $this->positions($scope, $ids)->keyBy('id');
+        $positions = $this->positions($scope, $ids, $permissions)->keyBy('id');
 
         return $movements->map(fn (object $movement) => $this->movementPayload($movement, $positions))->all();
     }
@@ -357,12 +367,12 @@ final class InventoryOperationQuery
         ];
     }
 
-    private function positionLookups(array $scope): array
+    private function positionLookups(array $scope, array $permissions): array
     {
-        return $this->positions($scope)->map(fn (object $position) => $this->positionPayload($position))->all();
+        return $this->positions($scope, null, $permissions)->map(fn (object $position) => $this->positionPayload($position))->all();
     }
 
-    private function positions(array $scope, ?array $ids = null): Collection
+    private function positions(array $scope, ?array $ids, array $permissions): Collection
     {
         $query = DB::table('stock_positions as position')
             ->join('items as sku', 'sku.id', '=', 'position.item_id')
@@ -373,6 +383,7 @@ final class InventoryOperationQuery
             ->where('position.company_id', $scope['company_id'])
             ->where('position.plant_id', $scope['plant_id'])
             ->orderBy('sku.code')->orderBy('lot.internal_lot_code')->orderBy('location.code');
+        $this->visibility->applyInventoryAttribution($query, 'position.lot_id', $permissions);
         if ($ids !== null) {
             if ($ids === []) {
                 return collect();

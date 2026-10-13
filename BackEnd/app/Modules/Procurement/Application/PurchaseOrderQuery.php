@@ -2,6 +2,7 @@
 
 namespace App\Modules\Procurement\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -12,9 +13,11 @@ final class PurchaseOrderQuery
 {
     public const SORTS = ['NEWEST', 'OLDEST', 'NUMBER', 'REQUIRED_DATE', 'STATUS', 'VALUE', 'SUPPLIER'];
 
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function workspace(array $scope, array $filters, array $permissions): array
     {
-        $base = $this->base($scope);
+        $base = $this->base($scope, $permissions, $filters['visibility'] ?? null);
         $query = clone $base;
         $this->applyFilters($query, $filters);
         $this->applySort($query, $filters['sort'] ?? 'NEWEST');
@@ -30,25 +33,23 @@ final class PurchaseOrderQuery
                 'draft' => (clone $base)->where('po.status', 'DRAFT')->count(),
                 'issued' => (clone $base)->where('po.status', 'ISSUED')->count(),
                 'cancelled' => (clone $base)->where('po.status', 'CANCELLED')->count(),
-                'committed_total' => $this->decimal(DB::table('purchase_orders')
-                    ->whereNotNull('po_number')
-                    ->where('company_id', $scope['company_id'])
-                    ->where('plant_id', $scope['plant_id'])
-                    ->where('status', '<>', 'CANCELLED')->sum('total_amount')),
+                'committed_total' => $this->committedTotal($scope, $permissions, $filters['visibility'] ?? null),
             ],
             'lookups' => [
                 'statuses' => PurchaseOrderService::STATUSES,
                 'sorts' => self::SORTS,
                 'awarded_rfqs' => $this->awardedRfqs($scope),
                 'currency' => 'INR',
+                'visibility_filters' => $this->visibility->filterOptions($permissions),
             ],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, 'ACTION:PUR-PO:CREATE') ? ['CREATE'] : [],
         ];
     }
 
     public function detail(string $purchaseOrderId, array $scope, array $permissions): array
     {
-        $row = $this->base($scope)->where('po.id', $purchaseOrderId)->first();
+        $row = $this->base($scope, $permissions)->where('po.id', $purchaseOrderId)->first();
         if (! $row) {
             throw new NotFoundHttpException('Purchase order not found.');
         }
@@ -100,9 +101,9 @@ final class PurchaseOrderQuery
         return $payload;
     }
 
-    private function base(array $scope): Builder
+    private function base(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('purchase_orders as po')
+        $query = DB::table('purchase_orders as po')
             ->join('requests_for_quotation as rfq', 'rfq.id', '=', 'po.rfq_id')
             ->join('requisitions as requisition', 'requisition.id', '=', 'po.requisition_id')
             ->join('parties as supplier', 'supplier.id', '=', 'po.supplier_party_id')
@@ -120,6 +121,15 @@ final class PurchaseOrderQuery
                 'canceller.name as canceller_name',
             ])->selectSub(fn (Builder $query) => $query->from('purchase_order_lines as line')
                 ->whereColumn('line.purchase_order_id', 'po.id')->selectRaw('COUNT(*)'), 'line_count');
+
+        return $this->visibility->apply(
+            $query,
+            'PURCHASE_ORDER',
+            'po.id',
+            $permissions,
+            $visibilityFilter,
+            'po_visibility',
+        );
     }
 
     private function payload(object $row, array $permissions): array
@@ -170,10 +180,31 @@ final class PurchaseOrderQuery
                 'id' => (string) $row->cancelled_by, 'name' => $row->canceller_name,
             ] : null,
             'cancellation_reason' => $row->cancellation_reason,
+            'visibility' => $this->visibility->metadata($row),
             'allowed_actions' => $this->allowedActions($row, $permissions),
             'created_at' => $this->timestamp($row->created_at),
             'updated_at' => $this->timestamp($row->updated_at),
         ];
+    }
+
+    private function committedTotal(array $scope, array $permissions, ?string $visibilityFilter): string
+    {
+        $query = DB::table('purchase_orders as committed_po')
+            ->whereNotNull('committed_po.po_number')
+            ->where('committed_po.company_id', $scope['company_id'])
+            ->where('committed_po.plant_id', $scope['plant_id'])
+            ->where('committed_po.status', '<>', 'CANCELLED');
+        $this->visibility->apply(
+            $query,
+            'PURCHASE_ORDER',
+            'committed_po.id',
+            $permissions,
+            $visibilityFilter,
+            'committed_po_visibility',
+            false,
+        );
+
+        return $this->decimal($query->sum('committed_po.total_amount'));
     }
 
     private function allowedActions(object $row, array $permissions): array

@@ -5,6 +5,8 @@ namespace App\Modules\Inventory\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\OperationalVisibilityScope;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
@@ -32,6 +34,7 @@ final class InventoryOperationService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly OperationalVisibilityScope $visibility,
     ) {}
 
     public function create(array $data): array
@@ -606,6 +609,11 @@ final class InventoryOperationService
                 'position.*', 'lot.status as lot_status', 'lot.expiry_date',
                 'owner.status as owner_status', 'quality.availability_bucket',
             ]);
+        $this->visibility->applyInventoryAttribution(
+            $query,
+            'position.lot_id',
+            $scope['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION],
+        );
         if ($lock) {
             $query->lockForUpdate();
         }

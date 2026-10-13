@@ -6,6 +6,7 @@ use App\Modules\Inventory\Application\StockPostingService;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -33,11 +34,17 @@ final class OrderToCashService
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
         private readonly StockPostingService $stock,
+        private readonly TransactionVisibilityPolicy $visibility,
     ) {}
 
     public function backfillProfitabilityCosts(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            if (! empty($data['order_id'])) {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'SALES_ORDER', $data['order_id'], $data,
+                );
+            }
             $namespace = 'sales.profitability.cost-backfill';
             if ($replay = $this->begin($namespace, $data)) return $replay;
 
@@ -486,6 +493,11 @@ final class OrderToCashService
     public function createThirdPartyWork(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            if (! empty($data['sales_order_id'])) {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'SALES_ORDER', $data['sales_order_id'], $data,
+                );
+            }
             $namespace = 'sales.third-party-work.create';
             if ($replay = $this->begin($namespace, $data)) return $replay;
             $this->uniqueNumber('third_party_work_orders', 'work_number', $data['work_number'], $data);
@@ -533,6 +545,9 @@ final class OrderToCashService
     public function allocateOrder(string $orderId, array $data): array
     {
         return DB::transaction(function () use ($orderId, $data): array {
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'SALES_ORDER', $orderId, $data,
+            );
             $namespace = 'sales.allocation.create.'.$orderId;
             if ($replay = $this->begin($namespace, $data + ['sales_order_id' => $orderId])) return $replay;
             $order = $this->find('sales_orders', $orderId, $data, 'Sales order', true);
@@ -707,6 +722,9 @@ final class OrderToCashService
     public function createShipment(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'SALES_ALLOCATION', $data['sales_allocation_id'], $data,
+            );
             $namespace = 'sales.shipment.create';
             if ($replay = $this->begin($namespace, $data)) return $replay;
             $this->uniqueNumber('shipments', 'shipment_number', $data['shipment_number'], $data);
@@ -944,6 +962,9 @@ final class OrderToCashService
     public function createClaim(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            $this->visibility->assertOperationallyVisible(
+                $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'SHIPMENT', $data['shipment_id'], $data,
+            );
             $namespace = 'sales.customer-claim.create';
             if ($replay = $this->begin($namespace, $data)) return $replay;
             $this->uniqueNumber('customer_claims', 'claim_number', $data['claim_number'], $data);
@@ -1120,6 +1141,11 @@ final class OrderToCashService
     public function collectReceivable(array $data): array
     {
         return DB::transaction(function () use ($data): array {
+            foreach ($data['allocations'] as $allocation) {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'] ?? [TransactionVisibilityPolicy::SHOW_PERMISSION], 'RECEIVABLE_INVOICE', $allocation['invoice_id'], $data,
+                );
+            }
             $namespace = 'finance.receivable.collect';
             if ($replay = $this->begin($namespace, $data)) return $replay;
             $this->uniqueNumber('customer_receipts', 'receipt_number', $data['receipt_number'], $data);

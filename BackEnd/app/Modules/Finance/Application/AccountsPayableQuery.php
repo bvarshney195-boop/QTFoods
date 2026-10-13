@@ -2,6 +2,7 @@
 
 namespace App\Modules\Finance\Application;
 
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -9,14 +10,16 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class AccountsPayableQuery
 {
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
     public function workspace(array $scope, array $filters, array $permissions): array
     {
-        $invoiceBase = $this->invoiceBase($scope);
+        $invoiceBase = $this->invoiceBase($scope, $permissions, $filters['visibility'] ?? null);
         $invoiceQuery = clone $invoiceBase;
         $this->filters($invoiceQuery, $filters, ['invoice.ap_number', 'invoice.supplier_invoice_number', 'po.po_number', 'supplier.display_name'], 'invoice.status');
         $invoices = $invoiceQuery->orderByDesc('invoice.updated_at')->paginate((int) ($filters['per_page'] ?? 25));
 
-        $proposalQuery = $this->proposalBase($scope);
+        $proposalQuery = $this->proposalBase($scope, $permissions);
         $this->filters(
             $proposalQuery,
             ['q' => $filters['q'] ?? null, 'status' => $filters['proposal_status'] ?? null],
@@ -24,7 +27,7 @@ final class AccountsPayableQuery
             'proposal.status',
         );
         $proposals = $proposalQuery->orderByDesc('proposal.updated_at')->limit(100)->get()->map(fn (object $row) => $this->proposalPayload($row, $permissions))->all();
-        $paymentQuery = $this->paymentBase($scope);
+        $paymentQuery = $this->paymentBase($scope, $permissions);
         $this->filters(
             $paymentQuery,
             ['q' => $filters['q'] ?? null, 'status' => $filters['payment_status'] ?? null],
@@ -49,9 +52,11 @@ final class AccountsPayableQuery
                 'proposal_statuses' => AccountsPayableService::PROPOSAL_STATUSES,
                 'payment_statuses' => AccountsPayableService::PAYMENT_STATUSES,
                 'payment_methods' => AccountsPayableService::PAYMENT_METHODS,
-                'currency' => 'INR', 'eligible_orders' => $this->eligibleOrders($scope),
-                'payable_invoices' => $this->payableInvoices($scope),
+                'currency' => 'INR', 'eligible_orders' => $this->eligibleOrders($scope, $permissions),
+                'payable_invoices' => $this->payableInvoices($scope, $permissions),
+                'visibility_filters' => $this->visibility->filterOptions($permissions),
             ],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => array_values(array_filter([
                 $this->can($permissions, 'ACTION:FIN-AP:INVOICE-CREATE') ? 'CREATE_INVOICE' : null,
                 $this->can($permissions, 'ACTION:FIN-AP:PROPOSAL-CREATE') ? 'CREATE_PROPOSAL' : null,
@@ -61,7 +66,7 @@ final class AccountsPayableQuery
 
     public function invoiceDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->invoiceBase($scope)->where('invoice.id', $id)->first();
+        $row = $this->invoiceBase($scope, $permissions)->where('invoice.id', $id)->first();
         if (! $row) throw new NotFoundHttpException('Payable invoice not found.');
         $payload = $this->invoicePayload($row, $permissions);
         $payload['lines'] = DB::table('payable_invoice_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
@@ -91,7 +96,7 @@ final class AccountsPayableQuery
 
     public function proposalDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->proposalBase($scope)->where('proposal.id', $id)->first();
+        $row = $this->proposalBase($scope, $permissions)->where('proposal.id', $id)->first();
         if (! $row) throw new NotFoundHttpException('Payment proposal not found.');
         $payload = $this->proposalPayload($row, $permissions);
         $payload['lines'] = DB::table('payment_proposal_lines as line')->join('invoices as invoice', 'invoice.id', '=', 'line.invoice_id')
@@ -113,7 +118,7 @@ final class AccountsPayableQuery
 
     public function paymentDetail(string $id, array $scope, array $permissions): array
     {
-        $row = $this->paymentBase($scope)->where('payment.id', $id)->first();
+        $row = $this->paymentBase($scope, $permissions)->where('payment.id', $id)->first();
         if (! $row) throw new NotFoundHttpException('Supplier payment not found.');
         $payload = $this->paymentPayload($row, $permissions);
         $payload['allocations'] = DB::table('supplier_payment_allocations as allocation')
@@ -139,9 +144,9 @@ final class AccountsPayableQuery
         return $payload;
     }
 
-    private function invoiceBase(array $scope): Builder
+    private function invoiceBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
     {
-        return DB::table('invoices as invoice')->join('purchase_orders as po', 'po.id', '=', 'invoice.purchase_order_id')
+        $query = DB::table('invoices as invoice')->join('purchase_orders as po', 'po.id', '=', 'invoice.purchase_order_id')
             ->join('parties as supplier', 'supplier.id', '=', 'invoice.supplier_party_id')
             ->join('users as creator', 'creator.id', '=', 'invoice.created_by')
             ->leftJoin('users as matcher', 'matcher.id', '=', 'invoice.matched_by')
@@ -150,24 +155,34 @@ final class AccountsPayableQuery
             ->select(['invoice.*', 'po.po_number', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name',
                 'creator.name as creator_name', 'matcher.name as matcher_name', 'approver.name as approver_name'])
             ->selectSub(fn (Builder $q) => $q->from('payable_invoice_lines as line')->whereColumn('line.invoice_id', 'invoice.id')->selectRaw('COUNT(*)'), 'line_count');
+        $this->visibility->apply($query, 'PAYABLE_INVOICE', 'invoice.id', $permissions, $visibilityFilter, 'payable_invoice_visibility');
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'payable_po_visibility', false);
+
+        return $query;
     }
 
-    private function proposalBase(array $scope): Builder
+    private function proposalBase(array $scope, array $permissions): Builder
     {
-        return DB::table('payment_proposals as proposal')->join('users as creator', 'creator.id', '=', 'proposal.created_by')
+        $query = DB::table('payment_proposals as proposal')->join('users as creator', 'creator.id', '=', 'proposal.created_by')
             ->leftJoin('users as approver', 'approver.id', '=', 'proposal.approved_by')
             ->where('proposal.company_id', $scope['company_id'])->where('proposal.plant_id', $scope['plant_id'])
             ->select(['proposal.*', 'creator.name as creator_name', 'approver.name as approver_name'])
             ->selectSub(fn (Builder $q) => $q->from('payment_proposal_lines as line')->whereColumn('line.payment_proposal_id', 'proposal.id')->selectRaw('COUNT(*)'), 'line_count');
+        $this->excludeRestrictedProposalSources($query, 'proposal.id', $permissions);
+
+        return $query;
     }
 
-    private function paymentBase(array $scope): Builder
+    private function paymentBase(array $scope, array $permissions): Builder
     {
-        return DB::table('supplier_payments as payment')->join('payment_proposals as proposal', 'proposal.id', '=', 'payment.payment_proposal_id')
+        $query = DB::table('supplier_payments as payment')->join('payment_proposals as proposal', 'proposal.id', '=', 'payment.payment_proposal_id')
             ->join('users as creator', 'creator.id', '=', 'payment.created_by')
             ->leftJoin('users as reconciler', 'reconciler.id', '=', 'payment.reconciled_by')
             ->where('payment.company_id', $scope['company_id'])->where('payment.plant_id', $scope['plant_id'])
             ->select(['payment.*', 'proposal.proposal_number', 'creator.name as creator_name', 'reconciler.name as reconciler_name']);
+        $this->excludeRestrictedProposalSources($query, 'proposal.id', $permissions);
+
+        return $query;
     }
 
     private function invoicePayload(object $row, array $permissions): array
@@ -193,6 +208,7 @@ final class AccountsPayableQuery
             'approved_by' => $row->approved_by ? ['id' => (string) $row->approved_by, 'name' => $row->approver_name] : null,
             'matched_at' => $this->timestamp($row->matched_at), 'approved_at' => $this->timestamp($row->approved_at),
             'cancelled_at' => $this->timestamp($row->cancelled_at), 'cancellation_reason' => $row->cancellation_reason,
+            'visibility' => $this->visibility->metadata($row),
             'allowed_actions' => $actions, 'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at),
         ];
     }
@@ -228,12 +244,16 @@ final class AccountsPayableQuery
             'created_at' => $this->timestamp($row->created_at), 'updated_at' => $this->timestamp($row->updated_at)];
     }
 
-    private function eligibleOrders(array $scope): array
+    private function eligibleOrders(array $scope, array $permissions): array
     {
-        return DB::table('purchase_orders as po')->join('parties as supplier', 'supplier.id', '=', 'po.supplier_party_id')
+        $query = DB::table('purchase_orders as po')->join('parties as supplier', 'supplier.id', '=', 'po.supplier_party_id')
             ->where('po.company_id', $scope['company_id'])->where('po.plant_id', $scope['plant_id'])->where('po.status', 'ISSUED')
-            ->orderBy('po.po_number')->get(['po.id', 'po.po_number', 'po.supplier_party_id', 'po.payment_terms_days',
+            ->orderBy('po.po_number')->select(['po.id', 'po.po_number', 'po.supplier_party_id', 'po.payment_terms_days',
                 'supplier.code as supplier_code', 'supplier.display_name as supplier_name'])
+            ;
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'eligible_po_visibility', false);
+
+        return $query->get()
             ->map(function (object $po): array {
                 $lines = DB::table('purchase_order_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
                     ->where('line.purchase_order_id', $po->id)->orderBy('line.line_number')
@@ -254,13 +274,19 @@ final class AccountsPayableQuery
             })->all();
     }
 
-    private function payableInvoices(array $scope): array
+    private function payableInvoices(array $scope, array $permissions): array
     {
-        return DB::table('invoices as invoice')->join('parties as supplier', 'supplier.id', '=', 'invoice.supplier_party_id')
+        $query = DB::table('invoices as invoice')->join('parties as supplier', 'supplier.id', '=', 'invoice.supplier_party_id')
+            ->join('purchase_orders as po', 'po.id', '=', 'invoice.purchase_order_id')
             ->where('invoice.company_id', $scope['company_id'])->where('invoice.plant_id', $scope['plant_id'])
             ->where('invoice.invoice_type', 'PAYABLE')->whereIn('invoice.status', ['APPROVED', 'PARTIALLY_PAID'])
-            ->orderBy('invoice.due_date')->get(['invoice.id', 'invoice.ap_number', 'invoice.supplier_invoice_number', 'invoice.due_date',
+            ->orderBy('invoice.due_date')->select(['invoice.id', 'invoice.ap_number', 'invoice.supplier_invoice_number', 'invoice.due_date',
                 'invoice.total_amount', 'invoice.paid_amount', 'supplier.code as supplier_code', 'supplier.display_name as supplier_name'])
+            ;
+        $this->visibility->apply($query, 'PAYABLE_INVOICE', 'invoice.id', $permissions, null, 'payable_lookup_visibility', false);
+        $this->visibility->apply($query, 'PURCHASE_ORDER', 'po.id', $permissions, null, 'payable_lookup_po_visibility', false);
+
+        return $query->get()
             ->map(function (object $row): array {
                 $outstanding = bcsub($this->decimal($row->total_amount), $this->decimal($row->paid_amount), 6);
                 $committed = $this->decimal(DB::table('payment_proposal_lines as line')->join('payment_proposals as proposal', 'proposal.id', '=', 'line.payment_proposal_id')
@@ -282,6 +308,29 @@ final class AccountsPayableQuery
     {
         return $this->decimal(DB::table('payable_invoice_lines as line')->join('invoices as invoice', 'invoice.id', '=', 'line.invoice_id')
             ->where('line.purchase_order_line_id', $poLineId)->whereIn('invoice.status', ['MATCHED', 'APPROVED', 'PARTIALLY_PAID', 'PAID'])->sum('line.invoice_quantity'));
+    }
+
+    private function excludeRestrictedProposalSources(Builder $query, string $qualifiedProposalId, array $permissions): void
+    {
+        if (in_array('ShowEntries', $permissions, true)) return;
+
+        $query->whereNotExists(function (Builder $source) use ($qualifiedProposalId): void {
+            $source->from('payment_proposal_lines as visibility_proposal_line')
+                ->join('invoices as visibility_invoice', 'visibility_invoice.id', '=', 'visibility_proposal_line.invoice_id')
+                ->whereColumn('visibility_proposal_line.payment_proposal_id', $qualifiedProposalId)
+                ->where(function (Builder $restricted): void {
+                    $restricted->whereExists(fn (Builder $visibility) => $visibility
+                        ->from('transaction_visibilities as proposal_invoice_visibility')
+                        ->whereColumn('proposal_invoice_visibility.transaction_id', 'visibility_invoice.id')
+                        ->where('proposal_invoice_visibility.transaction_type', 'PAYABLE_INVOICE')
+                        ->where('proposal_invoice_visibility.visibility_status', 'RESTRICTED'))
+                        ->orWhereExists(fn (Builder $visibility) => $visibility
+                            ->from('transaction_visibilities as proposal_po_visibility')
+                            ->whereColumn('proposal_po_visibility.transaction_id', 'visibility_invoice.purchase_order_id')
+                            ->where('proposal_po_visibility.transaction_type', 'PURCHASE_ORDER')
+                            ->where('proposal_po_visibility.visibility_status', 'RESTRICTED'));
+                });
+        });
     }
 
     private function filters(Builder $query, array $filters, array $columns, string $statusColumn): void

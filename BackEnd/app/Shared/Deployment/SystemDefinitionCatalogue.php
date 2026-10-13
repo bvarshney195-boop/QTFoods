@@ -114,7 +114,16 @@ final class SystemDefinitionCatalogue
      */
     public static function permissions(): array
     {
-        $definitions = [];
+        $definitions = [
+            'DidntShowCheckbox' => [
+                'name' => 'Restrict transaction entries',
+                'description' => 'Allows an authorised transaction editor to change operational visibility.',
+            ],
+            'ShowEntries' => [
+                'name' => 'View restricted transaction entries',
+                'description' => 'Includes restricted entries in authorised operational views, searches, and exports.',
+            ],
+        ];
         foreach (self::permissionsByRole() as $permissionCodes) {
             foreach ($permissionCodes as $code) {
                 $definitions[$code] ??= [

@@ -2,10 +2,12 @@
 
 namespace App\Modules\Sales\Http\Controllers;
 
+use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Sales\Application\UnsoldSalesReturnQuery;
 use App\Modules\Sales\Application\UnsoldSalesReturnLookupQuery;
 use App\Modules\Sales\Application\UnsoldSalesReturnReferenceValidator;
 use App\Modules\Sales\Application\UnsoldSalesReturnService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -19,6 +21,7 @@ final class UnsoldSalesReturnController
         private readonly UnsoldSalesReturnQuery $query,
         private readonly UnsoldSalesReturnLookupQuery $lookups,
         private readonly UnsoldSalesReturnReferenceValidator $references,
+        private readonly SessionService $sessions,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -42,14 +45,23 @@ final class UnsoldSalesReturnController
                 'status',
                 '-status',
             ])],
+            'visibility' => ['sometimes', 'string', Rule::in(OperationalVisibilityScope::FILTERS)],
         ]);
 
-        return response()->json($this->query->paginate($this->selectedContext($request), $filters));
+        return response()->json($this->query->paginate(
+            $this->selectedContext($request),
+            $filters,
+            $this->sessions->permissions($request->user(), $request),
+        ));
     }
 
     public function show(string $caseId, Request $request): JsonResponse
     {
-        $returnCase = $this->query->find($caseId, $this->selectedContext($request));
+        $returnCase = $this->query->find(
+            $caseId,
+            $this->selectedContext($request),
+            $this->sessions->permissions($request->user(), $request),
+        );
 
         abort_if(! $returnCase, 404, 'Unsold return case not found.');
 
@@ -99,6 +111,7 @@ final class UnsoldSalesReturnController
         $this->references->validateCreate($validated);
 
         $validated['actor_id'] = (string) $request->user()->id;
+        $validated['permissions'] = $this->sessions->permissions($request->user(), $request);
         $validated['idempotency_key'] = $this->idempotencyKey($request);
 
         return response()->json(['data' => $this->service->createRequest($validated)], 201);

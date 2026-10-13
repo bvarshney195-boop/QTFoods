@@ -40,6 +40,7 @@ use App\Modules\Scale\Http\Controllers\OptimisationController;
 use App\Modules\Work\Http\Controllers\WorkQueueController;
 use App\Modules\Experience\Http\Controllers\ExperienceController;
 use Illuminate\Support\Facades\Route;
+use App\Shared\Visibility\TransactionVisibilityController;
 
 Route::get('/health', fn () => [
     'status' => 'ok',
@@ -87,6 +88,12 @@ Route::middleware('web')->prefix('v1')->group(function () {
         Route::post('/contexts/select', [ContextController::class, 'select'])->middleware('erp.password');
 
         Route::middleware(['erp.password', 'erp.context'])->group(function () {
+            Route::patch('/transaction-visibility/{transactionType}/{transactionId}', [TransactionVisibilityController::class, 'update'])
+                ->where('transactionType', '[A-Za-z_-]+')->whereUuid('transactionId')
+                ->middleware('erp.permission:DidntShowCheckbox');
+            Route::get('/transaction-visibility/{transactionType}/{transactionId}/history', [TransactionVisibilityController::class, 'history'])
+                ->where('transactionType', '[A-Za-z_-]+')->whereUuid('transactionId')
+                ->middleware('erp.permission:ShowEntries');
             Route::middleware('erp.screen:WRK-HOME')->group(function () {
                 Route::get('/experience/search', [ExperienceController::class, 'search']);
                 Route::get('/experience/workspace', [ExperienceController::class, 'workspace']);
@@ -365,61 +372,61 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::get('/procurement/purchase-orders', [PurchaseOrderController::class, 'index'])
                 ->middleware('erp.screen:PUR-PO');
             Route::get('/procurement/purchase-orders/{purchaseOrderId}', [PurchaseOrderController::class, 'show'])
-                ->whereUuid('purchaseOrderId')->middleware('erp.screen:PUR-PO');
+                ->whereUuid('purchaseOrderId')->middleware(['erp.screen:PUR-PO', 'erp.visibility:PURCHASE_ORDER,purchaseOrderId']);
             Route::post('/procurement/purchase-orders', [PurchaseOrderController::class, 'create'])
                 ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:CREATE']);
             Route::post('/procurement/purchase-orders/{purchaseOrderId}/amend', [PurchaseOrderController::class, 'amend'])
                 ->whereUuid('purchaseOrderId')
-                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:AMEND']);
+                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:AMEND', 'erp.visibility:PURCHASE_ORDER,purchaseOrderId']);
             Route::post('/procurement/purchase-orders/{purchaseOrderId}/issue', [PurchaseOrderController::class, 'issue'])
                 ->whereUuid('purchaseOrderId')
-                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:ISSUE']);
+                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:ISSUE', 'erp.visibility:PURCHASE_ORDER,purchaseOrderId']);
             Route::post('/procurement/purchase-orders/{purchaseOrderId}/cancel', [PurchaseOrderController::class, 'cancel'])
                 ->whereUuid('purchaseOrderId')
-                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:CANCEL']);
+                ->middleware(['erp.screen:PUR-PO', 'erp.permission:ACTION:PUR-PO:CANCEL', 'erp.visibility:PURCHASE_ORDER,purchaseOrderId']);
             Route::get('/procurement/gate-entries', [InboundProcurementController::class, 'gates'])
                 ->middleware('erp.screen:INB-GATE');
             Route::get('/procurement/gate-entries/{gateEntryId}', [InboundProcurementController::class, 'gate'])
-                ->whereUuid('gateEntryId')->middleware('erp.screen:INB-GATE');
+                ->whereUuid('gateEntryId')->middleware(['erp.screen:INB-GATE', 'erp.visibility:GATE_ENTRY,gateEntryId']);
             Route::post('/procurement/gate-entries', [InboundProcurementController::class, 'createGate'])
                 ->middleware(['erp.screen:INB-GATE', 'erp.permission:ACTION:INB-GATE:CREATE']);
             Route::post('/procurement/gate-entries/{gateEntryId}', [InboundProcurementController::class, 'updateGate'])
-                ->whereUuid('gateEntryId')->middleware(['erp.screen:INB-GATE', 'erp.permission:ACTION:INB-GATE:UPDATE']);
+                ->whereUuid('gateEntryId')->middleware(['erp.screen:INB-GATE', 'erp.permission:ACTION:INB-GATE:UPDATE', 'erp.visibility:GATE_ENTRY,gateEntryId']);
             Route::post('/procurement/gate-entries/{gateEntryId}/cancel', [InboundProcurementController::class, 'cancelGate'])
-                ->whereUuid('gateEntryId')->middleware(['erp.screen:INB-GATE', 'erp.permission:ACTION:INB-GATE:CANCEL']);
+                ->whereUuid('gateEntryId')->middleware(['erp.screen:INB-GATE', 'erp.permission:ACTION:INB-GATE:CANCEL', 'erp.visibility:GATE_ENTRY,gateEntryId']);
 
             Route::get('/procurement/receipts', [InboundProcurementController::class, 'receipts'])
                 ->middleware('erp.screen:INB-GRN');
             Route::get('/procurement/receipts/{receiptId}', [InboundProcurementController::class, 'receipt'])
-                ->whereUuid('receiptId')->middleware('erp.screen:INB-GRN');
+                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.visibility:GOODS_RECEIPT,receiptId']);
             Route::post('/procurement/receipts', [InboundProcurementController::class, 'createReceipt'])
                 ->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:CREATE']);
             Route::post('/procurement/receipts/{receiptId}', [InboundProcurementController::class, 'updateReceipt'])
-                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:UPDATE']);
+                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:UPDATE', 'erp.visibility:GOODS_RECEIPT,receiptId']);
             Route::post('/procurement/receipts/{receiptId}/post', [InboundProcurementController::class, 'postReceipt'])
-                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:POST']);
+                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:POST', 'erp.visibility:GOODS_RECEIPT,receiptId']);
             Route::post('/procurement/receipts/{receiptId}/cancel', [InboundProcurementController::class, 'cancelReceipt'])
-                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:CANCEL']);
+                ->whereUuid('receiptId')->middleware(['erp.screen:INB-GRN', 'erp.permission:ACTION:INB-GRN:CANCEL', 'erp.visibility:GOODS_RECEIPT,receiptId']);
 
             Route::get('/quality/incoming', [InboundProcurementController::class, 'qualityTasks'])
                 ->middleware('erp.screen:QC-IN');
             Route::get('/quality/incoming/{qualityTaskId}', [InboundProcurementController::class, 'qualityTask'])
-                ->whereUuid('qualityTaskId')->middleware('erp.screen:QC-IN');
+                ->whereUuid('qualityTaskId')->middleware(['erp.screen:QC-IN', 'erp.visibility:INCOMING_QUALITY_TASK,qualityTaskId']);
             Route::post('/quality/incoming/{qualityTaskId}/complete', [InboundProcurementController::class, 'completeQuality'])
-                ->whereUuid('qualityTaskId')->middleware(['erp.screen:QC-IN', 'erp.permission:ACTION:QC-IN:COMPLETE']);
+                ->whereUuid('qualityTaskId')->middleware(['erp.screen:QC-IN', 'erp.permission:ACTION:QC-IN:COMPLETE', 'erp.visibility:INCOMING_QUALITY_TASK,qualityTaskId']);
 
             Route::get('/procurement/supplier-returns', [InboundProcurementController::class, 'supplierReturns'])
                 ->middleware('erp.screen:INB-RETURN');
             Route::get('/procurement/supplier-returns/{supplierReturnId}', [InboundProcurementController::class, 'supplierReturn'])
-                ->whereUuid('supplierReturnId')->middleware('erp.screen:INB-RETURN');
+                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.visibility:SUPPLIER_RETURN,supplierReturnId']);
             Route::post('/procurement/supplier-returns', [InboundProcurementController::class, 'createSupplierReturn'])
                 ->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:CREATE']);
             Route::post('/procurement/supplier-returns/{supplierReturnId}', [InboundProcurementController::class, 'updateSupplierReturn'])
-                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:UPDATE']);
+                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:UPDATE', 'erp.visibility:SUPPLIER_RETURN,supplierReturnId']);
             Route::post('/procurement/supplier-returns/{supplierReturnId}/post', [InboundProcurementController::class, 'postSupplierReturn'])
-                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:POST']);
+                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:POST', 'erp.visibility:SUPPLIER_RETURN,supplierReturnId']);
             Route::post('/procurement/supplier-returns/{supplierReturnId}/cancel', [InboundProcurementController::class, 'cancelSupplierReturn'])
-                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:CANCEL']);
+                ->whereUuid('supplierReturnId')->middleware(['erp.screen:INB-RETURN', 'erp.permission:ACTION:INB-RETURN:CANCEL', 'erp.visibility:SUPPLIER_RETURN,supplierReturnId']);
 
             Route::get('/inventory/stock', [InventoryFoundationController::class, 'stock'])
                 ->middleware('erp.screen:INV-STK');
@@ -468,19 +475,20 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 Route::get('/inventory/'.$path, [InventoryOperationController::class, 'index'])
                     ->defaults('resource', $resource)->middleware("erp.screen:{$screen}");
                 Route::get('/inventory/'.$path.'/{operationId}', [InventoryOperationController::class, 'show'])
-                    ->whereUuid('operationId')->defaults('resource', $resource)->middleware("erp.screen:{$screen}");
+                    ->whereUuid('operationId')->defaults('resource', $resource)
+                    ->middleware(["erp.screen:{$screen}", 'erp.visibility:INVENTORY_OPERATION,operationId']);
                 Route::post('/inventory/'.$path, [InventoryOperationController::class, 'create'])
                     ->defaults('resource', $resource)
                     ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:CREATE"]);
                 Route::post('/inventory/'.$path.'/{operationId}', [InventoryOperationController::class, 'update'])
                     ->whereUuid('operationId')->defaults('resource', $resource)
-                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:UPDATE"]);
+                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:UPDATE", 'erp.visibility:INVENTORY_OPERATION,operationId']);
                 Route::post('/inventory/'.$path.'/{operationId}/post', [InventoryOperationController::class, 'post'])
                     ->whereUuid('operationId')->defaults('resource', $resource)
-                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:POST"]);
+                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:POST", 'erp.visibility:INVENTORY_OPERATION,operationId']);
                 Route::post('/inventory/'.$path.'/{operationId}/cancel', [InventoryOperationController::class, 'cancel'])
                     ->whereUuid('operationId')->defaults('resource', $resource)
-                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:CANCEL"]);
+                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:CANCEL", 'erp.visibility:INVENTORY_OPERATION,operationId']);
             }
 
             Route::get('/planning/demand', [ManufacturingPlanningController::class, 'demandIndex'])
@@ -634,40 +642,40 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/sales/contracts/{contractId}/close', [OrderToCashController::class, 'closeContract'])->whereUuid('contractId')->middleware(['erp.screen:CRM-PRICE', 'erp.permission:ACTION:CRM-PRICE:RETIRE']);
 
             Route::get('/sales/orders', [OrderToCashController::class, 'orders'])->middleware('erp.screen:CRM-ORDER');
-            Route::get('/sales/orders/{orderId}', [OrderToCashController::class, 'order'])->whereUuid('orderId')->middleware('erp.screen:CRM-ORDER');
+            Route::get('/sales/orders/{orderId}', [OrderToCashController::class, 'order'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.visibility:SALES_ORDER,orderId']);
             Route::post('/sales/orders', [OrderToCashController::class, 'createOrder'])->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:CREATE']);
-            Route::post('/sales/orders/{orderId}', [OrderToCashController::class, 'updateOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:UPDATE']);
-            Route::post('/sales/orders/{orderId}/confirm', [OrderToCashController::class, 'confirmOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:CONFIRM']);
-            Route::post('/sales/orders/{orderId}/amend', [OrderToCashController::class, 'amendOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:AMEND']);
-            Route::post('/sales/orders/{orderId}/cancel', [OrderToCashController::class, 'cancelOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:CANCEL']);
+            Route::post('/sales/orders/{orderId}', [OrderToCashController::class, 'updateOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:UPDATE', 'erp.visibility:SALES_ORDER,orderId']);
+            Route::post('/sales/orders/{orderId}/confirm', [OrderToCashController::class, 'confirmOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:CONFIRM', 'erp.visibility:SALES_ORDER,orderId']);
+            Route::post('/sales/orders/{orderId}/amend', [OrderToCashController::class, 'amendOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:AMEND', 'erp.visibility:SALES_ORDER,orderId']);
+            Route::post('/sales/orders/{orderId}/cancel', [OrderToCashController::class, 'cancelOrder'])->whereUuid('orderId')->middleware(['erp.screen:CRM-ORDER', 'erp.permission:ACTION:CRM-ORDER:CANCEL', 'erp.visibility:SALES_ORDER,orderId']);
 
             Route::get('/sales/third-party-work', [OrderToCashController::class, 'work'])->middleware('erp.screen:CON-WORK');
-            Route::get('/sales/third-party-work/{workId}', [OrderToCashController::class, 'workDetail'])->whereUuid('workId')->middleware('erp.screen:CON-WORK');
+            Route::get('/sales/third-party-work/{workId}', [OrderToCashController::class, 'workDetail'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.visibility:THIRD_PARTY_WORK,workId']);
             Route::post('/sales/third-party-work', [OrderToCashController::class, 'createWork'])->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:CREATE']);
-            Route::post('/sales/third-party-work/{workId}/release', [OrderToCashController::class, 'releaseWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:RELEASE']);
-            Route::post('/sales/third-party-work/{workId}/complete', [OrderToCashController::class, 'completeWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:COMPLETE']);
-            Route::post('/sales/third-party-work/{workId}/cancel', [OrderToCashController::class, 'cancelWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:CANCEL']);
+            Route::post('/sales/third-party-work/{workId}/release', [OrderToCashController::class, 'releaseWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:RELEASE', 'erp.visibility:THIRD_PARTY_WORK,workId']);
+            Route::post('/sales/third-party-work/{workId}/complete', [OrderToCashController::class, 'completeWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:COMPLETE', 'erp.visibility:THIRD_PARTY_WORK,workId']);
+            Route::post('/sales/third-party-work/{workId}/cancel', [OrderToCashController::class, 'cancelWork'])->whereUuid('workId')->middleware(['erp.screen:CON-WORK', 'erp.permission:ACTION:CON-WORK:CANCEL', 'erp.visibility:THIRD_PARTY_WORK,workId']);
 
             Route::get('/dispatch/allocations', [OrderToCashController::class, 'allocations'])->middleware('erp.screen:DSP-PICK');
-            Route::get('/dispatch/allocations/{allocationId}', [OrderToCashController::class, 'allocation'])->whereUuid('allocationId')->middleware('erp.screen:DSP-PICK');
-            Route::post('/dispatch/orders/{orderId}/allocations', [OrderToCashController::class, 'allocateOrder'])->whereUuid('orderId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:ALLOCATE']);
-            Route::post('/dispatch/allocations/{allocationId}/pick', [OrderToCashController::class, 'pickAllocation'])->whereUuid('allocationId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:PICK']);
-            Route::post('/dispatch/allocations/{allocationId}/cancel', [OrderToCashController::class, 'cancelAllocation'])->whereUuid('allocationId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:CANCEL']);
+            Route::get('/dispatch/allocations/{allocationId}', [OrderToCashController::class, 'allocation'])->whereUuid('allocationId')->middleware(['erp.screen:DSP-PICK', 'erp.visibility:SALES_ALLOCATION,allocationId']);
+            Route::post('/dispatch/orders/{orderId}/allocations', [OrderToCashController::class, 'allocateOrder'])->whereUuid('orderId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:ALLOCATE', 'erp.visibility:SALES_ORDER,orderId']);
+            Route::post('/dispatch/allocations/{allocationId}/pick', [OrderToCashController::class, 'pickAllocation'])->whereUuid('allocationId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:PICK', 'erp.visibility:SALES_ALLOCATION,allocationId']);
+            Route::post('/dispatch/allocations/{allocationId}/cancel', [OrderToCashController::class, 'cancelAllocation'])->whereUuid('allocationId')->middleware(['erp.screen:DSP-PICK', 'erp.permission:ACTION:DSP-PICK:CANCEL', 'erp.visibility:SALES_ALLOCATION,allocationId']);
 
             Route::get('/dispatch/shipments', [OrderToCashController::class, 'shipments'])->middleware('erp.screen:DSP-LOAD');
-            Route::get('/dispatch/shipments/{shipmentId}', [OrderToCashController::class, 'shipment'])->whereUuid('shipmentId')->middleware('erp.screen:DSP-LOAD');
+            Route::get('/dispatch/shipments/{shipmentId}', [OrderToCashController::class, 'shipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.visibility:SHIPMENT,shipmentId']);
             Route::post('/dispatch/shipments', [OrderToCashController::class, 'createShipment'])->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:CREATE']);
-            Route::post('/dispatch/shipments/{shipmentId}/load', [OrderToCashController::class, 'loadShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:LOAD']);
-            Route::post('/dispatch/shipments/{shipmentId}/dispatch', [OrderToCashController::class, 'dispatchShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:DISPATCH']);
-            Route::post('/dispatch/shipments/{shipmentId}/cancel', [OrderToCashController::class, 'cancelShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:CANCEL']);
+            Route::post('/dispatch/shipments/{shipmentId}/load', [OrderToCashController::class, 'loadShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:LOAD', 'erp.visibility:SHIPMENT,shipmentId']);
+            Route::post('/dispatch/shipments/{shipmentId}/dispatch', [OrderToCashController::class, 'dispatchShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:DISPATCH', 'erp.visibility:SHIPMENT,shipmentId']);
+            Route::post('/dispatch/shipments/{shipmentId}/cancel', [OrderToCashController::class, 'cancelShipment'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-LOAD', 'erp.permission:ACTION:DSP-LOAD:CANCEL', 'erp.visibility:SHIPMENT,shipmentId']);
             Route::get('/dispatch/pod', [OrderToCashController::class, 'pods'])->middleware('erp.screen:DSP-POD');
-            Route::post('/dispatch/shipments/{shipmentId}/pod', [OrderToCashController::class, 'completePod'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-POD', 'erp.permission:ACTION:DSP-POD:COMPLETE']);
+            Route::post('/dispatch/shipments/{shipmentId}/pod', [OrderToCashController::class, 'completePod'])->whereUuid('shipmentId')->middleware(['erp.screen:DSP-POD', 'erp.permission:ACTION:DSP-POD:COMPLETE', 'erp.visibility:SHIPMENT,shipmentId']);
 
             Route::get('/sales/customer-claims', [OrderToCashController::class, 'claims'])->middleware('erp.screen:RET-CASE');
-            Route::get('/sales/customer-claims/{claimId}', [OrderToCashController::class, 'claim'])->whereUuid('claimId')->middleware('erp.screen:RET-CASE');
+            Route::get('/sales/customer-claims/{claimId}', [OrderToCashController::class, 'claim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.visibility:CUSTOMER_CLAIM,claimId']);
             Route::post('/sales/customer-claims', [OrderToCashController::class, 'createClaim'])->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:CREATE']);
-            Route::post('/sales/customer-claims/{claimId}/receive', [OrderToCashController::class, 'receiveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RECEIVE']);
-            Route::post('/sales/customer-claims/{claimId}/resolve', [OrderToCashController::class, 'resolveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RESOLVE']);
+            Route::post('/sales/customer-claims/{claimId}/receive', [OrderToCashController::class, 'receiveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RECEIVE', 'erp.visibility:CUSTOMER_CLAIM,claimId']);
+            Route::post('/sales/customer-claims/{claimId}/resolve', [OrderToCashController::class, 'resolveClaim'])->whereUuid('claimId')->middleware(['erp.screen:RET-CASE', 'erp.permission:ACTION:RET-CASE:RESOLVE', 'erp.visibility:CUSTOMER_CLAIM,claimId']);
             Route::get('/reports/profitability', [OrderToCashController::class, 'profitability'])->middleware('erp.screen:BI-PROFIT');
             Route::post('/reports/profitability/cost-backfill', [OrderToCashController::class, 'backfillProfitabilityCosts'])
                 ->middleware(['erp.screen:BI-PROFIT', 'erp.permission:ACTION:BI-PROFIT:COST-BACKFILL']);
@@ -680,90 +688,90 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 ->middleware('erp.screen:RET-UNSOLD');
             Route::get('/sales/unsold-return-approvals/{approvalId}', [UnsoldSalesReturnApprovalController::class, 'show'])
                 ->whereUuid('approvalId')
-                ->middleware('erp.screen:RET-UNSOLD');
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.visibility:UNSOLD_RETURN_APPROVAL,approvalId']);
             Route::post('/sales/unsold-return-approvals/{approvalId}/approve', [UnsoldSalesReturnApprovalController::class, 'approve'])
                 ->whereUuid('approvalId')
-                ->middleware('erp.screen:RET-UNSOLD');
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.visibility:UNSOLD_RETURN_APPROVAL,approvalId']);
             Route::post('/sales/unsold-return-approvals/{approvalId}/reject', [UnsoldSalesReturnApprovalController::class, 'reject'])
                 ->whereUuid('approvalId')
-                ->middleware('erp.screen:RET-UNSOLD');
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.visibility:UNSOLD_RETURN_APPROVAL,approvalId']);
             Route::get('/sales/unsold-returns/{caseId}', [UnsoldSalesReturnController::class, 'show'])
                 ->whereUuid('caseId')
-                ->middleware('erp.screen:RET-UNSOLD');
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/evidence', [UnsoldSalesReturnEvidenceController::class, 'store'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:EVIDENCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:EVIDENCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::get('/sales/unsold-returns/{caseId}/evidence/{evidenceId}', [UnsoldSalesReturnEvidenceController::class, 'download'])
                 ->whereUuid('caseId')
                 ->whereUuid('evidenceId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:EVIDENCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:EVIDENCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns', [UnsoldSalesReturnController::class, 'store'])
                 ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:CREATE']);
             Route::post('/sales/unsold-returns/{caseId}/receive', [UnsoldSalesReturnController::class, 'receive'])
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:RECEIVE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:RECEIVE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/disposition', [UnsoldSalesReturnController::class, 'disposition'])
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:DISPOSITION']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:DISPOSITION', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/post-loss', [UnsoldSalesReturnController::class, 'postLoss'])
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:POST-LOSS']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:POST-LOSS', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/invoice', [UnsoldSalesReturnFinanceController::class, 'linkInvoice'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/credit-note', [UnsoldSalesReturnFinanceController::class, 'creditNote'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/tax-adjustment', [UnsoldSalesReturnFinanceController::class, 'taxAdjustment'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/receivable-adjustment', [UnsoldSalesReturnFinanceController::class, 'receivableAdjustment'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/refund', [UnsoldSalesReturnFinanceController::class, 'refund'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
             Route::post('/sales/unsold-returns/{caseId}/finance/replacement', [UnsoldSalesReturnFinanceController::class, 'replacement'])
                 ->whereUuid('caseId')
-                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE']);
+                ->middleware(['erp.screen:RET-UNSOLD', 'erp.permission:ACTION:RET-UNSOLD:FINANCE', 'erp.visibility:UNSOLD_RETURN,caseId']);
 
             Route::get('/finance/receivables', [OrderToCashController::class, 'receivables'])->middleware('erp.screen:FIN-AR');
-            Route::get('/finance/receivables/{invoiceId}', [OrderToCashController::class, 'receivable'])->whereUuid('invoiceId')->middleware('erp.screen:FIN-AR');
+            Route::get('/finance/receivables/{invoiceId}', [OrderToCashController::class, 'receivable'])->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AR', 'erp.visibility:RECEIVABLE_INVOICE,invoiceId']);
             Route::post('/finance/receivables/collections', [OrderToCashController::class, 'collectReceivable'])->middleware(['erp.screen:FIN-AR', 'erp.permission:ACTION:FIN-AR:COLLECT']);
             Route::get('/finance/payables', [AccountsPayableController::class, 'index'])->middleware('erp.screen:FIN-AP');
             Route::get('/finance/payables/invoices/{invoiceId}', [AccountsPayableController::class, 'invoice'])
-                ->whereUuid('invoiceId')->middleware('erp.screen:FIN-AP');
+                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.visibility:PAYABLE_INVOICE,invoiceId']);
             Route::post('/finance/payables/invoices', [AccountsPayableController::class, 'createInvoice'])
                 ->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-CREATE']);
             Route::post('/finance/payables/invoices/{invoiceId}', [AccountsPayableController::class, 'updateInvoice'])
-                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-UPDATE']);
+                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-UPDATE', 'erp.visibility:PAYABLE_INVOICE,invoiceId']);
             Route::post('/finance/payables/invoices/{invoiceId}/match', [AccountsPayableController::class, 'matchInvoice'])
-                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:MATCH']);
+                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:MATCH', 'erp.visibility:PAYABLE_INVOICE,invoiceId']);
             Route::post('/finance/payables/invoices/{invoiceId}/approve', [AccountsPayableController::class, 'approveInvoice'])
-                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-APPROVE']);
+                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-APPROVE', 'erp.visibility:PAYABLE_INVOICE,invoiceId']);
             Route::post('/finance/payables/invoices/{invoiceId}/cancel', [AccountsPayableController::class, 'cancelInvoice'])
-                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-CANCEL']);
+                ->whereUuid('invoiceId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:INVOICE-CANCEL', 'erp.visibility:PAYABLE_INVOICE,invoiceId']);
             Route::get('/finance/payables/proposals/{proposalId}', [AccountsPayableController::class, 'proposal'])
-                ->whereUuid('proposalId')->middleware('erp.screen:FIN-AP');
+                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.visibility:PAYMENT_PROPOSAL,proposalId']);
             Route::post('/finance/payables/proposals', [AccountsPayableController::class, 'createProposal'])
                 ->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-CREATE']);
             Route::post('/finance/payables/proposals/{proposalId}', [AccountsPayableController::class, 'updateProposal'])
-                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-UPDATE']);
+                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-UPDATE', 'erp.visibility:PAYMENT_PROPOSAL,proposalId']);
             Route::post('/finance/payables/proposals/{proposalId}/approve', [AccountsPayableController::class, 'approveProposal'])
-                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-APPROVE']);
+                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-APPROVE', 'erp.visibility:PAYMENT_PROPOSAL,proposalId']);
             Route::post('/finance/payables/proposals/{proposalId}/execute', [AccountsPayableController::class, 'executeProposal'])
-                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PAY']);
+                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PAY', 'erp.visibility:PAYMENT_PROPOSAL,proposalId']);
             Route::post('/finance/payables/proposals/{proposalId}/cancel', [AccountsPayableController::class, 'cancelProposal'])
-                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-CANCEL']);
+                ->whereUuid('proposalId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:PROPOSAL-CANCEL', 'erp.visibility:PAYMENT_PROPOSAL,proposalId']);
             Route::get('/finance/payables/payments/{paymentId}', [AccountsPayableController::class, 'payment'])
-                ->whereUuid('paymentId')->middleware('erp.screen:FIN-AP');
+                ->whereUuid('paymentId')->middleware(['erp.screen:FIN-AP', 'erp.visibility:SUPPLIER_PAYMENT,paymentId']);
             Route::post('/finance/payables/payments/{paymentId}/reconcile', [AccountsPayableController::class, 'reconcilePayment'])
-                ->whereUuid('paymentId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:RECONCILE']);
+                ->whereUuid('paymentId')->middleware(['erp.screen:FIN-AP', 'erp.permission:ACTION:FIN-AP:RECONCILE', 'erp.visibility:SUPPLIER_PAYMENT,paymentId']);
             Route::get('/finance/expenses', [FinanceOperationsController::class, 'expenses'])->middleware('erp.screen:FIN-EXP');
-            Route::get('/finance/expenses/{expenseId}', [FinanceOperationsController::class, 'expense'])->whereUuid('expenseId')->middleware('erp.screen:FIN-EXP');
+            Route::get('/finance/expenses/{expenseId}', [FinanceOperationsController::class, 'expense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.visibility:EXPENSE,expenseId']);
             Route::post('/finance/expenses', [FinanceOperationsController::class, 'createExpense'])->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:CREATE']);
-            Route::post('/finance/expenses/{expenseId}', [FinanceOperationsController::class, 'updateExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:UPDATE']);
-            Route::post('/finance/expenses/{expenseId}/submit', [FinanceOperationsController::class, 'submitExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:SUBMIT']);
-            Route::post('/finance/expenses/{expenseId}/approve', [FinanceOperationsController::class, 'approveExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:APPROVE']);
-            Route::post('/finance/expenses/{expenseId}/post', [FinanceOperationsController::class, 'postExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:POST']);
-            Route::post('/finance/expenses/{expenseId}/cancel', [FinanceOperationsController::class, 'cancelExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:CANCEL']);
+            Route::post('/finance/expenses/{expenseId}', [FinanceOperationsController::class, 'updateExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:UPDATE', 'erp.visibility:EXPENSE,expenseId']);
+            Route::post('/finance/expenses/{expenseId}/submit', [FinanceOperationsController::class, 'submitExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:SUBMIT', 'erp.visibility:EXPENSE,expenseId']);
+            Route::post('/finance/expenses/{expenseId}/approve', [FinanceOperationsController::class, 'approveExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:APPROVE', 'erp.visibility:EXPENSE,expenseId']);
+            Route::post('/finance/expenses/{expenseId}/post', [FinanceOperationsController::class, 'postExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:POST', 'erp.visibility:EXPENSE,expenseId']);
+            Route::post('/finance/expenses/{expenseId}/cancel', [FinanceOperationsController::class, 'cancelExpense'])->whereUuid('expenseId')->middleware(['erp.screen:FIN-EXP', 'erp.permission:ACTION:FIN-EXP:CANCEL', 'erp.visibility:EXPENSE,expenseId']);
 
             Route::get('/finance/ledger', [FinanceOperationsController::class, 'ledger'])->middleware('erp.screen:FIN-GL');
             Route::get('/finance/journals/{journalId}', [FinanceOperationsController::class, 'journal'])->whereUuid('journalId')->middleware('erp.screen:FIN-GL');

@@ -6,6 +6,7 @@ use App\Modules\Sales\Application\OrderToCashService;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +45,7 @@ final class PartnerPortalService
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
         private readonly OrderToCashService $orderToCash,
+        private readonly TransactionVisibilityPolicy $visibility,
     ) {}
 
     public function createGrant(array $data): array
@@ -270,6 +272,7 @@ final class PartnerPortalService
                 return $replay;
             }
             $document = $this->documentLocked($documentId, $data, (string) $grant->party_id);
+            $this->assertDocumentOperationallyVisible($document, $data);
             $this->assertVersion($document, $data['expected_version'], 'partner document');
             if ($document->direction !== 'OUTBOUND' || $document->status !== 'AVAILABLE') {
                 throw ValidationException::withMessages([
@@ -317,6 +320,7 @@ final class PartnerPortalService
                 return $replay;
             }
             $document = $this->documentLocked($documentId, $data);
+            $this->assertDocumentOperationallyVisible($document, $data);
             $this->assertVersion($document, $data['expected_version'], 'partner document');
             if ($document->direction !== 'OUTBOUND' || $document->status !== 'AVAILABLE') {
                 throw ValidationException::withMessages([
@@ -516,6 +520,44 @@ final class PartnerPortalService
             'plant_id' => $data['plant_id'], 'customer_party_id' => $partyId,
         ])->exists()) {
             throw ValidationException::withMessages(['customer_claim_id' => ['Claim not found for this partner tenant.']]);
+        }
+
+        foreach ([
+            'sales_order_id' => 'SALES_ORDER',
+            'shipment_id' => 'SHIPMENT',
+            'invoice_id' => 'RECEIVABLE_INVOICE',
+            'customer_claim_id' => 'CUSTOMER_CLAIM',
+        ] as $field => $transactionType) {
+            if (isset($links[$field])) {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'],
+                    $transactionType,
+                    $links[$field],
+                    $data,
+                );
+            }
+        }
+    }
+
+    private function assertDocumentOperationallyVisible(object $document, array $data): void
+    {
+        foreach ([
+            'sales_order_id' => 'SALES_ORDER',
+            'shipment_id' => 'SHIPMENT',
+            'invoice_id' => 'RECEIVABLE_INVOICE',
+            'customer_claim_id' => 'CUSTOMER_CLAIM',
+        ] as $field => $transactionType) {
+            $transactionId = $document->{$field} ?? null;
+            if (is_string($transactionId) && $transactionId !== '') {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'],
+                    $transactionType,
+                    $transactionId,
+                    $data,
+                );
+
+                return;
+            }
         }
     }
 

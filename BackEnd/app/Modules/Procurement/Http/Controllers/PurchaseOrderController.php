@@ -6,6 +6,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
 use App\Modules\Procurement\Application\PurchaseOrderQuery;
 use App\Modules\Procurement\Application\PurchaseOrderService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -32,6 +33,7 @@ final class PurchaseOrderController
             'required_from' => ['sometimes', 'date_format:Y-m-d'],
             'required_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:required_from'],
             'sort' => ['sometimes', 'string', Rule::in(PurchaseOrderQuery::SORTS)],
+            'visibility' => ['sometimes', 'string', Rule::in(OperationalVisibilityScope::FILTERS)],
         ]);
 
         return response()->json($this->query->workspace(

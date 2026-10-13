@@ -7,6 +7,7 @@ use App\Shared\Approval\ApprovalService;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -22,11 +23,17 @@ final class UnsoldSalesReturnService
         private readonly OutboxService $outbox,
         private readonly StockPostingService $stock,
         private readonly UnsoldSalesReturnOutcomePostingService $outcomes,
+        private readonly TransactionVisibilityPolicy $visibility,
     ) {}
 
     public function createRequest(array $data): array
     {
         return DB::transaction(function () use ($data) {
+            if (array_key_exists('permissions', $data)) {
+                $this->visibility->assertOperationallyVisible(
+                    $data['permissions'], 'SHIPMENT', $data['shipment_id'], $data,
+                );
+            }
             $namespace = 'sales.unsold-return.create';
             $key = $data['idempotency_key'];
 

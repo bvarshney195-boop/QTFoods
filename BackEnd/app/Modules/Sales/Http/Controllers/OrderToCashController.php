@@ -6,6 +6,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
 use App\Modules\Sales\Application\OrderToCashQuery;
 use App\Modules\Sales\Application\OrderToCashService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -34,7 +35,8 @@ final class OrderToCashController
     public function profitability(Request $request): JsonResponse
     {
         $filters = $request->validate(['q' => ['sometimes', 'string', 'max:100'], 'date_from' => ['sometimes', 'date_format:Y-m-d'],
-            'date_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:date_from']]);
+            'date_to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'visibility' => ['sometimes', Rule::in(OperationalVisibilityScope::FILTERS)]]);
         return response()->json($this->query->profitability(
             $this->selectedScope($request, true), $filters, $this->currentPermissions($request),
         ));
@@ -313,7 +315,8 @@ final class OrderToCashController
     private function workspace(Request $request, string $method, array $statuses): JsonResponse
     {
         $rules = ['page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'between:1,100'],
-            'q' => ['sometimes', 'string', 'max:100'], 'sort' => ['sometimes', Rule::in(OrderToCashQuery::SORTS)]];
+            'q' => ['sometimes', 'string', 'max:100'], 'sort' => ['sometimes', Rule::in(OrderToCashQuery::SORTS)],
+            'visibility' => ['sometimes', Rule::in(OperationalVisibilityScope::FILTERS)]];
         if ($statuses !== []) $rules['status'] = ['sometimes', Rule::in($statuses)];
         $filters = $request->validate($rules);
         return response()->json($this->query->{$method}($this->selectedScope($request, true), $filters, $this->currentPermissions($request)));

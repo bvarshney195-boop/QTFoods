@@ -6,6 +6,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
 use App\Modules\Inventory\Application\InventoryOperationQuery;
 use App\Modules\Inventory\Application\InventoryOperationService;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -32,6 +33,7 @@ final class InventoryOperationController
             'status' => ['sometimes', 'string', Rule::in(InventoryOperationService::STATUSES)],
             'operation_type' => ['sometimes', 'string', Rule::in($config['types'])],
             'sort' => ['sometimes', 'string', Rule::in(InventoryOperationQuery::SORTS)],
+            'visibility' => ['sometimes', 'string', Rule::in(OperationalVisibilityScope::FILTERS)],
         ]);
 
         return response()->json($this->query->workspace(
@@ -131,6 +133,7 @@ final class InventoryOperationController
         return response()->json($this->query->movementWorkspace(
             $this->selectedScope($request, true),
             $filters,
+            $this->currentPermissions($request),
         ));
     }
 
@@ -139,6 +142,7 @@ final class InventoryOperationController
         return response()->json(['data' => $this->query->movementDetail(
             $movementId,
             $this->selectedScope($request, true),
+            $this->currentPermissions($request),
         )]);
     }
 

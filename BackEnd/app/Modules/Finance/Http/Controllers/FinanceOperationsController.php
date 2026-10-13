@@ -6,6 +6,7 @@ use App\Modules\Finance\Application\FinanceOperationsQuery;
 use App\Modules\Finance\Application\FinanceOperationsService;
 use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
+use App\Shared\Visibility\OperationalVisibilityScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -77,7 +78,7 @@ final class FinanceOperationsController
     public function acknowledgeExport(string $exportId, Request $request): JsonResponse { $v = $request->validate(['acknowledgement_reference' => ['required', 'string', 'max:120']]); return $this->ok($this->service->acknowledgeExport($exportId, $v['acknowledgement_reference'], $this->commandContext($request, true))); }
 
     protected function sessionService(): SessionService { return $this->sessions; }
-    private function workspace(string $area, Request $request): JsonResponse { $filters = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'string', 'max:24']]); return response()->json($this->query->workspace($area, $this->selectedScope($request, true), $this->currentPermissions($request), $filters)); }
+    private function workspace(string $area, Request $request): JsonResponse { $filters = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'string', 'max:24'], 'visibility' => ['nullable', Rule::in(OperationalVisibilityScope::FILTERS)]]); return response()->json($this->query->workspace($area, $this->selectedScope($request, true), $this->currentPermissions($request), $filters)); }
     private function show(string $area, string $id, Request $request): JsonResponse { return response()->json(['data' => $this->query->detail($area, $id, $this->selectedScope($request, true), $this->currentPermissions($request))]); }
     private function created(array $data): JsonResponse { return response()->json(['data' => $data], 201); }
     private function ok(array $data): JsonResponse { return response()->json(['data' => $data]); }

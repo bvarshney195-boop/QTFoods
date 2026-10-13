@@ -605,6 +605,27 @@ final class DatabaseSeeder extends Seeder
                 DB::table('role_permissions')->insert($rows);
             }
 
+            // Visibility permissions are deliberately seeded without a default role assignment.
+            // An organisation administrator must explicitly grant them in the existing role editor.
+            foreach ([
+                'DidntShowCheckbox' => ['Restrict transaction entries', 'Allows an authorised transaction editor to change operational visibility.'],
+                'ShowEntries' => ['View restricted transaction entries', 'Includes restricted entries in authorised operational views, searches, and exports.'],
+            ] as $permissionCode => [$name, $description]) {
+                $permissionId = DB::table('permissions')->where('code', $permissionCode)->value('id')
+                    ?: (string) Str::uuid();
+                DB::table('permissions')->updateOrInsert(['code' => $permissionCode], [
+                    'id' => $permissionId,
+                    'name' => $name,
+                    'company_id' => null,
+                    'description' => $description,
+                    'status' => 'ACTIVE',
+                    'is_system' => true,
+                    'record_version' => 1,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
             $assignments = [
                 ['00000000-0000-4000-8000-000000000401', $users['sales'][0], $roles['SALES_MANAGER'][0], $trainingPlantId],
                 ['00000000-0000-4000-8000-000000000402', $users['operations'][0], $roles['OPERATIONS_MANAGER'][0], $trainingPlantId],

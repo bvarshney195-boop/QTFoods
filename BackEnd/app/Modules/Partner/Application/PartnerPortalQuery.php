@@ -3,6 +3,8 @@
 namespace App\Modules\Partner\Application;
 
 use App\Modules\Sales\Application\OrderToCashService;
+use App\Shared\Visibility\OperationalVisibilityScope;
+use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -19,7 +21,11 @@ final class PartnerPortalQuery
         'party_name',
     ];
 
-    public function __construct(private readonly PartnerAccessResolver $access) {}
+    public function __construct(
+        private readonly PartnerAccessResolver $access,
+        private readonly OperationalVisibilityScope $visibility,
+        private readonly TransactionVisibilityPolicy $visibilityPolicy,
+    ) {}
 
     public function workspace(array $scope, string $actorId, array $permissions, array $filters = []): array
     {
@@ -33,16 +39,16 @@ final class PartnerPortalQuery
             ? $this->documents($scope, $partyId, $internal, $entitlements, $permissions, $filters)
             : [];
         $orders = $partyId !== null && ($internal || in_array('ORDERS_VIEW', $entitlements, true))
-            ? $this->orders($scope, $partyId, $filters)
+            ? $this->orders($scope, $partyId, $filters, $permissions)
             : [];
         $shipments = $partyId !== null && ($internal || in_array('SHIPMENTS_VIEW', $entitlements, true))
-            ? $this->shipments($scope, $partyId, $filters)
+            ? $this->shipments($scope, $partyId, $filters, $permissions)
             : [];
         $invoices = $partyId !== null && ($internal || in_array('INVOICES_VIEW', $entitlements, true))
-            ? $this->invoices($scope, $partyId, $filters)
+            ? $this->invoices($scope, $partyId, $filters, $permissions)
             : [];
         $claims = $partyId !== null && ($internal || in_array('CLAIMS_VIEW', $entitlements, true))
-            ? $this->claims($scope, $partyId, $filters)
+            ? $this->claims($scope, $partyId, $filters, $permissions)
             : [];
 
         return [
@@ -80,7 +86,7 @@ final class PartnerPortalQuery
                     'open_claims' => collect($claims)->whereIn('status', ['OPEN', 'RETURN_REQUIRED', 'RECEIVED'])->count(),
                     'available_documents' => collect($documents)->where('status', 'AVAILABLE')->count(),
                 ],
-            'lookups' => $this->lookups($scope, $partyId, $internal),
+            'lookups' => $this->lookups($scope, $partyId, $internal, $permissions),
             'allowed_actions' => $this->workspaceActions($internal, $entitlements, $permissions),
             'scope' => $scope + ['party_id' => $partyId],
             'meta' => [
@@ -101,10 +107,10 @@ final class PartnerPortalQuery
 
         return match ($resource) {
             'grant' => $this->grantDetail($id, $scope, $permissions, $internal),
-            'order' => $this->orderDetail($id, $scope, $partyId, $internal, $entitlements),
-            'shipment' => $this->shipmentDetail($id, $scope, $partyId, $internal, $entitlements),
-            'invoice' => $this->invoiceDetail($id, $scope, $partyId, $internal, $entitlements),
-            'claim' => $this->claimDetail($id, $scope, $partyId, $internal, $entitlements),
+            'order' => $this->orderDetail($id, $scope, $partyId, $internal, $entitlements, $permissions),
+            'shipment' => $this->shipmentDetail($id, $scope, $partyId, $internal, $entitlements, $permissions),
+            'invoice' => $this->invoiceDetail($id, $scope, $partyId, $internal, $entitlements, $permissions),
+            'claim' => $this->claimDetail($id, $scope, $partyId, $internal, $entitlements, $permissions),
             'document' => $this->documentDetail($id, $scope, $partyId, $internal, $entitlements, $permissions),
             default => throw new NotFoundHttpException('Partner portal resource not found.'),
         };
@@ -123,13 +129,14 @@ final class PartnerPortalQuery
         if (! $internal && (! in_array('DOCUMENTS_VIEW', $entitlements, true) || ! in_array('DOCUMENT_DOWNLOAD', $entitlements, true))) {
             throw new AccessDeniedHttpException('The partner access grant does not include document download.');
         }
-        $query = DB::table('partner_documents')
-            ->where('id', $id)
-            ->where('company_id', $scope['company_id'])
-            ->where('plant_id', $scope['plant_id']);
+        $query = DB::table('partner_documents as document')
+            ->where('document.id', $id)
+            ->where('document.company_id', $scope['company_id'])
+            ->where('document.plant_id', $scope['plant_id']);
         if (! $internal) {
-            $query->where('party_id', $partyId)->where('status', '<>', 'WITHDRAWN');
+            $query->where('document.party_id', $partyId)->where('document.status', '<>', 'WITHDRAWN');
         }
+        $this->applyDocumentVisibility($query, 'document', $permissions);
         $document = $query->first();
         if (! $document) {
             throw new NotFoundHttpException('Partner document not found.');
@@ -187,7 +194,7 @@ final class PartnerPortalQuery
         array $permissions,
         array $filters,
     ): array {
-        return DB::table('partner_documents as document')
+        $query = DB::table('partner_documents as document')
             ->join('parties as party', 'party.id', '=', 'document.party_id')
             ->join('users as creator', 'creator.id', '=', 'document.created_by')
             ->where('document.company_id', $scope['company_id'])
@@ -203,7 +210,10 @@ final class PartnerPortalQuery
                         ->orWhere('document.original_name', 'like', '%'.$search.'%')
                         ->orWhere('party.display_name', 'like', '%'.$search.'%');
                 });
-            })
+            });
+        $this->applyDocumentVisibility($query, 'document', $permissions);
+
+        return $query
             ->orderByDesc('document.available_at')
             ->limit(200)
             ->get([
@@ -220,15 +230,18 @@ final class PartnerPortalQuery
             ->all();
     }
 
-    private function orders(array $scope, string $partyId, array $filters): array
+    private function orders(array $scope, string $partyId, array $filters, array $permissions): array
     {
-        return DB::table('sales_orders as sales_order')
+        $query = DB::table('sales_orders as sales_order')
             ->where('sales_order.company_id', $scope['company_id'])
             ->where('sales_order.plant_id', $scope['plant_id'])
             ->where('sales_order.customer_party_id', $partyId)
             ->where('sales_order.order_type', 'SALES')
             ->when($filters['q'] ?? null, fn (Builder $query, string $search) => $query->where('sales_order.order_number', 'like', '%'.$search.'%'))
-            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('sales_order.status', $status))
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('sales_order.status', $status));
+        $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $permissions, null, 'partner_order_visibility', false);
+
+        return $query
             ->orderByDesc('sales_order.order_date')
             ->limit(150)
             ->get([
@@ -238,9 +251,9 @@ final class PartnerPortalQuery
             ])->map(fn (object $row): array => $this->row($row))->all();
     }
 
-    private function shipments(array $scope, string $partyId, array $filters): array
+    private function shipments(array $scope, string $partyId, array $filters, array $permissions): array
     {
-        return DB::table('shipments as shipment')
+        $query = DB::table('shipments as shipment')
             ->leftJoin('sales_orders as sales_order', 'sales_order.id', '=', 'shipment.sales_order_id')
             ->leftJoin('sales_invoice_financials as invoice', 'invoice.shipment_id', '=', 'shipment.id')
             ->where('shipment.company_id', $scope['company_id'])
@@ -251,7 +264,11 @@ final class PartnerPortalQuery
                     ->orWhere('sales_order.order_number', 'like', '%'.$search.'%')
                     ->orWhere('invoice.invoice_number', 'like', '%'.$search.'%'));
             })
-            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('shipment.status', $status))
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('shipment.status', $status));
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'partner_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $permissions, null, 'partner_shipment_order_visibility', false);
+
+        return $query
             ->orderByDesc('shipment.updated_at')
             ->limit(150)
             ->get([
@@ -262,9 +279,9 @@ final class PartnerPortalQuery
             ])->map(fn (object $row): array => $this->row($row))->all();
     }
 
-    private function invoices(array $scope, string $partyId, array $filters): array
+    private function invoices(array $scope, string $partyId, array $filters, array $permissions): array
     {
-        return DB::table('sales_invoice_financials as invoice')
+        $query = DB::table('sales_invoice_financials as invoice')
             ->join('invoices as invoice_record', 'invoice_record.id', '=', 'invoice.invoice_id')
             ->leftJoin('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')
             ->leftJoin('sales_orders as sales_order', 'sales_order.id', '=', 'invoice.sales_order_id')
@@ -276,7 +293,11 @@ final class PartnerPortalQuery
                     ->orWhere('shipment.shipment_number', 'like', '%'.$search.'%')
                     ->orWhere('sales_order.order_number', 'like', '%'.$search.'%'));
             })
-            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('invoice_record.status', $status))
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('invoice_record.status', $status));
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'partner_invoice_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $permissions, null, 'partner_invoice_order_visibility', false);
+
+        return $query
             ->orderByDesc('invoice.issued_at')
             ->limit(150)
             ->get([
@@ -288,10 +309,11 @@ final class PartnerPortalQuery
             ])->map(fn (object $row): array => $this->moneyRow($row))->all();
     }
 
-    private function claims(array $scope, string $partyId, array $filters): array
+    private function claims(array $scope, string $partyId, array $filters, array $permissions): array
     {
-        return DB::table('customer_claims as claim')
+        $query = DB::table('customer_claims as claim')
             ->join('shipments as shipment', 'shipment.id', '=', 'claim.shipment_id')
+            ->leftJoin('sales_orders as sales_order', 'sales_order.id', '=', 'shipment.sales_order_id')
             ->leftJoin('sales_invoice_financials as invoice', 'invoice.invoice_id', '=', 'claim.invoice_id')
             ->where('claim.company_id', $scope['company_id'])
             ->where('claim.plant_id', $scope['plant_id'])
@@ -301,7 +323,12 @@ final class PartnerPortalQuery
                     ->orWhere('shipment.shipment_number', 'like', '%'.$search.'%')
                     ->orWhere('invoice.invoice_number', 'like', '%'.$search.'%'));
             })
-            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('claim.status', $status))
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query->where('claim.status', $status));
+        $this->visibility->apply($query, 'CUSTOMER_CLAIM', 'claim.id', $permissions, null, 'partner_claim_visibility', false);
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'partner_claim_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $permissions, null, 'partner_claim_order_visibility', false);
+
+        return $query
             ->orderByDesc('claim.updated_at')
             ->limit(150)
             ->get([
@@ -326,9 +353,10 @@ final class PartnerPortalQuery
         return $grant;
     }
 
-    private function orderDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
+    private function orderDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements, array $permissions): array
     {
         $this->assertEntitled($internal, $entitlements, 'ORDERS_VIEW');
+        $this->visibilityPolicy->assertOperationallyVisible($permissions, 'SALES_ORDER', $id, $scope);
         $query = DB::table('sales_orders')->where('id', $id)->where($scope)->where('order_type', 'SALES');
         if (! $internal) {
             $query->where('customer_party_id', $partyId);
@@ -355,9 +383,10 @@ final class PartnerPortalQuery
         return $payload;
     }
 
-    private function shipmentDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
+    private function shipmentDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements, array $permissions): array
     {
         $this->assertEntitled($internal, $entitlements, 'SHIPMENTS_VIEW');
+        $this->visibilityPolicy->assertOperationallyVisible($permissions, 'SHIPMENT', $id, $scope);
         $query = DB::table('shipments')->where('id', $id)->where($scope);
         if (! $internal) {
             $query->where('party_id', $partyId);
@@ -388,9 +417,10 @@ final class PartnerPortalQuery
         return $payload;
     }
 
-    private function invoiceDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
+    private function invoiceDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements, array $permissions): array
     {
         $this->assertEntitled($internal, $entitlements, 'INVOICES_VIEW');
+        $this->visibilityPolicy->assertOperationallyVisible($permissions, 'RECEIVABLE_INVOICE', $id, $scope);
         $query = DB::table('sales_invoice_financials as invoice')->join('invoices as invoice_record', 'invoice_record.id', '=', 'invoice.invoice_id')
             ->where('invoice.invoice_id', $id)->where('invoice.company_id', $scope['company_id'])->where('invoice.plant_id', $scope['plant_id']);
         if (! $internal) {
@@ -418,9 +448,10 @@ final class PartnerPortalQuery
         return $payload;
     }
 
-    private function claimDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements): array
+    private function claimDetail(string $id, array $scope, ?string $partyId, bool $internal, array $entitlements, array $permissions): array
     {
         $this->assertEntitled($internal, $entitlements, 'CLAIMS_VIEW');
+        $this->visibilityPolicy->assertOperationallyVisible($permissions, 'CUSTOMER_CLAIM', $id, $scope);
         $query = DB::table('customer_claims')->where('id', $id)->where($scope);
         if (! $internal) {
             $query->where('customer_party_id', $partyId);
@@ -464,6 +495,7 @@ final class PartnerPortalQuery
         if (! $internal) {
             $query->where('document.party_id', $partyId)->where('document.status', '<>', 'WITHDRAWN');
         }
+        $this->applyDocumentVisibility($query, 'document', $permissions);
         $row = $query->first([
             'document.id', 'document.company_id', 'document.plant_id', 'document.party_id',
             'document.document_number', 'document.direction', 'document.document_type', 'document.title',
@@ -488,7 +520,7 @@ final class PartnerPortalQuery
         return $payload;
     }
 
-    private function lookups(array $scope, ?string $partyId, bool $internal): array
+    private function lookups(array $scope, ?string $partyId, bool $internal, array $permissions): array
     {
         $customers = $internal ? DB::table('parties as party')->join('party_roles as party_role', function ($join): void {
             $join->on('party_role.party_id', '=', 'party.id')->where('party_role.role_code', 'CUSTOMER');
@@ -513,10 +545,15 @@ final class PartnerPortalQuery
             $lookups['users'] = $users;
         }
         if ($partyId !== null) {
-            $lookups['claimable_shipments'] = DB::table('shipments as shipment')
+            $claimableShipments = DB::table('shipments as shipment')
+                ->leftJoin('sales_orders as sales_order', 'sales_order.id', '=', 'shipment.sales_order_id')
                 ->where('shipment.company_id', $scope['company_id'])->where('shipment.plant_id', $scope['plant_id'])
                 ->where('shipment.party_id', $partyId)->whereIn('shipment.status', ['DISPATCHED', 'DELIVERED'])
-                ->orderByDesc('shipment.updated_at')->get(['shipment.id', 'shipment.shipment_number', 'shipment.status'])
+                ->orderByDesc('shipment.updated_at');
+            $this->visibility->apply($claimableShipments, 'SHIPMENT', 'shipment.id', $permissions, null, 'partner_lookup_shipment_visibility', false);
+            $this->visibility->apply($claimableShipments, 'SALES_ORDER', 'sales_order.id', $permissions, null, 'partner_lookup_order_visibility', false);
+            $lookups['claimable_shipments'] = $claimableShipments
+                ->get(['shipment.id', 'shipment.shipment_number', 'shipment.status'])
                 ->map(function (object $shipment): array {
                     $payload = $this->row($shipment);
                     $payload['lines'] = DB::table('shipment_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
@@ -528,6 +565,71 @@ final class PartnerPortalQuery
         }
 
         return $lookups;
+    }
+
+    private function applyDocumentVisibility(Builder $query, string $alias, array $permissions): void
+    {
+        if ($this->visibilityPolicy->canShowRestricted($permissions)) {
+            return;
+        }
+
+        $query->whereNotExists(function (Builder $hidden) use ($alias): void {
+            $hidden->from('transaction_visibilities as partner_document_visibility')
+                ->where('partner_document_visibility.visibility_status', 'RESTRICTED')
+                ->where(function (Builder $source) use ($alias): void {
+                    foreach ([
+                        'SALES_ORDER' => "{$alias}.sales_order_id",
+                        'SHIPMENT' => "{$alias}.shipment_id",
+                        'CUSTOMER_CLAIM' => "{$alias}.customer_claim_id",
+                    ] as $type => $column) {
+                        $source->orWhere(function (Builder $pair) use ($type, $column): void {
+                            $pair->where('partner_document_visibility.transaction_type', $type)
+                                ->whereColumn('partner_document_visibility.transaction_id', $column);
+                        });
+                    }
+                });
+        })->whereNotExists(function (Builder $hidden) use ($alias): void {
+            $hidden->from('shipments as partner_document_shipment')
+                ->join('transaction_visibilities as partner_document_order_visibility', function ($join): void {
+                    $join->on('partner_document_order_visibility.transaction_id', '=', 'partner_document_shipment.sales_order_id')
+                        ->where('partner_document_order_visibility.transaction_type', 'SALES_ORDER')
+                        ->where('partner_document_order_visibility.visibility_status', 'RESTRICTED');
+                })
+                ->whereColumn('partner_document_shipment.id', "{$alias}.shipment_id");
+        })->whereNotExists(function (Builder $hidden) use ($alias): void {
+            $hidden->from('sales_invoice_financials as partner_document_invoice')
+                ->whereColumn('partner_document_invoice.invoice_id', "{$alias}.invoice_id")
+                ->where(function (Builder $source): void {
+                    $source->whereExists(function (Builder $visibility): void {
+                        $visibility->from('transaction_visibilities as partner_document_invoice_shipment_visibility')
+                            ->whereColumn('partner_document_invoice_shipment_visibility.transaction_id', 'partner_document_invoice.shipment_id')
+                            ->where('partner_document_invoice_shipment_visibility.transaction_type', 'SHIPMENT')
+                            ->where('partner_document_invoice_shipment_visibility.visibility_status', 'RESTRICTED');
+                    })->orWhereExists(function (Builder $visibility): void {
+                        $visibility->from('transaction_visibilities as partner_document_invoice_order_visibility')
+                            ->whereColumn('partner_document_invoice_order_visibility.transaction_id', 'partner_document_invoice.sales_order_id')
+                            ->where('partner_document_invoice_order_visibility.transaction_type', 'SALES_ORDER')
+                            ->where('partner_document_invoice_order_visibility.visibility_status', 'RESTRICTED');
+                    });
+                });
+        })->whereNotExists(function (Builder $hidden) use ($alias): void {
+            $hidden->from('customer_claims as partner_document_claim')
+                ->leftJoin('shipments as partner_document_claim_shipment', 'partner_document_claim_shipment.id', '=', 'partner_document_claim.shipment_id')
+                ->whereColumn('partner_document_claim.id', "{$alias}.customer_claim_id")
+                ->where(function (Builder $source): void {
+                    $source->whereExists(function (Builder $visibility): void {
+                        $visibility->from('transaction_visibilities as partner_document_claim_shipment_visibility')
+                            ->whereColumn('partner_document_claim_shipment_visibility.transaction_id', 'partner_document_claim.shipment_id')
+                            ->where('partner_document_claim_shipment_visibility.transaction_type', 'SHIPMENT')
+                            ->where('partner_document_claim_shipment_visibility.visibility_status', 'RESTRICTED');
+                    })->orWhereExists(function (Builder $visibility): void {
+                        $visibility->from('transaction_visibilities as partner_document_claim_order_visibility')
+                            ->whereColumn('partner_document_claim_order_visibility.transaction_id', 'partner_document_claim_shipment.sales_order_id')
+                            ->where('partner_document_claim_order_visibility.transaction_type', 'SALES_ORDER')
+                            ->where('partner_document_claim_order_visibility.visibility_status', 'RESTRICTED');
+                    });
+                });
+        });
     }
 
     private function workspaceActions(bool $internal, array $entitlements, array $permissions): array
