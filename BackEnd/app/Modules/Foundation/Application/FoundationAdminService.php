@@ -818,12 +818,22 @@ final class FoundationAdminService
                     ]);
                 }
             }
-            DB::table('role_permissions')->where('role_id', $roleId)->delete();
-            if ($permissionIds !== []) {
-                DB::table('role_permissions')->insert(array_map(fn (string $permissionId) => [
-                    'role_id' => $roleId,
-                    'permission_id' => $permissionId,
-                ], $permissionIds));
+            if ($systemRole) {
+                // Never replace protected-role grants: append the approved permission only.
+                if ($added !== []) {
+                    DB::table('role_permissions')->insert(array_map(fn (string $permissionId) => [
+                        'role_id' => $roleId,
+                        'permission_id' => $permissionId,
+                    ], array_values($added)));
+                }
+            } else {
+                DB::table('role_permissions')->where('role_id', $roleId)->delete();
+                if ($permissionIds !== []) {
+                    DB::table('role_permissions')->insert(array_map(fn (string $permissionId) => [
+                        'role_id' => $roleId,
+                        'permission_id' => $permissionId,
+                    ], $permissionIds));
+                }
             }
             $version = (int) $role->record_version + 1;
             DB::table('roles')->where('id', $roleId)->update([
