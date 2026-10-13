@@ -159,7 +159,7 @@ async function fillFormValue(page: Page, value: unknown, path: string): Promise<
     return;
   }
 
-  const control = page.locator(`[data-field-path="${path}"] input, [data-field-path="${path}"] select, [data-field-path="${path}"] textarea`);
+  const control = page.locator(`input[data-field-path="${path}"], select[data-field-path="${path}"], textarea[data-field-path="${path}"]`);
   await expect(control.first(), `Expected a form control for ${path}`).toBeVisible();
   const details = await control.first().evaluate((element) => ({
     tag: element.tagName.toLowerCase(),
