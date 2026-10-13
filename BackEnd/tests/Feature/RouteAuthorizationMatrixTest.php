@@ -58,6 +58,11 @@ final class RouteAuthorizationMatrixTest extends TestCase
     ];
 
     private const STATE_AUTHORIZED_ROUTES = [
+        'PATCH api/v1/transaction-visibility/{transactionType}/{transactionId}' => [
+            'screen' => 'WRK-HOME',
+            'entity_type' => 'transaction_visibility',
+            'permission_prefix' => 'DidntShowCheckbox',
+        ],
         'POST api/v1/procurement/requisition-approvals/{approvalId}/approve' => [
             'screen' => 'PUR-REQ',
             'entity_type' => 'purchase_requisition',
@@ -382,6 +387,11 @@ final class RouteAuthorizationMatrixTest extends TestCase
         $this->assertNotEmpty($bands);
 
         foreach (self::STATE_AUTHORIZED_ROUTES as $routeKey => $contract) {
+            // Visibility changes are governed by transaction policy and RBAC,
+            // not by approval-rule bands. They require no approval.
+            if ($contract['entity_type'] === 'transaction_visibility') {
+                continue;
+            }
             $route = $catalog->get($routeKey);
             $this->assertNotNull($route, "Reviewed state-authorized route {$routeKey} is missing.");
             $this->assertSame($contract['screen'], $route['screen']);
