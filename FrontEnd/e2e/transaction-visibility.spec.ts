@@ -165,6 +165,12 @@ async function fillFormValue(page: Page, value: unknown, path: string): Promise<
     tag: element.tagName.toLowerCase(),
     type: element instanceof HTMLInputElement ? element.type : '',
   }));
+  // UOM and other derived commercial fields may be rendered read-only.
+  // Verify their computed value instead of attempting to edit them.
+  if (await control.first().isVisible() && await control.first().getAttribute('readonly') !== null) {
+    await expect(control.first()).toHaveValue(value === null ? '' : String(value));
+    return;
+  }
   if (details.tag === 'select') {
     await control.first().selectOption(value === null ? '' : String(value));
   } else {
