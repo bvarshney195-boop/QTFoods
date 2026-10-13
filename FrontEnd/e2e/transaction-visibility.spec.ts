@@ -11,6 +11,10 @@ const ITEM_ID = '00000000-0000-4000-8000-000000000601';
 const CONTRACT_ID = '00000000-0000-4000-8000-000000002501';
 const evidenceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs/uat/transaction-visibility');
 
+// This test deliberately mutates roles and transaction visibility in the shared
+// disposable E2E database. Automatic retries must not inherit those mutations.
+test.describe.configure({ retries: 0 });
+
 test('visibility permission combinations govern the sales-order browser workflow', async ({ page }) => {
   test.setTimeout(300_000);
   mkdirSync(evidenceRoot, { recursive: true });
