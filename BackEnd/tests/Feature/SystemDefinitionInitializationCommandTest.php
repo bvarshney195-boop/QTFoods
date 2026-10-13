@@ -44,7 +44,7 @@ final class SystemDefinitionInitializationCommandTest extends TestCase
         $expectedPermissions = array_keys(SystemDefinitionCatalogue::permissions());
         $actualPermissions = DB::table('permissions')->orderBy('code')->pluck('code')->all();
         self::assertSame($expectedPermissions, $actualPermissions);
-        self::assertSame(350, DB::table('permissions')->whereNull('company_id')
+        self::assertSame(count($expectedPermissions), DB::table('permissions')->whereNull('company_id')
             ->where('is_system', true)->where('status', 'ACTIVE')->count());
 
         foreach (SystemDefinitionCatalogue::permissionsByRole() as $roleCode => $permissionCodes) {
