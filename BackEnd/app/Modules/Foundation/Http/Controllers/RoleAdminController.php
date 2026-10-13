@@ -75,7 +75,7 @@ final class RoleAdminController
     public function syncPermissions(string $roleId, Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'permission_ids' => ['present', 'array', 'max:300'],
+            'permission_ids' => ['present', 'array', 'max:1000'],
             'permission_ids.*' => ['uuid', 'distinct'],
         ]);
 
