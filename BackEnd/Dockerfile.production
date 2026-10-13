@@ -34,7 +34,8 @@ FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f
 
 WORKDIR /src
 COPY deploy/caddy-build/go.mod deploy/caddy-build/go.sum deploy/caddy-build/main.go ./
-RUN go mod download \
+RUN go mod tidy \
+    && go mod download \
     && go mod verify \
     && CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/caddy .
 
