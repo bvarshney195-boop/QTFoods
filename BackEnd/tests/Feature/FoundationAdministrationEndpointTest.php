@@ -440,27 +440,42 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertJsonPath('error.fields.user.0', 'Assign another active ERP Administrator in every affected context before deleting this user.');
     }
 
-    public function test_erp_admin_can_only_add_approved_visibility_to_protected_roles(): void
+    public function test_erp_admin_can_manage_permissions_on_existing_roles(): void
+    {
+        $roleId = self::SALES_ROLE_ID;
+        $before = DB::table('role_permissions')->where('role_id', $roleId)->pluck('permission_id')->all();
+        $permissionId = DB::table('permissions')->where('code', 'ShowEntries')->value('id');
+        $this->assertNotNull($permissionId);
+        $version = (int) DB::table('roles')->where('id', $roleId)->value('record_version');
+        $newPermissions = array_values(array_unique([...$before, $permissionId]));
+
+        $this->withHeaders($this->commandHeaders($version))
+            ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
+                'permission_ids' => $newPermissions,
+            ])->assertOk();
+        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $permissionId]);
+
+        $this->withHeaders($this->commandHeaders($version + 1))
+            ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
+                'permission_ids' => $before,
+            ])->assertOk();
+        $this->assertSame(count($before), DB::table('role_permissions')->where('role_id', $roleId)->count());
+    }
+
+    public function test_erp_admin_cannot_remove_its_own_role_management_access(): void
     {
         $roleId = self::ERP_ADMIN_ROLE_ID;
-        $before = DB::table('role_permissions')->where('role_id', $roleId)->pluck('permission_id')->all();
-        $visibilityId = DB::table('permissions')->where('code', 'ShowEntries')->value('id');
-        $this->assertNotNull($visibilityId);
-        $this->assertNotContains($visibilityId, $before);
-        $roleVersion = (int) DB::table('roles')->where('id', $roleId)->value('record_version');
-
-        $this->withHeaders($this->commandHeaders($roleVersion))
+        $version = (int) DB::table('roles')->where('id', $roleId)->value('record_version');
+        $permissions = DB::table('role_permissions as rp')
+            ->join('permissions as p', 'p.id', '=', 'rp.permission_id')
+            ->where('rp.role_id', $roleId)
+            ->where('p.code', '!=', 'ACTION:ADM-ROLE:PERMISSIONS')
+            ->pluck('rp.permission_id')->all();
+        $this->withHeaders($this->commandHeaders($version))
             ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
-                'permission_ids' => [...$before, $visibilityId],
-            ])->assertOk();
-        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $visibilityId]);
-        $this->assertSame(count($before) + 1, DB::table('role_permissions')->where('role_id', $roleId)->count());
-
-        $this->withHeaders($this->commandHeaders($roleVersion + 1))
-            ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
-                'permission_ids' => [$visibilityId],
+                'permission_ids' => $permissions,
             ])->assertUnprocessable();
-        $this->assertSame(count($before) + 1, DB::table('role_permissions')->where('role_id', $roleId)->count());
+        $this->assertSame($version, (int) DB::table('roles')->where('id', $roleId)->value('record_version'));
     }
 
     public function test_non_admin_and_out_of_scope_commands_are_denied(): void
