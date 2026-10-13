@@ -440,6 +440,29 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertJsonPath('error.fields.user.0', 'Assign another active ERP Administrator in every affected context before deleting this user.');
     }
 
+    public function test_erp_admin_can_only_add_approved_visibility_to_protected_roles(): void
+    {
+        $roleId = self::ERP_ADMIN_ROLE_ID;
+        $before = DB::table('role_permissions')->where('role_id', $roleId)->pluck('permission_id')->all();
+        $visibilityId = DB::table('permissions')->where('code', 'ShowEntries')->value('id');
+        $this->assertNotNull($visibilityId);
+        $this->assertNotContains($visibilityId, $before);
+        $roleVersion = (int) DB::table('roles')->where('id', $roleId)->value('record_version');
+
+        $this->withHeaders($this->commandHeaders($roleVersion))
+            ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
+                'permission_ids' => [...$before, $visibilityId],
+            ])->assertOk();
+        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $visibilityId]);
+        $this->assertSame(count($before) + 1, DB::table('role_permissions')->where('role_id', $roleId)->count());
+
+        $this->withHeaders($this->commandHeaders($roleVersion + 1))
+            ->postJson("/api/v1/admin/roles/{$roleId}/permissions", [
+                'permission_ids' => [$visibilityId],
+            ])->assertUnprocessable();
+        $this->assertSame(count($before) + 1, DB::table('role_permissions')->where('role_id', $roleId)->count());
+    }
+
     public function test_non_admin_and_out_of_scope_commands_are_denied(): void
     {
         $this->signIn(self::SALES_USER_ID, self::TRAINING_PLANT_ID);
