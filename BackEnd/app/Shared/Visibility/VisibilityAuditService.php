@@ -44,7 +44,7 @@ final class VisibilityAuditService
             $change['actor_id'],
             $change['company_id'],
             $change['plant_id'],
-            'SUCCEEDED',
+            'SUCCESS',
             [
                 'entity_version' => $change['record_version'],
                 'correlation_id' => $change['correlation_id'] ?? null,
