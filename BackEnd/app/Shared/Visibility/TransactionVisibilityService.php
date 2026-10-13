@@ -107,6 +107,12 @@ final class TransactionVisibilityService
             ->where('transaction_type', $type)->where('transaction_id', $transactionId)->first();
         $status = (string) ($visibility?->visibility_status ?? 'NORMAL');
         $this->policy->assertCanView($context['permissions'], $type, $status);
+        // Historical restriction decisions can disclose formerly hidden business details,
+        // including actor names and confidential restriction reasons. A record becoming
+        // NORMAL must not make those past audit events visible to ordinary users.
+        if (! $this->policy->canShowRestricted($context['permissions'])) {
+            throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException('Transaction not found.');
+        }
 
         return DB::table('transaction_visibility_events as event')
             ->join('users as actor', 'actor.id', '=', 'event.actor_id')
