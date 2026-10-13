@@ -55,7 +55,7 @@ WORKDIR /src
 RUN git clone --filter=blob:none --no-checkout https://github.com/minio/mc.git . \
     && git checkout --detach 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
     && test "$(git rev-parse HEAD)" = 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
-    && go get github.com/prometheus/prometheus@v0.311.3 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.41.0 google.golang.org/grpc@v1.83.2 \
+    && go get github.com/prometheus/prometheus@v0.311.3 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 \
     && go mod tidy \
     && go mod verify \
     && mc_ldflags="$(go run buildscripts/gen-ldflags.go)" \
