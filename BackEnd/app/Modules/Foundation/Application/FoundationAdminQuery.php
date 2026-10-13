@@ -552,7 +552,7 @@ final class FoundationAdminQuery
             'record_version' => (int) $role->record_version,
             'allowed_actions' => array_values(array_filter([
                 $custom && $this->can($permissions, 'ACTION:ADM-ROLE:UPDATE') ? 'UPDATE' : null,
-                ($custom || ((bool) $role->is_system && in_array($role->code, ['ERP_ADMIN', 'FINANCE_REVIEWER'], true))) && $this->can($permissions, 'ACTION:ADM-ROLE:PERMISSIONS') ? 'SYNC_PERMISSIONS' : null,
+                $this->can($permissions, 'ACTION:ADM-ROLE:PERMISSIONS') ? 'SYNC_PERMISSIONS' : null,
             ])),
             'created_at' => $this->timestamp($role->created_at),
             'updated_at' => $this->timestamp($role->updated_at),
