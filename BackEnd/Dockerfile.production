@@ -30,7 +30,7 @@ USER www-data
 EXPOSE 9000
 CMD ["php-fpm", "-F"]
 
-FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS gateway-build
+FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS gateway-build
 
 WORKDIR /src
 COPY deploy/caddy-build/go.mod deploy/caddy-build/go.sum deploy/caddy-build/main.go ./
@@ -48,14 +48,14 @@ COPY --from=app /var/www/html/public /var/www/html/public
 
 EXPOSE 80 443
 
-FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83 AS minio-client
+FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS minio-client
 
 RUN apk add --no-cache git
 WORKDIR /src
 RUN git clone --filter=blob:none --no-checkout https://github.com/minio/mc.git . \
     && git checkout --detach 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
     && test "$(git rev-parse HEAD)" = 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
-    && go get github.com/prometheus/prometheus@v0.311.3 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 google.golang.org/grpc@v1.83.2 \
+    && go get github.com/prometheus/prometheus@v0.311.3 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.41.0 google.golang.org/grpc@v1.83.2 \
     && go mod tidy \
     && go mod verify \
     && mc_ldflags="$(go run buildscripts/gen-ldflags.go)" \
