@@ -90,10 +90,10 @@ Route::middleware('web')->prefix('v1')->group(function () {
         Route::middleware(['erp.password', 'erp.context'])->group(function () {
             Route::patch('/transaction-visibility/{transactionType}/{transactionId}', [TransactionVisibilityController::class, 'update'])
                 ->where('transactionType', '[A-Za-z_-]+')->whereUuid('transactionId')
-                ->middleware('erp.permission:DidntShowCheckbox');
+                ->middleware('erp.screen:WRK-HOME');
             Route::get('/transaction-visibility/{transactionType}/{transactionId}/history', [TransactionVisibilityController::class, 'history'])
                 ->where('transactionType', '[A-Za-z_-]+')->whereUuid('transactionId')
-                ->middleware('erp.permission:ShowEntries');
+                ->middleware('erp.screen:WRK-HOME');
             Route::middleware('erp.screen:WRK-HOME')->group(function () {
                 Route::get('/experience/search', [ExperienceController::class, 'search']);
                 Route::get('/experience/workspace', [ExperienceController::class, 'workspace']);
