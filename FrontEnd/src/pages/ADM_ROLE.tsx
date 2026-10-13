@@ -265,9 +265,10 @@ export default function ADM_ROLE() {
 
           {editor === 'role' && selectedRole && <div className="permission-matrix">
             <div className="subsection-head"><div><b>Assigned permissions</b><small>{permissionIds.length} selected</small></div>{selectedRole.allowed_actions.includes('SYNC_PERMISSIONS') && <button className="primary compact-button" type="button" onClick={() => void savePermissions()} disabled={permissionBusy}>{permissionBusy ? 'Saving...' : 'Save permissions'}</button>}</div>
+            {selectedRole.is_system && <p className="callout">Protected role: existing permissions are locked. ERP Admin may only add ShowEntries to ERP Administrator or Finance Manager. All changes are audited.</p>}
             <input aria-label="Filter permission matrix" value={permissionSearch} onChange={(event) => setPermissionSearch(event.target.value)} placeholder="Filter permission codes" />
             <div className="permission-list">
-              {filteredPermissions.map((permission) => <label key={permission.id}><input type="checkbox" checked={permissionIds.includes(permission.id)} disabled={!selectedRole.allowed_actions.includes('SYNC_PERMISSIONS') || permission.status !== 'ACTIVE'} onChange={() => togglePermission(permission.id)} /><span><b>{permission.name}</b><small>{permission.code}</small></span></label>)}
+              {filteredPermissions.map((permission) => <label key={permission.id}><input type="checkbox" checked={permissionIds.includes(permission.id)} disabled={!selectedRole.allowed_actions.includes('SYNC_PERMISSIONS') || permission.status !== 'ACTIVE' || (selectedRole.is_system && (permission.code !== 'ShowEntries' || permissionIds.includes(permission.id)))} onChange={() => togglePermission(permission.id)} /><span><b>{permission.name}</b><small>{permission.code}</small></span></label>)}
             </div>
           </div>}
         </aside>
