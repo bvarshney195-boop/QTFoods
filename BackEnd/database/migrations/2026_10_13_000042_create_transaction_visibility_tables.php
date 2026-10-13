@@ -142,7 +142,7 @@ return new class extends Migration {
             DB::statement('ALTER TABLE transaction_visibilities ADD CONSTRAINT transaction_visibilities_version_check CHECK (record_version >= 1)');
             DB::statement("ALTER TABLE transaction_visibility_events ADD CONSTRAINT transaction_visibility_events_status_check CHECK (previous_visibility IN ('NORMAL', 'RESTRICTED') AND new_visibility IN ('NORMAL', 'RESTRICTED') AND previous_visibility <> new_visibility)");
             DB::unprepared(<<<'SQL'
-                CREATE FUNCTION prevent_transaction_visibility_event_mutation() RETURNS trigger AS $$
+                CREATE OR REPLACE FUNCTION prevent_transaction_visibility_event_mutation() RETURNS trigger AS $$
                 BEGIN
                     RAISE EXCEPTION 'transaction_visibility_events are immutable';
                 END;
