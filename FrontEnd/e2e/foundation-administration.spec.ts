@@ -32,9 +32,11 @@ test('ERP Administrator provisions plant foundation data and effective user auth
   await page.getByRole('button', { name: 'Create location' }).click();
   await expect(page.getByRole('status')).toContainText('E2E-BULK was created');
 
-  const locationRow = page.locator('.admin-table tbody tr').filter({ hasText: 'E2E-BULK' });
+  const locationRow = page.getByRole('table', { name: 'Location register' })
+    .locator('.expandable-register-record').filter({ hasText: 'E2E-BULK' });
   await expect(locationRow).toContainText('E2E Bulk Store');
-  await locationRow.getByRole('button', { name: 'Open' }).click();
+  await locationRow.getByRole('button', { name: /Expand E2E-BULK/ }).click();
+  await locationRow.getByRole('button', { name: 'Open edit card' }).click();
   await page.getByLabel('Name').fill('E2E Bulk Warehouse');
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('saved with a new record version');

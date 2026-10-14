@@ -27,6 +27,7 @@ const resources: ProductMasterResource[] = ['brands', 'items', 'skus', 'recipes'
 
 describe('product master workspaces', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '#');
     vi.resetAllMocks();
     apiMocks.listProductMasters.mockImplementation(async (resource: ProductMasterResource) => workspace(resource));
     apiMocks.getProductMaster.mockImplementation(async (resource: ProductMasterResource) => detail(resource));
@@ -45,7 +46,8 @@ describe('product master workspaces', () => {
       resource,
       expect.objectContaining({ status: 'ACTIVE' }),
     ));
-    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: new RegExp(`Expand .* ${label(resource)} Seed`, 'i') }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
     expect(await screen.findByDisplayValue(`${resource.toUpperCase()}-001`)).toBeInTheDocument();
     expect(apiMocks.getProductMaster).toHaveBeenCalledWith(resource, `${resource}-1`);
   });
@@ -99,9 +101,25 @@ describe('product master workspaces', () => {
     ));
   });
 
+  it('shows governed product classifications and UOMs as read-only expandable references', async () => {
+    const user = userEvent.setup();
+    renderPage('items');
+    await screen.findByText('Item Seed');
+
+    await user.click(screen.getByRole('button', { name: 'Expand Raw material' }));
+    expect(screen.getByText('Database-enforced item type')).toBeInTheDocument();
+    expect(screen.getByText(/no independent edit card/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Expand KG Kilogram' }));
+    expect(screen.getByText(/no UOM record version/i)).toBeInTheDocument();
+    expect(screen.getByText(/migration-controlled/i)).toBeInTheDocument();
+  });
+
   it('initialises new items from loaded UOMs and blocks creation when UOM reference data is missing', async () => {
+    const user = userEvent.setup();
     const loaded = renderPage('items');
     await screen.findByText('Item Seed');
+    await user.click(screen.getByRole('button', { name: '+ New' }));
     await waitFor(() => expect(screen.getByLabelText('Base UOM')).toHaveValue('KG'));
     loaded.unmount();
 
@@ -110,6 +128,8 @@ describe('product master workspaces', () => {
     apiMocks.listProductMasters.mockResolvedValue(withoutUoms);
     renderPage('items');
 
+    await screen.findByText('Item Seed');
+    await user.click(screen.getByRole('button', { name: '+ New' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Units of measure are not configured');
     expect(screen.getByLabelText('Base UOM')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Create item' })).toBeDisabled();
@@ -208,7 +228,9 @@ describe('product master workspaces', () => {
     ));
 
     apiMocks.getProductMaster.mockResolvedValue(detail('specifications'));
-    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: 'Back to register' }));
+    await user.click(screen.getByRole('button', { name: /Expand SPECIFICATIONS-001 Specification Seed/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
     const parameterName = await screen.findByLabelText('Parameter name 1');
     await user.clear(parameterName);
     await user.type(parameterName, 'Net weight updated');
@@ -229,7 +251,8 @@ describe('product master workspaces', () => {
       .mockResolvedValueOnce(detail('items', { status: 'INACTIVE', record_version: 4, allowed_statuses: ['ACTIVE'] }));
     renderPage('items');
     await screen.findByText('Item Seed');
-    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: /Expand ITEMS-001 Item Seed/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
     fireEvent.change(await screen.findByLabelText('Item description'), { target: { value: 'Updated' } });
     await user.click(screen.getByRole('button', { name: 'Save item' }));
     await waitFor(() => expect(apiMocks.updateProductMaster).toHaveBeenCalled());
@@ -243,10 +266,100 @@ describe('product master workspaces', () => {
       expect.any(String),
     ));
   });
+
+  it('supports accessible accordion movement and retains register state around an edit card', async () => {
+    const user = userEvent.setup();
+    const loaded = workspace('items');
+    loaded.data.push(detail('items', { id: 'items-2', code: 'ITEMS-002', name: 'Second Item' }));
+    loaded.meta.total = 2;
+    apiMocks.listProductMasters.mockResolvedValue(loaded);
+    renderPage('items');
+
+    const firstToggle = await screen.findByRole('button', { name: /Expand ITEMS-001 Item Seed/i });
+    const secondToggle = screen.getByRole('button', { name: /Expand ITEMS-002 Second Item/i });
+    await user.click(firstToggle);
+    expect(firstToggle).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{ArrowDown}');
+    expect(secondToggle).toHaveFocus();
+    await user.click(secondToggle);
+    expect(firstToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(secondToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.selectOptions(screen.getByLabelText('Filter item status'), 'ACTIVE');
+    await user.selectOptions(screen.getByLabelText('Sort items'), 'NAME');
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
+    expect(window.location.hash).toContain('id=items-2');
+    expect(window.location.hash).toContain('status=ACTIVE');
+    expect(window.location.hash).toContain('sort=NAME');
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(window.location.hash).not.toContain('id=');
+    expect(screen.getByLabelText('Filter item status')).toHaveValue('ACTIVE');
+    expect(screen.getByLabelText('Sort items')).toHaveValue('NAME');
+  });
+
+  it('opens a direct record-ID route with its retained filters and supports browser Back', async () => {
+    window.history.replaceState(null, '', '#MD-ITEM?q=oat&status=ACTIVE&sort=NAME&page=2&id=items-1');
+    renderPage('items');
+
+    expect(await screen.findByDisplayValue('ITEMS-001')).toBeInTheDocument();
+    expect(apiMocks.getProductMaster).toHaveBeenCalledWith('items', 'items-1');
+    expect(apiMocks.listProductMasters).toHaveBeenCalledWith('items', expect.objectContaining({
+      q: 'oat', status: 'ACTIVE', sort: 'NAME', page: 2,
+    }));
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Back to register' }));
+    expect(window.location.hash).toContain('q=oat');
+    expect(window.location.hash).toContain('page=2');
+    expect(window.location.hash).not.toContain('id=');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /Expand ITEMS-001 Item Seed/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open edit card' }));
+    expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    window.history.back();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Search items')).toHaveValue('oat');
+  });
+
+  it('keeps read-only cards non-editable and surfaces version-conflict feedback', async () => {
+    const readOnlyWorkspace = workspace('items');
+    readOnlyWorkspace.allowed_actions = [];
+    readOnlyWorkspace.data[0] = { ...readOnlyWorkspace.data[0], allowed_actions: [] };
+    apiMocks.listProductMasters.mockResolvedValue(readOnlyWorkspace);
+    apiMocks.getProductMaster.mockResolvedValue(detail('items', { allowed_actions: [] }));
+    const readOnlySession = { ...session(), roles: ['WAREHOUSE_VIEWER'], allowed_actions: [] };
+    renderPage('items', readOnlySession);
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Expand ITEMS-001 Item Seed/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open read-only card' }));
+    expect(await screen.findByLabelText('Item name')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save item' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+
+    screen.getByRole('button', { name: 'Cancel' }).click();
+    const writableWorkspace = workspace('items');
+    apiMocks.listProductMasters.mockResolvedValue(writableWorkspace);
+  });
+
+  it('shows the backend version-conflict message without discarding the loaded card', async () => {
+    const user = userEvent.setup();
+    apiMocks.updateProductMaster.mockRejectedValue({
+      code: 'VERSION_CONFLICT',
+      message: 'This item changed after you opened it. Reload the latest version before saving.',
+    });
+    renderPage('items');
+    await user.click(await screen.findByRole('button', { name: /Expand ITEMS-001 Item Seed/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
+    fireEvent.change(await screen.findByLabelText('Item name'), { target: { value: 'Conflicting edit' } });
+    await user.click(screen.getByRole('button', { name: 'Save item' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('changed after you opened it');
+    expect(screen.getByLabelText('Item code')).toHaveValue('ITEMS-001');
+    expect(window.location.hash).toContain('id=items-1');
+  });
 });
 
-function renderPage(resource: ProductMasterResource) {
-  return render(<ErpSessionContext.Provider value={session()}><ProductMasterWorkspace resource={resource} /></ErpSessionContext.Provider>);
+function renderPage(resource: ProductMasterResource, value: ErpSession = session()) {
+  return render(<ErpSessionContext.Provider value={value}><ProductMasterWorkspace resource={resource} /></ErpSessionContext.Provider>);
 }
 
 function session(): ErpSession {

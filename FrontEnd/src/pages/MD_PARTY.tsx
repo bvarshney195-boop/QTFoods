@@ -13,6 +13,7 @@ import {
   type PartyCreate,
   type PartyDetail,
   type PartyKind,
+  type PartyListItem,
   type PartyRole,
   type PartyStatus,
   type PartyTaxRegistrationWrite,
@@ -21,13 +22,26 @@ import {
   type PartyWrite,
 } from '../api/parties';
 import { useErpSession } from '../app/ErpSessionContext';
+import {
+  readRegisterRouteParams,
+  readRouteChoice,
+  readRoutePage,
+  readRouteString,
+  revealEditCard,
+  revealRegister,
+  useEditCardNavigation,
+} from '../app/useEditCardNavigation';
 import { PageHeader } from '../components/PageHeader';
 import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
+import { ExpandableRegister, RegisterDetailGrid } from '../components/ExpandableRegister';
 import { StatusBadge } from '../components/StatusBadge';
 
 const roles: PartyRole[] = ['CUSTOMER', 'SUPPLIER', 'CARRIER', 'SERVICE_PROVIDER'];
 const addressTypes: PartyAddressType[] = ['REGISTERED', 'BILLING', 'SHIPPING', 'REMITTANCE', 'OTHER'];
 const taxTypes: PartyTaxType[] = ['GSTIN', 'PAN', 'VAT', 'TIN', 'OTHER'];
+const partyStatuses: readonly PartyStatus[] = ['DRAFT', 'ACTIVE', 'ON_HOLD', 'INACTIVE'];
+const partyKinds: readonly PartyKind[] = ['ORGANISATION', 'INDIVIDUAL'];
+const partySorts = ['CODE', 'NAME', 'NEWEST', 'OLDEST'] as const;
 
 type PartyForm = PartyCreate;
 
@@ -65,19 +79,21 @@ function blankForm(): PartyForm {
 }
 
 export default function MD_PARTY() {
+  const initialRoute = useRef(readRegisterRouteParams('MD-PARTY')).current;
   const session = useErpSession();
   const contextKey = `${session.selected_context?.company_id}:${session.selected_context?.plant_id}`;
   const [workspace, setWorkspace] = useState<PartyWorkspace | null>(null);
   const [selected, setSelected] = useState<PartyDetail | null>(null);
   const [form, setForm] = useState<PartyForm>(blankForm);
-  const [searchDraft, setSearchDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<PartyStatus | ''>('');
-  const [kind, setKind] = useState<PartyKind | ''>('');
-  const [role, setRole] = useState<PartyRole | ''>('');
-  const [country, setCountry] = useState('');
-  const [sort, setSort] = useState<'CODE' | 'NAME' | 'NEWEST' | 'OLDEST'>('CODE');
-  const [page, setPage] = useState(1);
+  const initialSearch = readRouteString(initialRoute, 'q');
+  const [searchDraft, setSearchDraft] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
+  const [status, setStatus] = useState<PartyStatus | ''>(() => readRouteChoice(initialRoute, 'status', [...partyStatuses, ''] as const, ''));
+  const [kind, setKind] = useState<PartyKind | ''>(() => readRouteChoice(initialRoute, 'kind', [...partyKinds, ''] as const, ''));
+  const [role, setRole] = useState<PartyRole | ''>(() => readRouteChoice(initialRoute, 'role', [...roles, ''] as const, ''));
+  const [country, setCountry] = useState(() => readRouteString(initialRoute, 'country'));
+  const [sort, setSort] = useState<(typeof partySorts)[number]>(() => readRouteChoice(initialRoute, 'sort', partySorts, 'CODE'));
+  const [page, setPage] = useState(() => readRoutePage(initialRoute));
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,6 +106,10 @@ export default function MD_PARTY() {
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
+  const mountedContextKey = useRef(contextKey);
+  const handledCardRoute = useRef('');
+  const registerRef = useRef<HTMLElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -108,6 +128,8 @@ export default function MD_PARTY() {
   }, [contextKey, page, search, status, kind, role, country, sort]);
 
   useEffect(() => {
+    if (mountedContextKey.current === contextKey) return;
+    mountedContextKey.current = contextKey;
     setWorkspace(null);
     setSelected(null);
     selectedId.current = null;
@@ -117,6 +139,42 @@ export default function MD_PARTY() {
   }, [contextKey]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const cardNavigation = useEditCardNavigation('MD-PARTY', {
+    q: search || undefined,
+    status: status || undefined,
+    kind: kind || undefined,
+    role: role || undefined,
+    country: country || undefined,
+    sort: sort === 'CODE' ? undefined : sort,
+    page: page === 1 ? undefined : page,
+  });
+
+  useEffect(() => {
+    const routeKey = `${contextKey}:${cardNavigation.route.mode}:${cardNavigation.route.recordId ?? ''}`;
+    if (handledCardRoute.current === routeKey) return;
+    const hadPriorRoute = handledCardRoute.current !== '';
+    handledCardRoute.current = routeKey;
+
+    if (cardNavigation.route.mode === 'edit') {
+      if (selectedId.current !== cardNavigation.route.recordId) void choose(cardNavigation.route.recordId);
+      window.requestAnimationFrame(() => revealEditCard(editorRef.current));
+      return;
+    }
+    if (cardNavigation.route.mode === 'create') {
+      startCreate();
+      window.requestAnimationFrame(() => revealEditCard(editorRef.current));
+      return;
+    }
+
+    selectedId.current = null;
+    setSelected(null);
+    setForm(blankForm());
+    clearFeedback();
+    if (hadPriorRoute && window.location.hash.startsWith('#MD-PARTY')) {
+      window.requestAnimationFrame(() => revealRegister(registerRef.current));
+    }
+  }, [cardNavigation.route.mode, cardNavigation.route.recordId, contextKey]);
 
   async function choose(partyId: string) {
     selectedId.current = partyId;
@@ -197,6 +255,7 @@ export default function MD_PARTY() {
     setSuccess(null);
     setFieldErrors({});
     commandKey.current ??= globalThis.crypto.randomUUID();
+    const wasEditing = Boolean(selected);
     try {
       const body = writePayload(form);
       const result = selected
@@ -208,6 +267,7 @@ export default function MD_PARTY() {
         : `${form.code.trim().toUpperCase()} was created as ${result.status}.`;
       await refresh();
       await chooseAfterSave(result.id);
+      if (!wasEditing) cardNavigation.replaceWithEditCard(result.id);
       setSuccess(message);
     } catch (caught) {
       setError(apiMessage(caught, 'Unable to save this party.'));
@@ -253,6 +313,7 @@ export default function MD_PARTY() {
       setSelected(null);
       setForm(blankForm());
       await refresh();
+      cardNavigation.returnToRegister();
       setSuccess(`${target.code} was deleted.`);
     } catch (caught) {
       setPendingDelete(null);
@@ -277,9 +338,9 @@ export default function MD_PARTY() {
     setSearch(searchDraft.trim());
   }
 
-  const canSave = selected
-    ? selected.allowed_actions.includes('UPDATE')
-    : workspace?.allowed_actions.includes('CREATE');
+  const canSave = cardNavigation.route.mode === 'create'
+    ? workspace?.allowed_actions.includes('CREATE')
+    : selected?.allowed_actions.includes('UPDATE') ?? false;
 
   return (
     <>
@@ -288,7 +349,7 @@ export default function MD_PARTY() {
         batch="B05"
         title="Party Master"
         description="Company-scoped customers, suppliers, carriers, addresses, contacts, tax registrations, and commercial terms."
-        onNew={workspace?.allowed_actions.includes('CREATE') ? startCreate : undefined}
+        onNew={workspace?.allowed_actions.includes('CREATE') ? cardNavigation.openCreateCard : undefined}
       />
       <div className="live-notice"><span></span><b>Controlled party aggregate</b> Codes are immutable; lifecycle, version, tax uniqueness, and operational dependencies are enforced by the ERP service.</div>
 
@@ -300,7 +361,7 @@ export default function MD_PARTY() {
       </div>
 
       <div className="module-grid admin-workspace party-workspace">
-        <section className="panel">
+        <section className="panel" ref={registerRef}>
           <div className="panel-head"><div><h3>Party register</h3><span>{session.selected_context?.company_name}</span></div><button className="secondary compact-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
           <form className="party-toolbar" onSubmit={submitSearch}>
             <label>Search<span><input aria-label="Search parties" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Code, name, contact, or tax ID" /><button className="secondary" type="submit">Search</button></span></label>
@@ -313,30 +374,34 @@ export default function MD_PARTY() {
           {error && !workspace && <div className="form-error panel-message" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>Retry</button></div>}
           {loading && !workspace && <div className="empty-state">Loading party master...</div>}
           {!loading && workspace && !workspace.data.length && <div className="empty-state">No party matches the current filters.</div>}
-          {workspace && Boolean(workspace.data.length) && <div className={`table-wrap ${loading ? 'is-refreshing' : ''}`}>
-            <table className="admin-table party-table"><thead><tr><th>Party</th><th>Roles</th><th>Primary contact</th><th>Location</th><th>Commercial terms</th><th>Status</th><th>Version</th><th>Action</th></tr></thead><tbody>
-              {workspace.data.map((party) => <tr key={party.id} className={selected?.id === party.id ? 'selected-row' : ''}>
-                <td><b>{party.display_name}</b><small>{party.code} · {display(party.party_kind)}</small></td>
-                <td>{party.roles.map(display).join(', ') || 'Unassigned'}<small>{party.tax_registration_count} tax registration(s)</small></td>
-                <td>{party.primary_contact?.name ?? 'Not recorded'}<small>{party.primary_contact?.email ?? party.primary_contact?.phone ?? 'No channel'}</small></td>
-                <td>{party.primary_address?.city ?? 'Not recorded'}<small>{party.primary_address ? `${party.primary_address.region}, ${party.primary_address.country_code}` : `${party.address_count} addresses`}</small></td>
-                <td>{party.commercial_terms?.currency_code ?? '—'} {formatMoney(party.commercial_terms?.credit_limit)}<small>{party.commercial_terms?.payment_terms_days ?? 0} day payment terms</small></td>
-                <td><StatusBadge status={party.status} /></td>
-                <td>v{party.record_version}</td>
-                <td><button className="secondary compact-button" type="button" onClick={() => void choose(party.id)}>Open</button></td>
-              </tr>)}
-            </tbody></table>
+          {workspace && Boolean(workspace.data.length) && <div className={loading ? 'is-refreshing' : undefined}>
+            <ExpandableRegister
+              ariaLabel="Party register"
+              records={workspace.data}
+              getRecordId={(party) => party.id}
+              getRecordLabel={(party) => `${party.code} ${party.display_name}`}
+              selectedId={selected?.id}
+              columnsTemplate="minmax(190px,1.7fr) minmax(155px,1.2fr) minmax(175px,1.35fr) minmax(145px,1fr) minmax(100px,.7fr)"
+              columns={[
+                { key: 'party', heading: 'Party', render: (party) => <><b>{party.display_name}</b><small>{party.code} · {display(party.party_kind)}</small></> },
+                { key: 'roles', heading: 'Roles', render: (party) => <>{party.roles.map(display).join(', ') || 'Unassigned'}<small>{party.tax_registration_count} tax registration(s)</small></> },
+                { key: 'contact', heading: 'Primary contact', render: (party) => <>{party.primary_contact?.name ?? 'Not recorded'}<small>{party.primary_contact?.email ?? party.primary_contact?.phone ?? 'No channel'}</small></> },
+                { key: 'location', heading: 'Location', render: (party) => <>{party.primary_address?.city ?? 'Not recorded'}<small>{party.primary_address ? `${party.primary_address.region}, ${party.primary_address.country_code}` : `${party.address_count} addresses`}</small></> },
+                { key: 'status', heading: 'Status', render: (party) => <StatusBadge status={party.status} /> },
+              ]}
+              renderExpanded={(party) => <PartyRegisterDetail party={party} onOpen={() => cardNavigation.openEditCard(party.id)} />}
+            />
           </div>}
           {workspace && <div className="pagination"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {workspace.meta.current_page} of {workspace.meta.last_page} · {workspace.meta.total} records</span><button type="button" disabled={page >= workspace.meta.last_page || loading} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
         </section>
 
-        <aside className="panel admin-editor party-editor">
-          <div className="panel-head"><div><h3>{selected ? `Edit ${selected.code}` : 'New party'}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div>{selected && <StatusBadge status={selected.status} />}</div>
+        {cardNavigation.route.mode !== 'register' && <aside className="panel admin-editor party-editor edit-card" ref={editorRef}>
+          <div className="panel-head"><div><h3 tabIndex={-1}>{selected ? `Edit ${selected.code}` : cardNavigation.route.mode === 'edit' ? 'Open party' : 'New party'}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div><div className="edit-card-navigation">{selected && <StatusBadge status={selected.status} />}<button className="secondary compact-button" type="button" onClick={cardNavigation.returnToRegister}>Back to register</button></div></div>
           <form className="panel-body party-form" onSubmit={save} noValidate>
             {error && workspace && <div className="form-error" role="alert"><span>{error}</span></div>}
             {success && <div className="form-success" role="status"><span></span>{success}</div>}
 
-            <fieldset className="party-form-fields" disabled={busy || detailLoading}>
+            <fieldset className="party-form-fields" disabled={busy || detailLoading || !canSave}>
             <section className="party-subsection">
               <h4>Identity and roles</h4>
               <div className="party-card-grid">
@@ -417,12 +482,12 @@ export default function MD_PARTY() {
                 <label className="wide">Delivery terms<textarea aria-label="Delivery terms" rows={2} maxLength={2000} value={form.commercial_terms.delivery_terms ?? ''} onChange={(event) => change({ commercial_terms: { ...form.commercial_terms, delivery_terms: event.target.value || null } })} /></label>
               </div>
             </section>
-
+            </fieldset>
             <div className="form-actions">
               {selected && session.roles.includes('ERP_ADMIN') && <button className="danger-button" type="button" disabled={busy || detailLoading} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete entry</button>}
+              <button className="secondary" type="button" disabled={busy} onClick={cardNavigation.returnToRegister}>Cancel</button>
               <button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? 'Save party' : 'Create party'}</button>
             </div>
-            </fieldset>
           </form>
 
           {selected && selected.allowed_actions.includes('CHANGE_STATUS') && selected.allowed_statuses.length > 0 && <form className="party-lifecycle" onSubmit={submitLifecycle}>
@@ -432,7 +497,7 @@ export default function MD_PARTY() {
             <FieldError value={fieldErrors.target_status ?? fieldErrors.reason} />
             <button className="secondary" type="submit" disabled={busy || statusReason.trim().length < 3}>Apply status</button>
           </form>}
-        </aside>
+        </aside>}
       </div>
       {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.display_name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
@@ -452,6 +517,39 @@ export default function MD_PARTY() {
     setSuccess(null);
     setFieldErrors({});
   }
+}
+
+function PartyRegisterDetail({ party, onOpen }: { party: PartyListItem; onOpen: () => void }) {
+  const canUpdate = party.allowed_actions.includes('UPDATE');
+  const lifecycle = party.status_change
+    ? `${party.status_change.reason ?? 'Status changed'} · ${formatDate(party.status_change.changed_at)}${party.status_change.changed_by ? ` · ${party.status_change.changed_by.name}` : ''}`
+    : 'No lifecycle transition recorded';
+  const terms = party.commercial_terms
+    ? `${party.commercial_terms.currency_code} ${formatMoney(party.commercial_terms.credit_limit)} credit · ${party.commercial_terms.payment_terms_days} day terms${party.commercial_terms.credit_hold ? ' · On credit hold' : ''}`
+    : 'No commercial terms recorded';
+
+  return (
+    <>
+      <div className="register-detail-heading">
+        <div><span>{display(party.party_kind)}</span><h4>{party.display_name}</h4><p>{party.code} · {party.legal_name}</p></div>
+        <StatusBadge status={party.status} />
+      </div>
+      <RegisterDetailGrid facts={[
+        { label: 'Roles', value: party.roles.map(display).join(', ') || 'Unassigned' },
+        { label: 'Commercial terms', value: terms },
+        { label: 'Primary contact', value: party.primary_contact ? `${party.primary_contact.name} · ${party.primary_contact.email ?? party.primary_contact.phone ?? 'No channel'}` : 'Not recorded' },
+        { label: 'Primary address', value: party.primary_address ? `${party.primary_address.city}, ${party.primary_address.region}, ${party.primary_address.country_code}` : 'Not recorded' },
+        { label: 'Linked records', value: `${party.address_count} addresses · ${party.contact_count} contacts · ${party.tax_registration_count} tax registrations` },
+        { label: 'Record version', value: `v${party.record_version}` },
+        { label: 'Last updated', value: formatDate(party.updated_at) },
+        { label: 'Lifecycle history', value: lifecycle, wide: true },
+      ]} />
+      <div className="register-detail-actions">
+        <span>{canUpdate ? 'Editing is permitted for your role.' : 'Your role has read-only access to this party.'}</span>
+        <button className="primary" type="button" onClick={onOpen}>{canUpdate ? 'Open edit card' : 'Open read-only card'}</button>
+      </div>
+    </>
+  );
 }
 
 function toForm(party: PartyDetail): PartyForm {

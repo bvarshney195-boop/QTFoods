@@ -284,6 +284,10 @@ export async function listLocations(filters: { q?: string; status?: string; loca
   return apiRequest<LocationWorkspace>(`/api/v1/admin/locations${suffix}`);
 }
 
+export async function getLocation(locationId: string): Promise<LocationAdmin> {
+  return (await apiRequest<{ data: LocationAdmin }>(`/api/v1/admin/locations/${locationId}`)).data;
+}
+
 export async function createLocation(
   body: Pick<LocationAdmin, 'code' | 'name' | 'description' | 'location_type' | 'status'> & { parent_location_id: string | null },
   idempotencyKey: string

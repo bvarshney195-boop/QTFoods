@@ -21,6 +21,7 @@ const apiMocks = vi.hoisted(() => ({
   createPlant: vi.fn(),
   updatePlant: vi.fn(),
   listLocations: vi.fn(),
+  getLocation: vi.fn(),
   createLocation: vi.fn(),
   updateLocation: vi.fn(),
   deleteLocation: vi.fn(),
@@ -55,7 +56,9 @@ vi.mock('../api/foundationAdmin', async () => {
 
 describe('foundation administration workspaces', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '#');
     vi.resetAllMocks();
+    apiMocks.getLocation.mockImplementation(async (id: string) => ({ ...locationWorkspace().data[0], id }));
   });
 
   it('creates a plant from the live organisation workspace', async () => {
@@ -111,8 +114,9 @@ describe('foundation administration workspaces', () => {
     apiMocks.deleteLocation.mockResolvedValue({ ...commandResult('location'), status: 'DELETED', deleted: true });
     renderPage(<ADM_LOC />);
 
-    const row = (await screen.findByText('Return Quarantine')).closest('tr');
-    await userEvent.setup().click(within(row!).getByRole('button', { name: 'Open' }));
+    await screen.findByText('Return Quarantine');
+    await userEvent.setup().click(screen.getByRole('button', { name: /Expand RET-QA Return Quarantine/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open edit card' }));
     await userEvent.setup().click(screen.getByRole('button', { name: 'Delete entry' }));
 
     const dialog = screen.getByRole('alertdialog', { name: 'Delete Return Quarantine?' });
@@ -130,8 +134,9 @@ describe('foundation administration workspaces', () => {
     apiMocks.listLocations.mockResolvedValue(locationWorkspace());
     renderPage(<ADM_LOC />, { ...session(), roles: ['OPERATIONS_MANAGER'] });
 
-    const row = (await screen.findByText('Return Quarantine')).closest('tr');
-    await userEvent.setup().click(within(row!).getByRole('button', { name: 'Open' }));
+    await screen.findByText('Return Quarantine');
+    await userEvent.setup().click(screen.getByRole('button', { name: /Expand RET-QA Return Quarantine/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open edit card' }));
 
     expect(screen.queryByRole('button', { name: 'Delete entry' })).not.toBeInTheDocument();
   });

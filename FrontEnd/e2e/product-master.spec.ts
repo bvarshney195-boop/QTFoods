@@ -101,7 +101,9 @@ test('Operations Manager builds a governed product master from brand through qua
   await editor.getByRole('button', { name: 'Create specification' }).click();
   await expectSuccess(editor, 'E2E-SPEC was created as ACTIVE');
 
-  await expect(page.locator('.product-master-table tbody tr').filter({ hasText: 'E2E-SPEC' })).toContainText('E2E Ingredient Standard');
+  await expect(page.getByRole('table', { name: 'Specifications register' })
+    .locator('.expandable-register-record').filter({ hasText: 'E2E-SPEC' }))
+    .toContainText('E2E Ingredient Standard');
 });
 
 async function expectSuccess(editor: Locator, message: string): Promise<void> {

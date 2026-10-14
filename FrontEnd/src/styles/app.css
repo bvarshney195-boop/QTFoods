@@ -373,6 +373,83 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
 .module-grid>*{min-width:0}
 .module-grid>.panel{position:static;max-height:none;overflow:visible}
 .admin-editor .panel-head{position:static}
+
+/* Expandable ERP master registers and record-aware edit cards */
+.expandable-register{max-width:100%;overflow-x:auto;background:#fff;overscroll-behavior-inline:contain;scrollbar-width:thin;scrollbar-color:#BFD8CC #F4F8F6}
+.expandable-register-head,.expandable-register-record{min-width:760px}
+.expandable-register-grid{display:grid;grid-template-columns:var(--register-columns);align-items:stretch}
+.expandable-register-head{border-bottom:1px solid var(--line);background:#F4F8F6}
+.expandable-register-head [role=columnheader]{padding:11px 12px;color:var(--muted);font-size:8px;font-weight:800;text-align:left;text-transform:uppercase;letter-spacing:.08em}
+.expandable-register-record{border-bottom:1px solid #EAF2EE;transition:background .15s,box-shadow .15s}
+.expandable-register-record:last-child{border-bottom:0}
+.expandable-register-record:hover,.expandable-register-record.is-expanded{background:#F8FCFA}
+.expandable-register-record.is-selected{box-shadow:inset 3px 0 0 var(--blue)}
+.expandable-register-summary{min-height:58px}
+.expandable-register-cell,.expandable-register-toggle-cell{display:flex;min-width:0;align-items:center;padding:11px 12px;color:var(--text);font-size:10px;overflow-wrap:anywhere}
+.expandable-register-cell{flex-wrap:wrap;align-content:center;gap:2px 5px}
+.expandable-register-cell>b,.expandable-register-cell>small{display:block;width:100%}
+.expandable-register-cell>b{color:var(--navy);font-size:10px}
+.expandable-register-cell>small{margin-top:2px;color:var(--muted);font-size:8px;line-height:1.4}
+.expandable-register-toggle-cell{justify-content:center;padding-inline:7px}
+.register-chevron{display:grid;width:30px;height:30px;min-height:30px;place-items:center;border:1px solid #CFE2D8;border-radius:8px;background:#fff;color:var(--teal);cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.register-chevron:hover{border-color:#77C9A6;background:#F0FAF6}
+.register-chevron:focus-visible{outline:3px solid rgba(22,155,99,.25);outline-offset:2px}
+.register-chevron>span{font-size:22px;line-height:1;transform:rotate(0);transition:transform .15s}
+.register-chevron[aria-expanded=true]>span{transform:rotate(90deg)}
+.expandable-register-detail-row{background:linear-gradient(180deg,#F8FCFA,#fff)}
+.expandable-register-detail{padding:4px 14px 16px 51px}
+.expandable-register-detail>section{border:1px solid #CFE2D8;border-radius:12px;background:#fff;padding:14px;box-shadow:0 8px 22px rgba(22,72,52,.06)}
+.register-detail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:11px;border-bottom:1px solid #EAF2EE}
+.register-detail-heading span{color:var(--teal);font-size:8px;font-weight:850;text-transform:uppercase;letter-spacing:.07em}
+.register-detail-heading h4{margin:4px 0 0;color:var(--navy);font-size:14px}
+.register-detail-heading p{margin:3px 0 0;color:var(--muted);font-size:9px;line-height:1.4}
+.register-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 0}
+.register-detail-grid>div{min-width:0;border:1px solid #E2EDE8;border-radius:9px;background:#FAFCFB;padding:9px}
+.register-detail-grid>div.wide{grid-column:span 2}
+.register-detail-grid dt{color:var(--muted);font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.register-detail-grid dd{margin:5px 0 0;color:var(--navy);font-size:9px;font-weight:750;line-height:1.45;overflow-wrap:anywhere}
+.register-detail-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:12px;padding-top:11px;border-top:1px solid #EAF2EE}
+.register-detail-actions>span{margin-right:auto;color:var(--muted);font-size:8px;line-height:1.4}
+.register-detail-actions button{min-width:132px}
+.edit-card{scroll-margin-top:12px}
+.edit-card-navigation{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.admin-form-fields{display:contents;margin:0;border:0;padding:0;min-width:0}
+.item-reference-registers>.panel-head{border-bottom:1px solid var(--line)}
+.reference-register-block{padding:14px}
+.reference-register-block+.reference-register-block{border-top:1px solid var(--line)}
+.reference-register-block .subsection-head{align-items:flex-start}
+.reference-register-block .subsection-head b,.reference-register-block .subsection-head small{display:block}
+.reference-register-block .subsection-head small{margin-top:4px;color:var(--muted);font-size:8px}
+.reference-register-block .expandable-register{border:1px solid var(--line);border-radius:10px}
+.reference-register-block .expandable-register-head,.reference-register-block .expandable-register-record{min-width:560px}
+
+@media(max-width:900px){
+  .register-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(max-width:700px){
+  .expandable-register{overflow:visible;padding:10px;background:#F5F9F7}
+  .expandable-register-head{display:none}
+  .expandable-register-head,.expandable-register-record{min-width:0}
+  .reference-register-block .expandable-register-head,.reference-register-block .expandable-register-record{min-width:0}
+  .expandable-register-record{margin-top:10px;border:1px solid var(--line);border-radius:13px;background:#fff;box-shadow:var(--shadow-card);overflow:hidden}
+  .expandable-register-head+.expandable-register-record{margin-top:0}
+  .expandable-register-record:hover,.expandable-register-record.is-expanded{background:#fff}
+  .expandable-register-summary{grid-template-columns:44px minmax(0,1fr)!important;padding:5px 12px}
+  .expandable-register-toggle-cell{grid-column:1;grid-row:1;align-items:start;padding:8px 5px 0 0}
+  .expandable-register-cell{display:grid;grid-column:2;grid-template-columns:minmax(92px,34%) minmax(0,1fr);gap:8px;border-top:1px solid #EDF3F0;padding:10px 0;font-size:11px}
+  .expandable-register-cell:nth-of-type(2){border-top:0}
+  .expandable-register-cell:before{content:attr(data-label);color:#71857C;font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.045em}
+  .expandable-register-cell>b,.expandable-register-cell>small{grid-column:2;width:auto}
+  .expandable-register-cell>small{margin:0}
+  .expandable-register-detail{padding:0 10px 10px}
+  .expandable-register-detail>section{padding:12px}
+  .register-detail-grid{grid-template-columns:1fr}
+  .register-detail-grid>div.wide{grid-column:auto}
+  .register-detail-actions{align-items:stretch;flex-direction:column}
+  .register-detail-actions button{width:100%}
+  .edit-card-navigation{align-items:flex-end;flex-direction:column}
+}
 .user-register-actions{justify-content:flex-start;min-width:150px}
 .required-password-flow .context-flow-main{display:grid;place-items:center}
 .required-password-card{width:min(620px,100%)}

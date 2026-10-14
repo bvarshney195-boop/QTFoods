@@ -29,7 +29,8 @@ test('Operations Manager creates, updates, and places a complete customer party 
   await editor.getByRole('button', { name: 'Create party' }).click();
   await expect(editor.getByRole('status')).toContainText('E2E-CUST was created as ACTIVE');
 
-  const row = page.locator('.party-table tbody tr').filter({ hasText: 'E2E-CUST' });
+  const row = page.getByRole('table', { name: 'Party register' })
+    .locator('.expandable-register-record').filter({ hasText: 'E2E-CUST' });
   await expect(row).toContainText('E2E Customer');
   await expect(row).toContainText('Nisha Patel');
   await editor.getByLabel('Display name').fill('E2E Customer Updated');
