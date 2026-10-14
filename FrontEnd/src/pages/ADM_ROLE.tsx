@@ -3,6 +3,8 @@ import { isApiError } from '../api/client';
 import {
   createPermission,
   createRole,
+  deletePermission,
+  deleteRole,
   listRoles,
   syncRolePermissions,
   updatePermission,
@@ -14,6 +16,7 @@ import {
 } from '../api/foundationAdmin';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
+import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
 import { StatusBadge } from '../components/StatusBadge';
 
 type Editor = 'new-role' | 'role' | 'new-permission' | 'permission';
@@ -40,6 +43,7 @@ export default function ADM_ROLE() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [pendingDelete, setPendingDelete] = useState<RoleAdmin | PermissionAdmin | null>(null);
   const commandKey = useRef<string | null>(null);
   const selectedRoleId = useRef<string | null>(null);
   const selectedPermissionId = useRef<string | null>(null);
@@ -179,6 +183,34 @@ export default function ADM_ROLE() {
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    setError(null);
+    try {
+      if ('permission_ids' in target) await deleteRole(target, globalThis.crypto.randomUUID());
+      else await deletePermission(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedRoleId.current = null;
+      selectedPermissionId.current = null;
+      setSelectedRole(null);
+      setSelectedPermission(null);
+      setEditor('new-role');
+      activeEditor.current = 'new-role';
+      setForm(blankDefinition());
+      setPermissionIds([]);
+      await refresh();
+      setSuccess(`${target.code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, 'Unable to delete this definition.'));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function togglePermission(id: string) {
     setPermissionIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
     setError(null);
@@ -259,6 +291,7 @@ export default function ADM_ROLE() {
             {isProtected(editor, selectedRole, selectedPermission) && <div className="callout full">This system definition is protected. Create a company-scoped custom definition for local authority changes.</div>}
             <div className="form-actions full">
               {canCreatePermission && !editor.includes('permission') && <button className="secondary" type="button" onClick={() => start('new-permission')}>New permission</button>}
+              {session.roles.includes('ERP_ADMIN') && !isProtected(editor, selectedRole, selectedPermission) && (selectedRole || selectedPermission) && <button className="danger-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingDelete(selectedRole ?? selectedPermission); }}>Delete entry</button>}
               {!isProtected(editor, selectedRole, selectedPermission) && canSaveDefinition && <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving...' : editor.startsWith('new-') ? 'Create definition' : 'Save definition'}</button>}
             </div>
           </form>
@@ -280,6 +313,7 @@ export default function ADM_ROLE() {
           {workspace.permissions.map((permission) => <tr key={permission.id}><td><b>{permission.name}</b><small>{permission.code}</small></td><td>{permission.is_system ? 'System' : 'Organisation'}</td><td><StatusBadge status={permission.status} /></td><td>{permission.role_count}</td><td>v{permission.record_version}</td><td><button className="secondary compact-button" type="button" onClick={() => openPermission(permission)}>Open</button></td></tr>)}
         </tbody></table></div>
       </section>}
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 

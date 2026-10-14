@@ -6,6 +6,7 @@ use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -211,6 +212,40 @@ final class PartyService
                 ],
                 $result,
             );
+            $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
+
+            return $result;
+        }, 3);
+    }
+
+    public function delete(string $partyId, array $data): array
+    {
+        return DB::transaction(function () use ($partyId, $data) {
+            $namespace = 'master.party.delete.'.$partyId;
+            $payload = ['party_id' => $partyId, 'expected_version' => $data['expected_version'], 'confirmed' => true];
+            $replay = $this->idempotency->begin($namespace, $data['idempotency_key'], $payload);
+            if ($replay !== null) {
+                return $replay;
+            }
+
+            $party = $this->findLocked($partyId, $data['company_id']);
+            $this->assertVersion($party, $data['expected_version']);
+            try {
+                DB::table('parties')->where('id', $partyId)->delete();
+            } catch (QueryException) {
+                throw ValidationException::withMessages([
+                    'party' => ['This party is used by another ERP entry and cannot be deleted. Deactivate it instead.'],
+                ]);
+            }
+
+            $version = (int) $party->record_version + 1;
+            $result = [
+                'entity_type' => 'party', 'id' => $partyId, 'status' => 'DELETED',
+                'record_version' => $version, 'deleted' => true,
+            ];
+            $this->record('DELETE_PARTY', 'master.party.deleted', $partyId, $data, $version, [
+                'deleted' => ['code' => $party->code, 'display_name' => $party->display_name],
+            ], $result);
             $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
 
             return $result;

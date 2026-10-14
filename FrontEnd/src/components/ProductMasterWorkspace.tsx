@@ -11,6 +11,7 @@ import { isApiError } from '../api/client';
 import {
   changeProductMasterStatus,
   createProductMaster,
+  deleteProductMaster,
   getProductMaster,
   listProductMasters,
   updateProductMaster,
@@ -28,6 +29,7 @@ import {
 } from '../api/productMasters';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
+import { DeleteEntryDialog } from './DeleteEntryDialog';
 import { StatusBadge } from './StatusBadge';
 
 type MasterForm = {
@@ -128,6 +130,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [targetStatus, setTargetStatus] = useState<ProductMasterStatus>('ACTIVE');
   const [statusReason, setStatusReason] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<ProductMasterDetail | null>(null);
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
@@ -275,6 +278,29 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    setError(null);
+    setFieldErrors({});
+    try {
+      await deleteProductMaster(resource, target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedId.current = null;
+      setSelected(null);
+      setForm(blankForm(resource, workspace?.lookups));
+      await refresh();
+      setSuccess(`${target.code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, `Unable to delete this ${config.noun}.`));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function chooseAfterSave(recordId: string) {
     selectedId.current = recordId;
     const detail = await getProductMaster(resource, recordId);
@@ -374,7 +400,10 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
                 resetFeedback={resetCommandFeedback}
               />
 
-              <div className="form-actions"><button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? `Save ${config.noun}` : `Create ${config.noun}`}</button></div>
+              <div className="form-actions">
+                {selected && session.roles.includes('ERP_ADMIN') && <button className="danger-button" type="button" disabled={busy || detailLoading} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete entry</button>}
+                <button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? `Save ${config.noun}` : `Create ${config.noun}`}</button>
+              </div>
             </fieldset>
           </form>
 
@@ -387,6 +416,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
           </form>}
         </aside>
       </div>
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 

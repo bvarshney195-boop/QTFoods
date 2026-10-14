@@ -235,3 +235,16 @@ export async function changeProductMasterStatus(
     idempotencyKey,
   })).data;
 }
+
+export async function deleteProductMaster(
+  resource: ProductMasterResource,
+  record: Pick<ProductMasterDetail, 'id' | 'record_version'>,
+  idempotencyKey: string,
+): Promise<Omit<ProductMasterCommandResult, 'status'> & { status: 'DELETED'; deleted: true }> {
+  return (await apiMutation<{ data: Omit<ProductMasterCommandResult, 'status'> & { status: 'DELETED'; deleted: true } }>(`${endpoints[resource]}/${record.id}/delete`, {
+    confirmed: true,
+  }, {
+    expectedVersion: record.record_version,
+    idempotencyKey,
+  })).data;
+}

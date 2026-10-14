@@ -37,7 +37,8 @@
   },
   "ADM-LOC": {
     "list_create": "/api/v1/admin/locations",
-    "detail_update": "/api/v1/admin/locations/{locationId}"
+    "detail_update": "/api/v1/admin/locations/{locationId}",
+    "delete": "/api/v1/admin/locations/{locationId}/delete"
   },
   "ADM-USER": {
     "list_create": "/api/v1/admin/users",
@@ -49,20 +50,24 @@
     "session_list": "/api/v1/admin/users/{userId}/sessions",
     "session_revoke": "/api/v1/admin/users/{userId}/sessions/{sessionId}/revoke",
     "assignment_create": "/api/v1/admin/users/{userId}/assignments",
-    "assignment_detail_update": "/api/v1/admin/role-assignments/{assignmentId}"
+    "assignment_detail_update": "/api/v1/admin/role-assignments/{assignmentId}",
+    "delete": "/api/v1/admin/users/{userId}/delete"
   },
   "ADM-ROLE": {
     "role_list_create": "/api/v1/admin/roles",
     "role_detail_update": "/api/v1/admin/roles/{roleId}",
+    "role_delete": "/api/v1/admin/roles/{roleId}/delete",
     "role_permission_sync": "/api/v1/admin/roles/{roleId}/permissions",
     "permission_list_create": "/api/v1/admin/permissions",
-    "permission_detail_update": "/api/v1/admin/permissions/{permissionId}"
+    "permission_detail_update": "/api/v1/admin/permissions/{permissionId}",
+    "permission_delete": "/api/v1/admin/permissions/{permissionId}/delete"
   },
   "ADM-RULE": {
     "workspace": "/api/v1/admin/approvals",
     "escalate_due": "/api/v1/admin/approvals/escalate-due",
     "rule_create": "/api/v1/admin/approval-rules",
     "rule_detail_update": "/api/v1/admin/approval-rules/{ruleId}",
+    "rule_delete": "/api/v1/admin/approval-rules/{ruleId}/delete",
     "delegation_create": "/api/v1/admin/approval-delegations",
     "delegation_revoke": "/api/v1/admin/approval-delegations/{delegationId}/revoke"
   },
@@ -101,22 +106,26 @@
     "detail": "/api/v1/master/parties/{partyId}",
     "create": "/api/v1/master/parties",
     "update": "/api/v1/master/parties/{partyId}",
-    "lifecycle": "/api/v1/master/parties/{partyId}/status"
+    "lifecycle": "/api/v1/master/parties/{partyId}/status",
+    "delete": "/api/v1/master/parties/{partyId}/delete"
   },
   "MD-BRAND": {
     "workspace_create": "/api/v1/master/brands",
     "detail_update": "/api/v1/master/brands/{recordId}",
-    "lifecycle": "/api/v1/master/brands/{recordId}/status"
+    "lifecycle": "/api/v1/master/brands/{recordId}/status",
+    "delete": "/api/v1/master/brands/{recordId}/delete"
   },
   "MD-ITEM": {
     "workspace_create": "/api/v1/master/items",
     "detail_update": "/api/v1/master/items/{recordId}",
-    "lifecycle": "/api/v1/master/items/{recordId}/status"
+    "lifecycle": "/api/v1/master/items/{recordId}/status",
+    "delete": "/api/v1/master/items/{recordId}/delete"
   },
   "MD-SKU": {
     "workspace_create": "/api/v1/master/skus",
     "detail_update": "/api/v1/master/skus/{recordId}",
-    "lifecycle": "/api/v1/master/skus/{recordId}/status"
+    "lifecycle": "/api/v1/master/skus/{recordId}/status",
+    "delete": "/api/v1/master/skus/{recordId}/delete"
   },
   "PUR-REQ": {
     "workspace_create": "/api/v1/procurement/requisitions",
@@ -170,9 +179,11 @@
     "owner_workspace_create": "/api/v1/inventory/owners",
     "owner_detail_update": "/api/v1/inventory/owners/{ownerId}",
     "owner_lifecycle": "/api/v1/inventory/owners/{ownerId}/status",
+    "owner_delete": "/api/v1/inventory/owners/{ownerId}/delete",
     "lot_workspace_create": "/api/v1/inventory/lots",
     "lot_detail_update": "/api/v1/inventory/lots/{lotId}",
     "lot_lifecycle": "/api/v1/inventory/lots/{lotId}/status",
+    "lot_delete": "/api/v1/inventory/lots/{lotId}/delete",
     "release_reservation": "/api/v1/inventory/reservations/{reservationId}/release",
     "movement_workspace": "/api/v1/inventory/movements",
     "movement_detail": "/api/v1/inventory/movements/{movementId}"
@@ -204,17 +215,20 @@
   "MD-REC": {
     "workspace_create": "/api/v1/manufacturing/recipes",
     "detail_update": "/api/v1/manufacturing/recipes/{recordId}",
-    "lifecycle": "/api/v1/manufacturing/recipes/{recordId}/status"
+    "lifecycle": "/api/v1/manufacturing/recipes/{recordId}/status",
+    "delete": "/api/v1/manufacturing/recipes/{recordId}/delete"
   },
   "MD-ROUTE": {
     "workspace_create": "/api/v1/manufacturing/routes",
     "detail_update": "/api/v1/manufacturing/routes/{recordId}",
-    "lifecycle": "/api/v1/manufacturing/routes/{recordId}/status"
+    "lifecycle": "/api/v1/manufacturing/routes/{recordId}/status",
+    "delete": "/api/v1/manufacturing/routes/{recordId}/delete"
   },
   "MD-SPEC": {
     "workspace_create": "/api/v1/quality/specifications",
     "detail_update": "/api/v1/quality/specifications/{recordId}",
-    "lifecycle": "/api/v1/quality/specifications/{recordId}/status"
+    "lifecycle": "/api/v1/quality/specifications/{recordId}/status",
+    "delete": "/api/v1/quality/specifications/{recordId}/delete"
   },
   "PLAN-DEM": "/api/v1/planning/demand",
   "PLAN-MRP": "/api/v1/planning/mrp",

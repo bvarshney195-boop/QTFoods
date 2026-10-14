@@ -123,6 +123,17 @@ final class InventoryFoundationController
         )]);
     }
 
+    public function deleteOwner(string $ownerId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deleteOwner(
+            $ownerId,
+            $validated + $this->commandContext($request, true),
+        )]);
+    }
+
     public function lots(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -189,6 +200,17 @@ final class InventoryFoundationController
             $validated['target_status'],
             trim($validated['reason']),
             $this->commandContext($request, true),
+        )]);
+    }
+
+    public function deleteLot(string $lotId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deleteLot(
+            $lotId,
+            $validated + $this->commandContext($request, true),
         )]);
     }
 

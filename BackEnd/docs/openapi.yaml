@@ -875,6 +875,8 @@ paths:
         - $ref: "#/components/parameters/CsrfToken"
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        $ref: "#/components/requestBodies/DeleteConfirmation"
       responses:
         "200": { $ref: "#/components/responses/FoundationCommand" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
@@ -7259,6 +7261,15 @@ components:
       description: A 256-bit one-time bearer value; only its SHA-256 hash is stored.
       schema: { type: string, minLength: 64, maxLength: 64, pattern: '^[A-Fa-f0-9]{64}$' }
   requestBodies:
+    DeleteConfirmation:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [confirmed]
+            properties:
+              confirmed: { type: boolean, const: true }
     IdentityEmail:
       required: true
       content:

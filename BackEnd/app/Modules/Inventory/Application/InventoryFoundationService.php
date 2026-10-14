@@ -6,6 +6,7 @@ use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -187,6 +188,44 @@ final class InventoryFoundationService
         }, 3);
     }
 
+    public function deleteOwner(string $ownerId, array $data): array
+    {
+        return DB::transaction(function () use ($ownerId, $data) {
+            $namespace = 'inventory.owner.delete.'.$ownerId;
+            if ($replay = $this->begin($namespace, $data + ['owner_id' => $ownerId])) {
+                return $replay;
+            }
+
+            $owner = $this->findOwnerLocked($ownerId, $data['company_id']);
+            $this->assertVersion('inventory owner', $owner, $data['expected_version']);
+            if ($owner->owner_type === 'COMPANY') {
+                throw ValidationException::withMessages([
+                    'owner' => ['The protected company-owned inventory identity cannot be deleted.'],
+                ]);
+            }
+            if (DB::table('stock_positions')->where('inventory_owner_id', $ownerId)->exists()) {
+                throw ValidationException::withMessages([
+                    'owner' => ['This owner has stock-position history and cannot be deleted. Deactivate it instead.'],
+                ]);
+            }
+            try {
+                DB::table('inventory_owners')->where('id', $ownerId)->delete();
+            } catch (QueryException) {
+                throw ValidationException::withMessages([
+                    'owner' => ['This owner is used by another ERP entry and cannot be deleted. Deactivate it instead.'],
+                ]);
+            }
+
+            $version = (int) $owner->record_version + 1;
+            $result = $this->result('inventory_owner', $ownerId, 'DELETED', $version) + ['deleted' => true];
+            $this->record('DELETE_INVENTORY_OWNER', 'inventory.owner.deleted', 'inventory_owner',
+                $ownerId, $data, $version, ['deleted' => ['code' => $owner->code, 'name' => $owner->name]], $result);
+            $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
+
+            return $result;
+        }, 3);
+    }
+
     public function createLot(array $data): array
     {
         return DB::transaction(function () use ($data) {
@@ -341,6 +380,40 @@ final class InventoryFoundationService
                     'status' => ['from' => $lot->status, 'to' => $targetStatus],
                     'reason' => $reason,
                 ], $result);
+            $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
+
+            return $result;
+        }, 3);
+    }
+
+    public function deleteLot(string $lotId, array $data): array
+    {
+        return DB::transaction(function () use ($lotId, $data) {
+            $namespace = 'inventory.lot.delete.'.$lotId;
+            if ($replay = $this->begin($namespace, $data + ['lot_id' => $lotId])) {
+                return $replay;
+            }
+
+            $lot = $this->findLotLocked($lotId, $data['company_id']);
+            $this->assertVersion('lot', $lot, $data['expected_version']);
+            if (DB::table('stock_positions')->where('lot_id', $lotId)->exists()) {
+                throw ValidationException::withMessages([
+                    'lot' => ['This lot has stock-position history and cannot be deleted. Close it instead.'],
+                ]);
+            }
+            try {
+                DB::table('lots')->where('id', $lotId)->delete();
+            } catch (QueryException) {
+                throw ValidationException::withMessages([
+                    'lot' => ['This lot is used by another ERP entry and cannot be deleted. Close it instead.'],
+                ]);
+            }
+
+            $version = (int) $lot->record_version + 1;
+            $result = $this->result('inventory_lot', $lotId, 'DELETED', $version) + ['deleted' => true];
+            $this->record('DELETE_INVENTORY_LOT', 'inventory.lot.deleted', 'inventory_lot',
+                $lotId, $data, $version,
+                ['deleted' => ['internal_lot_code' => $lot->internal_lot_code]], $result);
             $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
 
             return $result;

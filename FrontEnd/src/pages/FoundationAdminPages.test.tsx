@@ -23,6 +23,7 @@ const apiMocks = vi.hoisted(() => ({
   listLocations: vi.fn(),
   createLocation: vi.fn(),
   updateLocation: vi.fn(),
+  deleteLocation: vi.fn(),
   listUsers: vi.fn(),
   createUser: vi.fn(),
   deleteUser: vi.fn(),
@@ -35,9 +36,11 @@ const apiMocks = vi.hoisted(() => ({
   listRoles: vi.fn(),
   createRole: vi.fn(),
   updateRole: vi.fn(),
+  deleteRole: vi.fn(),
   syncRolePermissions: vi.fn(),
   createPermission: vi.fn(),
   updatePermission: vi.fn(),
+  deletePermission: vi.fn(),
   listUserSessions: vi.fn(),
   resendInvitation: vi.fn(),
   revokeInvitation: vi.fn(),
@@ -99,6 +102,38 @@ describe('foundation administration workspaces', () => {
       parent_location_id: 'loc-1',
     }), expect.any(String)));
     expect(await screen.findByRole('status')).toHaveTextContent('BULK-01 was created');
+  });
+
+  it('asks an ERP administrator to confirm before deleting a selected entry', async () => {
+    const workspace = locationWorkspace();
+    workspace.data[0] = { ...workspace.data[0], position_count: 0 };
+    apiMocks.listLocations.mockResolvedValue(workspace);
+    apiMocks.deleteLocation.mockResolvedValue({ ...commandResult('location'), status: 'DELETED', deleted: true });
+    renderPage(<ADM_LOC />);
+
+    const row = (await screen.findByText('Return Quarantine')).closest('tr');
+    await userEvent.setup().click(within(row!).getByRole('button', { name: 'Open' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Delete entry' }));
+
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Return Quarantine?' });
+    expect(within(dialog).getByText(/You are deleting this entry/)).toBeInTheDocument();
+    expect(apiMocks.deleteLocation).not.toHaveBeenCalled();
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Delete entry' }));
+
+    await waitFor(() => expect(apiMocks.deleteLocation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'loc-1', record_version: 1 }),
+      expect.any(String),
+    ));
+  });
+
+  it('does not expose entry deletion to a non-admin role', async () => {
+    apiMocks.listLocations.mockResolvedValue(locationWorkspace());
+    renderPage(<ADM_LOC />, { ...session(), roles: ['OPERATIONS_MANAGER'] });
+
+    const row = (await screen.findByText('Return Quarantine')).closest('tr');
+    await userEvent.setup().click(within(row!).getByRole('button', { name: 'Open' }));
+
+    expect(screen.queryByRole('button', { name: 'Delete entry' })).not.toBeInTheDocument();
   });
 
   it('provisions a user with a write-only temporary password and initial role', async () => {
@@ -217,8 +252,8 @@ describe('foundation administration workspaces', () => {
   });
 });
 
-function renderPage(page: React.ReactNode) {
-  return render(<ErpSessionContext.Provider value={session()}>{page}</ErpSessionContext.Provider>);
+function renderPage(page: React.ReactNode, value: ErpSession = session()) {
+  return render(<ErpSessionContext.Provider value={value}>{page}</ErpSessionContext.Provider>);
 }
 
 function session(): ErpSession {

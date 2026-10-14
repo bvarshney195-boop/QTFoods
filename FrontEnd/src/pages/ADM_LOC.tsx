@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { isApiError } from '../api/client';
 import {
   createLocation,
+  deleteLocation,
   listLocations,
   updateLocation,
   type LifecycleStatus,
@@ -11,6 +12,7 @@ import {
 } from '../api/foundationAdmin';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
+import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
 import { StatusBadge } from '../components/StatusBadge';
 
 type LocationForm = {
@@ -46,6 +48,7 @@ export default function ADM_LOC() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [pendingDelete, setPendingDelete] = useState<LocationAdmin | null>(null);
   const commandKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
 
@@ -133,6 +136,28 @@ export default function ADM_LOC() {
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteLocation(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedId.current = null;
+      setSelected(null);
+      setForm(blankForm());
+      await refresh();
+      setSuccess(`${target.code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, 'Unable to delete this location.'));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSearch(searchDraft.trim());
@@ -195,10 +220,14 @@ export default function ADM_LOC() {
             <label>Parent location<select value={form.parent_location_id} onChange={(event) => change({ parent_location_id: event.target.value })}><option value="">Root / no parent</option>{workspace?.lookups.parents.filter((parent) => parent.id !== selected?.id).map((parent) => <option key={parent.id} value={parent.id}>{parent.code} - {parent.name}</option>)}</select><FieldError value={fieldErrors.parent_location_id} /></label>
             <label className="full">Description<textarea rows={3} maxLength={2000} value={form.description} onChange={(event) => change({ description: event.target.value })} /><span className="field-hint">{form.description.length}/2000 characters</span><FieldError value={fieldErrors.description} /></label>
             {selected && selected.position_count > 0 && <div className="callout full">This location has {selected.position_count} stock position(s). Its type is locked, and deactivation requires zero on-hand stock.</div>}
-            <div className="form-actions full"><button className="primary" type="submit" disabled={busy || (selected ? !selected.allowed_actions.includes('UPDATE') : !workspace?.allowed_actions.includes('CREATE'))}>{busy ? 'Saving...' : selected ? 'Save changes' : 'Create location'}</button></div>
+            <div className="form-actions full">
+              {selected && session.roles.includes('ERP_ADMIN') && <button className="danger-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete entry</button>}
+              <button className="primary" type="submit" disabled={busy || (selected ? !selected.allowed_actions.includes('UPDATE') : !workspace?.allowed_actions.includes('CREATE'))}>{busy ? 'Saving...' : selected ? 'Save changes' : 'Create location'}</button>
+            </div>
           </form>
         </aside>
       </div>
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 

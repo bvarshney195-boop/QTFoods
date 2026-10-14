@@ -72,6 +72,17 @@ final class RoleAdminController
         )]);
     }
 
+    public function delete(string $roleId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deleteRole(
+            $roleId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
     public function syncPermissions(string $roleId, Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -134,6 +145,17 @@ final class RoleAdminController
         ]);
 
         return response()->json(['data' => $this->service->updatePermission(
+            $permissionId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
+    public function deletePermission(string $permissionId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deletePermission(
             $permissionId,
             $validated + $this->commandContext($request, true)
         )]);

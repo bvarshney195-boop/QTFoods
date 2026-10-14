@@ -13,6 +13,7 @@ use App\Http\Middleware\EnsureMetricsAccess;
 use App\Http\Middleware\EnsureOperationalTransactionVisible;
 use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsurePermanentPassword;
+use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\EnsureScreenAccess;
 use App\Http\Middleware\EnforceSecureTransport;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'erp.device' => EnsureActiveDeviceSession::class,
             'erp.context' => EnsureContextSelected::class,
             'erp.permission' => EnsurePermission::class,
+            'erp.role' => EnsureRole::class,
             'erp.visibility' => EnsureOperationalTransactionVisible::class,
             'erp.password' => EnsurePermanentPassword::class,
             'erp.screen' => EnsureScreenAccess::class,

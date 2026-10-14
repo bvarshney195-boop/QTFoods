@@ -220,6 +220,21 @@ final class RouteAuthorizationMatrixTest extends TestCase
         }
     }
 
+    public function test_erp_entry_delete_commands_require_the_actual_erp_admin_role(): void
+    {
+        $routes = $this->businessRoutes()
+            ->filter(fn (RoutingRoute $route): bool => str_ends_with($route->uri(), '/delete'));
+
+        $this->assertNotEmpty($routes);
+        foreach ($routes as $route) {
+            $this->assertContains(
+                'erp.role:ERP_ADMIN',
+                $route->gatherMiddleware(),
+                $this->routeKey($route).' must remain restricted to the ERP Administrator role.',
+            );
+        }
+    }
+
     public function test_every_seeded_role_context_resolves_every_business_route_gate(): void
     {
         $catalog = $this->businessCatalog();

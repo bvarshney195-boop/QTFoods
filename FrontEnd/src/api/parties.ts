@@ -190,3 +190,15 @@ export async function changePartyStatus(
     idempotencyKey,
   })).data;
 }
+
+export async function deleteParty(
+  party: Pick<PartyDetail, 'id' | 'record_version'>,
+  idempotencyKey: string,
+): Promise<Omit<PartyCommandResult, 'status'> & { status: 'DELETED'; deleted: true }> {
+  return (await apiMutation<{ data: Omit<PartyCommandResult, 'status'> & { status: 'DELETED'; deleted: true } }>(`/api/v1/master/parties/${party.id}/delete`, {
+    confirmed: true,
+  }, {
+    expectedVersion: party.record_version,
+    idempotencyKey,
+  })).data;
+}

@@ -3,6 +3,7 @@ import { isApiError } from '../api/client';
 import {
   changePartyStatus,
   createParty,
+  deleteParty,
   getParty,
   listParties,
   updateParty,
@@ -21,6 +22,7 @@ import {
 } from '../api/parties';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
+import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
 import { StatusBadge } from '../components/StatusBadge';
 
 const roles: PartyRole[] = ['CUSTOMER', 'SUPPLIER', 'CARRIER', 'SERVICE_PROVIDER'];
@@ -84,6 +86,7 @@ export default function MD_PARTY() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [targetStatus, setTargetStatus] = useState<PartyStatus>('ACTIVE');
   const [statusReason, setStatusReason] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<PartyDetail | null>(null);
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
@@ -231,6 +234,29 @@ export default function MD_PARTY() {
       setSuccess(`${selected.code} moved to ${display(result.status)} at version ${result.record_version}.`);
     } catch (caught) {
       setError(apiMessage(caught, 'Unable to change this party status.'));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    setError(null);
+    setFieldErrors({});
+    try {
+      await deleteParty(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedId.current = null;
+      setSelected(null);
+      setForm(blankForm());
+      await refresh();
+      setSuccess(`${target.code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, 'Unable to delete this party.'));
       setFieldErrors(apiFields(caught));
     } finally {
       setBusy(false);
@@ -392,7 +418,10 @@ export default function MD_PARTY() {
               </div>
             </section>
 
-            <div className="form-actions"><button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? 'Save party' : 'Create party'}</button></div>
+            <div className="form-actions">
+              {selected && session.roles.includes('ERP_ADMIN') && <button className="danger-button" type="button" disabled={busy || detailLoading} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete entry</button>}
+              <button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? 'Save party' : 'Create party'}</button>
+            </div>
             </fieldset>
           </form>
 
@@ -405,6 +434,7 @@ export default function MD_PARTY() {
           </form>}
         </aside>
       </div>
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.display_name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 

@@ -5,6 +5,8 @@ import {
   changeInventoryOwnerStatus,
   createInventoryLot,
   createInventoryOwner,
+  deleteInventoryLot,
+  deleteInventoryOwner,
   getInventoryLot,
   getInventoryOwner,
   getStockPosition,
@@ -33,6 +35,7 @@ import {
 } from '../api/inventoryOperations';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from './PageHeader';
+import { DeleteEntryDialog } from './DeleteEntryDialog';
 import { StatusBadge } from './StatusBadge';
 
 type Tab = 'stock' | 'owners' | 'lots' | 'movements';
@@ -89,6 +92,7 @@ export function InventoryStockWorkspace() {
   const [reservationQuantity, setReservationQuantity] = useState('');
   const [reservationPurpose, setReservationPurpose] = useState('');
   const [releaseReason, setReleaseReason] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<InventoryOwner | InventoryLot | null>(null);
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const reservationKey = useRef<string | null>(null);
@@ -349,6 +353,26 @@ export function InventoryStockWorkspace() {
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    resetMessages();
+    try {
+      if ('owner_type' in target) await deleteInventoryOwner(target, globalThis.crypto.randomUUID());
+      else await deleteInventoryLot(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      resetSelection();
+      await refresh();
+      setSuccess(`${'owner_type' in target ? target.code : target.internal_lot_code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      captureError(caught, 'Unable to delete this inventory entry.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createReservation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedStock || busy) return;
@@ -546,8 +570,10 @@ export function InventoryStockWorkspace() {
           onLifecycle={changeStatus}
         />}
         {tab === 'movements' && <MovementDetail detail={selectedMovement} loading={detailLoading} error={error && movements ? error : null} />}
+        {session.roles.includes('ERP_ADMIN') && (selectedLot || (selectedOwner && selectedOwner.owner_type !== 'COMPANY')) && <div className="panel-body form-actions inventory-delete-action"><button className="danger-button" type="button" disabled={busy} onClick={() => { clearFeedback(); setPendingDelete(selectedOwner ?? selectedLot); }}>Delete entry</button></div>}
       </aside>
     </div>
+    {pendingDelete && <DeleteEntryDialog entryLabel={'owner_type' in pendingDelete ? pendingDelete.name : pendingDelete.internal_lot_code} entryCode={'owner_type' in pendingDelete ? pendingDelete.code : pendingDelete.internal_lot_code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
   </>;
 }
 

@@ -62,6 +62,17 @@ final class ApprovalRuleController
         )]);
     }
 
+    public function delete(string $ruleId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deleteRule(
+            $ruleId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
     public function delegate(Request $request): JsonResponse
     {
         $validated = $request->validate([

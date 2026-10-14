@@ -61,13 +61,16 @@ function EditorHarness() {
   return (
     <main ref={rootRef}>
       <button type="button" onClick={() => setOpen(true)}>+ New</button>
-      <aside className="requisition-editor" data-testid="editor">
-        {open && <>
-          <label>Title<input /></label>
-          <button type="button" onClick={() => setLines((value) => value + 1)}>Add line</button>
-          {Array.from({ length: lines }, (_, index) => <label key={index}>Line {index + 1} detail<input aria-label={`Line ${index + 1} detail`} /></label>)}
-        </>}
-      </aside>
+      <div className="module-grid">
+        <section className="panel">Register</section>
+        <aside className="panel inventory-editor" data-testid="editor">
+          {open && <>
+            <label>Title<input /></label>
+            <button type="button" onClick={() => setLines((value) => value + 1)}>Add line</button>
+            {Array.from({ length: lines }, (_, index) => <label key={index}>Line {index + 1} detail<input aria-label={`Line ${index + 1} detail`} /></label>)}
+          </>}
+        </aside>
+      </div>
     </main>
   );
 }

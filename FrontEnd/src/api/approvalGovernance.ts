@@ -133,6 +133,18 @@ export async function updateApprovalRule(
   })).data;
 }
 
+export async function deleteApprovalRule(
+  rule: ApprovalRule,
+  idempotencyKey: string
+): Promise<ApprovalGovernanceCommand & { deleted: true }> {
+  return (await apiMutation<{ data: ApprovalGovernanceCommand & { deleted: true } }>(`/api/v1/admin/approval-rules/${rule.id}/delete`, {
+    confirmed: true,
+  }, {
+    expectedVersion: rule.record_version,
+    idempotencyKey,
+  })).data;
+}
+
 export async function createApprovalDelegation(
   body: {
     delegator_id: string;

@@ -90,6 +90,17 @@ final class PartyController
         )]);
     }
 
+    public function delete(string $partyId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->delete(
+            $partyId,
+            $validated + $this->commandContext($request, true),
+        )]);
+    }
+
     protected function sessionService(): SessionService
     {
         return $this->sessions;

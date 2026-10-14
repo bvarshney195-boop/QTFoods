@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createApprovalDelegation,
   createApprovalRule,
+  deleteApprovalRule,
   escalateDueApprovals,
   getApprovalGovernance,
   revokeApprovalDelegation,
@@ -16,6 +17,7 @@ import {
 import { isApiError } from '../api/client';
 import { useErpSession } from '../app/ErpSessionContext';
 import { PageHeader } from '../components/PageHeader';
+import { DeleteEntryDialog } from '../components/DeleteEntryDialog';
 import { StatusBadge } from '../components/StatusBadge';
 
 type RuleForm = ApprovalRuleWrite & { code: string };
@@ -48,6 +50,7 @@ export default function ADM_RULE() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [pendingDelete, setPendingDelete] = useState<ApprovalRule | null>(null);
   const selectedRuleId = useRef<string | null>(null);
   const ruleKey = useRef<string | null>(null);
   const delegationKey = useRef<string | null>(null);
@@ -196,6 +199,29 @@ export default function ADM_RULE() {
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || ruleBusy) return;
+    const target = pendingDelete;
+    setRuleBusy(true);
+    clearMessages();
+    try {
+      await deleteApprovalRule(target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedRuleId.current = null;
+      setSelectedRule(null);
+      setCreatingRule(false);
+      setRuleForm(blankRule());
+      await refresh();
+      setSuccess(`${target.name} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, 'Unable to delete this approval rule.'));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setRuleBusy(false);
+    }
+  }
+
   function changeDelegation(patch: Partial<DelegationForm>) {
     setDelegationForm((current) => ({ ...current, ...patch }));
     delegationKey.current = null;
@@ -323,6 +349,7 @@ export default function ADM_RULE() {
             </div>
             <div className="form-actions full">
               {!editable && canCreate && <button className="secondary" type="button" onClick={() => startOverride(selectedRule?.code)}>Create plant override</button>}
+              {session.roles.includes('ERP_ADMIN') && selectedRule && !selectedRule.is_system && <button className="danger-button" type="button" disabled={ruleBusy} onClick={() => { clearFeedback(); setPendingDelete(selectedRule); }}>Delete entry</button>}
               {editable && <button className="primary" type="submit" disabled={ruleBusy}>{ruleBusy ? 'Saving...' : creatingRule ? 'Create plant override' : 'Save policy version'}</button>}
             </div>
           </form>}
@@ -343,6 +370,7 @@ export default function ADM_RULE() {
         {!workspace?.delegations.length && <div className="empty-state">No approval delegations have been recorded in this plant.</div>}
         {Boolean(workspace?.delegations.length) && <div className="table-wrap"><table className="admin-table delegation-table"><thead><tr><th>Authority</th><th>Delegator</th><th>Delegate</th><th>Window</th><th>State</th><th>Reason</th><th>Action</th></tr></thead><tbody>{workspace?.delegations.map((delegation) => <tr key={delegation.id}><td><b>{shortPermission(delegation.permission_code)}</b><small>{delegation.permission_code}</small></td><td><b>{delegation.delegator.name}</b><small>{delegation.delegator.email}</small></td><td><b>{delegation.delegate.name}</b><small>{delegation.delegate.email}</small></td><td>{formatDateTime(delegation.effective_from)}<small>to {formatDateTime(delegation.effective_to)}</small></td><td><StatusBadge status={delegation.effective_status} /></td><td>{delegation.reason}</td><td>{delegation.allowed_actions.includes('REVOKE') && <button className="danger-button compact-button" type="button" onClick={() => void revoke(delegation)} disabled={delegationBusy}>Revoke</button>}</td></tr>)}</tbody></table></div>}
       </section>
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.name} entryCode={pendingDelete.code} busy={ruleBusy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 

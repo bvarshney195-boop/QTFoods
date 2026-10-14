@@ -7,6 +7,7 @@ use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -291,6 +292,34 @@ final class FoundationAdminService
             $result = $this->result('location', $locationId, $data['status'], $version);
             $this->record('UPDATE_LOCATION', 'foundation.location.updated', 'location', $locationId,
                 $data['company_id'], $data['plant_id'], $data, $version, $this->diff($location, $changes), $result);
+
+            return $result;
+        });
+    }
+
+    public function deleteLocation(string $locationId, array $data): array
+    {
+        return $this->execute("foundation.location.delete.{$locationId}", $data, function () use ($locationId, $data) {
+            $location = $this->scopedLocation($locationId, $data, true);
+            $this->assertVersion($location, $data['expected_version'], 'location');
+
+            if (DB::table('locations')->where('parent_location_id', $locationId)->exists()) {
+                throw ValidationException::withMessages([
+                    'location' => ['Move or delete this location’s child locations first.'],
+                ]);
+            }
+            if (DB::table('stock_positions')->where('location_id', $locationId)->exists()) {
+                throw ValidationException::withMessages([
+                    'location' => ['This location has stock-position history and cannot be deleted. Deactivate it instead.'],
+                ]);
+            }
+
+            $this->deleteRecord('locations', $locationId, 'location');
+            $version = (int) $location->record_version + 1;
+            $result = $this->result('location', $locationId, 'DELETED', $version, ['deleted' => true]);
+            $this->record('DELETE_LOCATION', 'foundation.location.deleted', 'location', $locationId,
+                $data['company_id'], $data['plant_id'], $data, $version,
+                ['deleted' => ['code' => $location->code, 'name' => $location->name]], $result);
 
             return $result;
         });
@@ -781,6 +810,29 @@ final class FoundationAdminService
         });
     }
 
+    public function deleteRole(string $roleId, array $data): array
+    {
+        return $this->execute("foundation.role.delete.{$roleId}", $data, function () use ($roleId, $data) {
+            $role = $this->scopedCustomRole($roleId, $data, true);
+            $this->assertVersion($role, $data['expected_version'], 'role');
+            if (DB::table('role_assignments')->where('role_id', $roleId)->exists()) {
+                throw ValidationException::withMessages([
+                    'role' => ['Remove every user assignment for this role before deleting it.'],
+                ]);
+            }
+
+            DB::table('role_permissions')->where('role_id', $roleId)->delete();
+            $this->deleteRecord('roles', $roleId, 'role');
+            $version = (int) $role->record_version + 1;
+            $result = $this->result('role', $roleId, 'DELETED', $version, ['deleted' => true]);
+            $this->record('DELETE_ROLE', 'foundation.role.deleted', 'role', $roleId,
+                $data['company_id'], $data['plant_id'], $data, $version,
+                ['deleted' => ['code' => $role->code, 'name' => $role->name]], $result);
+
+            return $result;
+        });
+    }
+
     public function syncRolePermissions(string $roleId, array $data): array
     {
         return $this->execute("foundation.role.permissions.{$roleId}", $data, function () use ($roleId, $data) {
@@ -897,6 +949,29 @@ final class FoundationAdminService
             });
     }
 
+    public function deletePermission(string $permissionId, array $data): array
+    {
+        return $this->execute("foundation.permission.delete.{$permissionId}", $data,
+            function () use ($permissionId, $data) {
+                $permission = $this->scopedCustomPermission($permissionId, $data, true);
+                $this->assertVersion($permission, $data['expected_version'], 'permission');
+                if (DB::table('role_permissions')->where('permission_id', $permissionId)->exists()) {
+                    throw ValidationException::withMessages([
+                        'permission' => ['Remove this permission from every role before deleting it.'],
+                    ]);
+                }
+
+                $this->deleteRecord('permissions', $permissionId, 'permission');
+                $version = (int) $permission->record_version + 1;
+                $result = $this->result('permission', $permissionId, 'DELETED', $version, ['deleted' => true]);
+                $this->record('DELETE_PERMISSION', 'foundation.permission.deleted', 'permission', $permissionId,
+                    $data['company_id'], $data['plant_id'], $data, $version,
+                    ['deleted' => ['code' => $permission->code, 'name' => $permission->name]], $result);
+
+                return $result;
+            });
+    }
+
     private function execute(string $namespace, array $data, Closure $command): array
     {
         return DB::transaction(function () use ($namespace, $data, $command) {
@@ -913,6 +988,17 @@ final class FoundationAdminService
 
             return $result;
         });
+    }
+
+    private function deleteRecord(string $table, string $id, string $label): void
+    {
+        try {
+            DB::table($table)->where('id', $id)->delete();
+        } catch (QueryException) {
+            throw ValidationException::withMessages([
+                $label => ["This {$label} is used by another ERP entry and cannot be deleted. Deactivate it instead."],
+            ]);
+        }
     }
 
     private function scopedCompany(string $companyId, array $data, bool $lock = false): object
