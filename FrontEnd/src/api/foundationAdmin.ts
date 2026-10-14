@@ -30,6 +30,7 @@ export type AdminCommandResult = {
   role_assignment_id?: string;
   user_id?: string;
   permission_ids?: string[];
+  deleted?: true;
 };
 
 export type CompanyAdmin = {
@@ -283,6 +284,10 @@ export async function listLocations(filters: { q?: string; status?: string; loca
   return apiRequest<LocationWorkspace>(`/api/v1/admin/locations${suffix}`);
 }
 
+export async function getLocation(locationId: string): Promise<LocationAdmin> {
+  return (await apiRequest<{ data: LocationAdmin }>(`/api/v1/admin/locations/${locationId}`)).data;
+}
+
 export async function createLocation(
   body: Pick<LocationAdmin, 'code' | 'name' | 'description' | 'location_type' | 'status'> & { parent_location_id: string | null },
   idempotencyKey: string
@@ -393,6 +398,15 @@ export async function updateUser(
   })).data;
 }
 
+export async function deleteLocation(location: LocationAdmin, idempotencyKey: string): Promise<AdminCommandResult> {
+  return (await apiMutation<{ data: AdminCommandResult }>(`/api/v1/admin/locations/${location.id}/delete`, {
+    confirmed: true,
+  }, {
+    expectedVersion: location.record_version,
+    idempotencyKey,
+  })).data;
+}
+
 export async function resetUserPassword(
   user: UserAdmin,
   temporaryPassword: string,
@@ -428,7 +442,7 @@ export async function deleteUser(
   idempotencyKey: string
 ): Promise<AdminCommandResult & { deleted: true }> {
   return (await apiMutation<{ data: AdminCommandResult & { deleted: true } }>(
-    `/api/v1/admin/users/${user.id}/delete`, {}, {
+    `/api/v1/admin/users/${user.id}/delete`, { confirmed: true }, {
       expectedVersion: user.record_version,
       idempotencyKey,
     }
@@ -484,6 +498,15 @@ export async function updateRole(
   })).data;
 }
 
+export async function deleteRole(role: RoleAdmin, idempotencyKey: string): Promise<AdminCommandResult> {
+  return (await apiMutation<{ data: AdminCommandResult }>(`/api/v1/admin/roles/${role.id}/delete`, {
+    confirmed: true,
+  }, {
+    expectedVersion: role.record_version,
+    idempotencyKey,
+  })).data;
+}
+
 export async function syncRolePermissions(
   role: RoleAdmin,
   permissionIds: string[],
@@ -512,6 +535,15 @@ export async function updatePermission(
   idempotencyKey: string
 ): Promise<AdminCommandResult> {
   return (await apiMutation<{ data: AdminCommandResult }>(`/api/v1/admin/permissions/${permission.id}`, body, {
+    expectedVersion: permission.record_version,
+    idempotencyKey,
+  })).data;
+}
+
+export async function deletePermission(permission: PermissionAdmin, idempotencyKey: string): Promise<AdminCommandResult> {
+  return (await apiMutation<{ data: AdminCommandResult }>(`/api/v1/admin/permissions/${permission.id}/delete`, {
+    confirmed: true,
+  }, {
     expectedVersion: permission.record_version,
     idempotencyKey,
   })).data;

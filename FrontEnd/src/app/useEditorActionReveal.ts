@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 
-const editorSelector = '.requisition-editor, .admin-editor, .inventory-operation-editor';
+const editorSelector = '.module-grid > aside, .module-grid > .panel:nth-child(2), .requisition-editor, .admin-editor, .inventory-operation-editor';
 const addOrNewAction = /^\+?\s*(?:add|new)\b/i;
 const editableFieldSelector = 'input:not([type="hidden"]), select, textarea';
 

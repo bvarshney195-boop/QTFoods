@@ -11,6 +11,7 @@ import { isApiError } from '../api/client';
 import {
   changeProductMasterStatus,
   createProductMaster,
+  deleteProductMaster,
   getProductMaster,
   listProductMasters,
   updateProductMaster,
@@ -27,7 +28,18 @@ import {
   type UomConversion,
 } from '../api/productMasters';
 import { useErpSession } from '../app/ErpSessionContext';
+import {
+  readRegisterRouteParams,
+  readRouteChoice,
+  readRoutePage,
+  readRouteString,
+  revealEditCard,
+  revealRegister,
+  useEditCardNavigation,
+} from '../app/useEditCardNavigation';
+import { ExpandableRegister, RegisterDetailGrid } from './ExpandableRegister';
 import { PageHeader } from './PageHeader';
+import { DeleteEntryDialog } from './DeleteEntryDialog';
 import { StatusBadge } from './StatusBadge';
 
 type MasterForm = {
@@ -106,20 +118,26 @@ const configs: Record<ProductMasterResource, WorkspaceConfig> = {
   },
 };
 
+const productMasterStatuses: readonly ProductMasterStatus[] = ['DRAFT', 'ACTIVE', 'INACTIVE'];
+const productMasterSorts = ['CODE', 'NAME', 'NEWEST', 'OLDEST'] as const;
+
 export function ProductMasterWorkspace({ resource }: { resource: ProductMasterResource }) {
   const config = configs[resource];
+  const initialRoute = useRef(readRegisterRouteParams(config.screen)).current;
   const session = useErpSession();
   const contextKey = `${session.selected_context?.company_id}:${session.selected_context?.plant_id}`;
+  const scopeKey = `${contextKey}:${resource}`;
   const [workspace, setWorkspace] = useState<ProductMasterWorkspaceData | null>(null);
   const [selected, setSelected] = useState<ProductMasterDetail | null>(null);
   const [form, setForm] = useState<MasterForm>(() => blankForm());
-  const [searchDraft, setSearchDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<ProductMasterStatus | ''>('');
-  const [type, setType] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [sort, setSort] = useState<'CODE' | 'NAME' | 'NEWEST' | 'OLDEST'>('CODE');
-  const [page, setPage] = useState(1);
+  const initialSearch = readRouteString(initialRoute, 'q');
+  const [searchDraft, setSearchDraft] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
+  const [status, setStatus] = useState<ProductMasterStatus | ''>(() => readRouteChoice(initialRoute, 'status', [...productMasterStatuses, ''] as const, ''));
+  const [type, setType] = useState(() => readRouteString(initialRoute, 'type'));
+  const [parentId, setParentId] = useState(() => readRouteString(initialRoute, 'parent'));
+  const [sort, setSort] = useState<(typeof productMasterSorts)[number]>(() => readRouteChoice(initialRoute, 'sort', productMasterSorts, 'CODE'));
+  const [page, setPage] = useState(() => readRoutePage(initialRoute));
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -128,11 +146,16 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [targetStatus, setTargetStatus] = useState<ProductMasterStatus>('ACTIVE');
   const [statusReason, setStatusReason] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<ProductMasterDetail | null>(null);
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
   const initialisedFormKey = useRef<string | null>(null);
   const loadedWorkspaceKey = useRef<string | null>(null);
+  const mountedContextKey = useRef(scopeKey);
+  const registerRef = useRef<HTMLElement>(null);
+  const editorRef = useRef<HTMLElement>(null);
+  const handledCardRoute = useRef('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -156,6 +179,8 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   }, [contextKey, resource, page, search, status, type, parentId, sort, config.plural]);
 
   useEffect(() => {
+    if (mountedContextKey.current === scopeKey) return;
+    mountedContextKey.current = scopeKey;
     initialisedFormKey.current = null;
     loadedWorkspaceKey.current = null;
     setWorkspace(null);
@@ -169,7 +194,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     setType('');
     setParentId('');
     setSuccess(null);
-  }, [contextKey, resource]);
+  }, [scopeKey, resource]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -181,6 +206,41 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     initialisedFormKey.current = formKey;
     if (selectedId.current === null) setForm(blankForm(resource, workspace.lookups));
   }, [contextKey, resource, workspace]);
+
+  const cardNavigation = useEditCardNavigation(config.screen, {
+    q: search || undefined,
+    status: status || undefined,
+    type: type || undefined,
+    parent: parentId || undefined,
+    sort: sort === 'CODE' ? undefined : sort,
+    page: page === 1 ? undefined : page,
+  });
+
+  useEffect(() => {
+    const routeKey = `${scopeKey}:${cardNavigation.route.mode}:${cardNavigation.route.recordId ?? ''}`;
+    if (handledCardRoute.current === routeKey) return;
+    const hadPriorRoute = handledCardRoute.current !== '';
+    handledCardRoute.current = routeKey;
+
+    if (cardNavigation.route.mode === 'edit') {
+      if (selectedId.current !== cardNavigation.route.recordId) void choose(cardNavigation.route.recordId);
+      window.requestAnimationFrame(() => revealEditCard(editorRef.current));
+      return;
+    }
+    if (cardNavigation.route.mode === 'create') {
+      startCreate();
+      window.requestAnimationFrame(() => revealEditCard(editorRef.current));
+      return;
+    }
+
+    selectedId.current = null;
+    setSelected(null);
+    setForm(blankForm(resource, workspace?.lookups));
+    clearFeedback();
+    if (hadPriorRoute && window.location.hash.startsWith(`#${config.screen}`)) {
+      window.requestAnimationFrame(() => revealRegister(registerRef.current));
+    }
+  }, [cardNavigation.route.mode, cardNavigation.route.recordId, scopeKey]);
 
   async function choose(recordId: string) {
     selectedId.current = recordId;
@@ -222,6 +282,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     setSuccess(null);
     setFieldErrors({});
     commandKey.current ??= globalThis.crypto.randomUUID();
+    const wasEditing = Boolean(selected);
     try {
       const body = writePayload(resource, form);
       const result = selected
@@ -237,6 +298,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
         : `${form.code.trim().toUpperCase()} was created as ${result.status}.`;
       await refresh();
       await chooseAfterSave(result.id);
+      if (!wasEditing) cardNavigation.replaceWithEditCard(result.id);
       setSuccess(message);
     } catch (caught) {
       setError(apiMessage(caught, `Unable to save this ${config.noun}.`));
@@ -275,6 +337,30 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     }
   }
 
+  async function confirmDelete() {
+    if (!pendingDelete || busy) return;
+    const target = pendingDelete;
+    setBusy(true);
+    setError(null);
+    setFieldErrors({});
+    try {
+      await deleteProductMaster(resource, target, globalThis.crypto.randomUUID());
+      setPendingDelete(null);
+      selectedId.current = null;
+      setSelected(null);
+      setForm(blankForm(resource, workspace?.lookups));
+      await refresh();
+      cardNavigation.returnToRegister();
+      setSuccess(`${target.code} was deleted.`);
+    } catch (caught) {
+      setPendingDelete(null);
+      setError(apiMessage(caught, `Unable to delete this ${config.noun}.`));
+      setFieldErrors(apiFields(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function chooseAfterSave(recordId: string) {
     selectedId.current = recordId;
     const detail = await getProductMaster(resource, recordId);
@@ -289,9 +375,9 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     setSearch(searchDraft.trim());
   }
 
-  const hasSavePermission = selected
-    ? selected.allowed_actions.includes('UPDATE')
-    : workspace?.allowed_actions.includes('CREATE');
+  const hasSavePermission = cardNavigation.route.mode === 'create'
+    ? workspace?.allowed_actions.includes('CREATE')
+    : selected?.allowed_actions.includes('UPDATE') ?? false;
   const requiresUoms = resource === 'items' || resource === 'skus' || resource === 'recipes';
   const missingRequiredUoms = Boolean(workspace && requiresUoms && workspace.lookups.uoms.length === 0);
   const canSave = Boolean(hasSavePermission && !missingRequiredUoms);
@@ -309,7 +395,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
         batch={config.batch}
         title={config.title}
         description={config.description}
-        onNew={workspace?.allowed_actions.includes('CREATE') ? startCreate : undefined}
+        onNew={workspace?.allowed_actions.includes('CREATE') ? cardNavigation.openCreateCard : undefined}
       />
       <div className="live-notice product-master-notice"><span></span><b>Controlled product master</b>{config.notice}</div>
 
@@ -321,7 +407,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
       </div>
 
       <div className="module-grid admin-workspace party-workspace product-master-workspace">
-        <section className="panel">
+        <section className="panel" ref={registerRef}>
           <div className="panel-head"><div><h3>{display(config.plural)} register</h3><span>{session.selected_context?.company_name}</span></div><button className="secondary compact-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
           <form className="party-toolbar product-master-toolbar" onSubmit={submitSearch}>
             <label>Search<span><input aria-label={`Search ${config.plural}`} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Code or name" /><button className="secondary" type="submit">Search</button></span></label>
@@ -333,29 +419,34 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
           {error && !workspace && <div className="form-error panel-message" role="alert"><span>{error}</span><button type="button" onClick={() => void refresh()}>Retry</button></div>}
           {loading && !workspace && <div className="empty-state">Loading {config.plural}...</div>}
           {!loading && workspace && workspace.data.length === 0 && <div className="empty-state">No {config.noun} matches the current filters.</div>}
-          {workspace && workspace.data.length > 0 && <div className={`table-wrap ${loading ? 'is-refreshing' : ''}`}>
-            <table className="admin-table product-master-table"><thead><tr><th>{display(config.noun)}</th><th>Parent / target</th><th>Structure</th><th>Status</th><th>Updated</th><th>Version</th><th>Action</th></tr></thead><tbody>
-              {workspace.data.map((record) => <tr key={record.id} className={selected?.id === record.id ? 'selected-row' : ''}>
-                <td><b>{record.name}</b><small>{record.code}</small></td>
-                <td>{record.parent?.name ?? '—'}<small>{record.parent?.code ?? resourceSummary(resource, record)}</small></td>
-                <td>{record.child_count} {display(record.child_label)}<small>{structureSummary(resource, record)}</small></td>
-                <td><StatusBadge status={record.status} /></td>
-                <td>{formatDate(record.updated_at)}</td>
-                <td>v{record.record_version}</td>
-                <td><button className="secondary compact-button" type="button" onClick={() => void choose(record.id)}>Open</button></td>
-              </tr>)}
-            </tbody></table>
+          {workspace && workspace.data.length > 0 && <div className={loading ? 'is-refreshing' : undefined}>
+            <ExpandableRegister
+              ariaLabel={`${display(config.plural)} register`}
+              records={workspace.data}
+              getRecordId={(record) => record.id}
+              getRecordLabel={(record) => `${record.code} ${record.name}`}
+              selectedId={selected?.id}
+              columnsTemplate="minmax(190px,2fr) minmax(160px,1.4fr) minmax(130px,1fr) minmax(100px,.75fr) minmax(110px,.8fr)"
+              columns={[
+                { key: 'record', heading: display(config.noun), render: (record) => <><b>{record.name}</b><small>{record.code}</small></> },
+                { key: 'parent', heading: 'Parent / target', render: (record) => <>{record.parent?.name ?? '—'}<small>{record.parent?.code ?? resourceSummary(resource, record)}</small></> },
+                { key: 'structure', heading: 'Structure', render: (record) => <>{record.child_count} {display(record.child_label)}<small>{structureSummary(resource, record)}</small></> },
+                { key: 'status', heading: 'Status', render: (record) => <StatusBadge status={record.status} /> },
+                { key: 'updated', heading: 'Updated', render: (record) => formatDate(record.updated_at) },
+              ]}
+              renderExpanded={(record) => <ProductMasterRegisterDetail resource={resource} record={record} onOpen={() => cardNavigation.openEditCard(record.id)} />}
+            />
           </div>}
           {workspace && <div className="pagination"><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {workspace.meta.current_page} of {workspace.meta.last_page} · {workspace.meta.total} records</span><button type="button" disabled={page >= workspace.meta.last_page || loading} onClick={() => setPage((value) => value + 1)}>Next</button></div>}
         </section>
 
-        <aside className="panel admin-editor party-editor product-master-editor">
-          <div className="panel-head"><div><h3>{selected ? `Edit ${selected.code}` : `New ${config.noun}`}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div>{selected && <StatusBadge status={selected.status} />}</div>
+        {cardNavigation.route.mode !== 'register' && <aside className="panel admin-editor party-editor product-master-editor edit-card" ref={editorRef}>
+          <div className="panel-head"><div><h3 tabIndex={-1}>{selected ? `Edit ${selected.code}` : cardNavigation.route.mode === 'edit' ? `Open ${config.noun}` : `New ${config.noun}`}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div><div className="edit-card-navigation">{selected && <StatusBadge status={selected.status} />}<button className="secondary compact-button" type="button" onClick={cardNavigation.returnToRegister}>Back to register</button></div></div>
           <form className="panel-body party-form" onSubmit={save} noValidate>
             {error && workspace && <div className="form-error" role="alert"><span>{error}</span></div>}
             {missingRequiredUoms && <div className="form-error" role="alert"><span>Units of measure are not configured. Ask an administrator to apply the required reference data before creating this {config.noun}.</span></div>}
             {success && <div className="form-success" role="status"><span></span>{success}</div>}
-            <fieldset className="party-form-fields" disabled={busy || detailLoading}>
+            <fieldset className="party-form-fields" disabled={busy || detailLoading || !hasSavePermission}>
               <section className="party-subsection">
                 <h4>Identity and lifecycle</h4>
                 <div className="party-card-grid">
@@ -373,9 +464,12 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
                 fieldErrors={fieldErrors}
                 resetFeedback={resetCommandFeedback}
               />
-
-              <div className="form-actions"><button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? `Save ${config.noun}` : `Create ${config.noun}`}</button></div>
             </fieldset>
+              <div className="form-actions">
+                {selected && session.roles.includes('ERP_ADMIN') && <button className="danger-button" type="button" disabled={busy || detailLoading} onClick={() => { clearFeedback(); setPendingDelete(selected); }}>Delete entry</button>}
+                <button className="secondary" type="button" disabled={busy} onClick={cardNavigation.returnToRegister}>Cancel</button>
+                <button className="primary" type="submit" disabled={busy || detailLoading || !canSave}>{busy ? 'Saving...' : selected ? `Save ${config.noun}` : `Create ${config.noun}`}</button>
+              </div>
           </form>
 
           {selected && selected.allowed_actions.includes('CHANGE_STATUS') && selected.allowed_statuses.length > 0 && <form className="party-lifecycle" onSubmit={submitLifecycle}>
@@ -385,8 +479,19 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
             <FieldError value={fieldErrors.target_status ?? fieldErrors.reason} />
             <button className="secondary" type="submit" disabled={busy || statusReason.trim().length < 3}>Apply status</button>
           </form>}
-        </aside>
+        </aside>}
+
+        {resource === 'items' && workspace && <ItemReferenceRegisters
+          itemTypes={workspace.lookups.item_types}
+          uoms={workspace.lookups.uoms}
+          onFilterType={(itemType) => {
+            setType(itemType);
+            setPage(1);
+            window.requestAnimationFrame(() => revealRegister(registerRef.current));
+          }}
+        />}
       </div>
+      {pendingDelete && <DeleteEntryDialog entryLabel={pendingDelete.name} entryCode={pendingDelete.code} busy={busy} onCancel={() => setPendingDelete(null)} onConfirm={() => void confirmDelete()} />}
     </>
   );
 
@@ -404,6 +509,111 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     setSuccess(null);
     setFieldErrors({});
   }
+}
+
+function ProductMasterRegisterDetail({
+  resource,
+  record,
+  onOpen,
+}: {
+  resource: ProductMasterResource;
+  record: ProductMasterDetail;
+  onOpen: () => void;
+}) {
+  const canUpdate = record.allowed_actions.includes('UPDATE');
+  const lifecycle = record.status_change
+    ? `${record.status_change.reason ?? 'Status changed'} · ${formatDate(record.status_change.changed_at)}${record.status_change.changed_by ? ` · ${record.status_change.changed_by.name}` : ''}`
+    : 'No lifecycle transition recorded';
+  const note = record.description ?? record.notes ?? 'No description recorded.';
+
+  return (
+    <>
+      <div className="register-detail-heading">
+        <div><span>{display(resource.slice(0, -1))} record</span><h4>{record.name}</h4><p>{record.code}</p></div>
+        <StatusBadge status={record.status} />
+      </div>
+      <RegisterDetailGrid facts={[
+        { label: 'Classification', value: resourceSummary(resource, record) },
+        { label: 'Linked entity', value: record.parent ? `${record.parent.code} · ${record.parent.name}` : 'No parent / target' },
+        { label: 'Structure', value: `${record.child_count} ${display(record.child_label)} · ${structureSummary(resource, record)}` },
+        ...productSpecificFacts(resource, record),
+        { label: 'Record version', value: `v${record.record_version}` },
+        { label: 'Created', value: formatDate(record.created_at) },
+        { label: 'Last updated', value: formatDate(record.updated_at) },
+        { label: 'Lifecycle history', value: lifecycle, wide: true },
+        { label: 'Description / notes', value: note, wide: true },
+      ]} />
+      <div className="register-detail-actions">
+        <span>{canUpdate ? 'Editing is permitted for your role.' : 'Your role has read-only access to this record.'}</span>
+        <button className="primary" type="button" onClick={onOpen}>{canUpdate ? 'Open edit card' : 'Open read-only card'}</button>
+      </div>
+    </>
+  );
+}
+
+function ItemReferenceRegisters({
+  itemTypes,
+  uoms,
+  onFilterType,
+}: {
+  itemTypes: string[];
+  uoms: ProductMasterLookups['uoms'];
+  onFilterType: (itemType: string) => void;
+}) {
+  return (
+    <section className="panel item-reference-registers">
+      <div className="panel-head"><div><h3>Product categories & UOM reference</h3><span>Protected database reference data used by item cards</span></div></div>
+      <div className="reference-register-block">
+        <div className="subsection-head"><div><b>Product categories / classifications</b><small>Raw materials, finished goods, packaging, intermediates, and services</small></div></div>
+        <ExpandableRegister
+          ariaLabel="Product category reference register"
+          records={itemTypes}
+          getRecordId={(itemType) => itemType}
+          getRecordLabel={(itemType) => display(itemType)}
+          columnsTemplate="minmax(230px,1.6fr) minmax(180px,1fr)"
+          columns={[
+            { key: 'classification', heading: 'Classification', render: (itemType) => <><b>{display(itemType)}</b><small>{itemType}</small></> },
+            { key: 'scope', heading: 'Scope', render: () => 'Catalog items and SKUs' },
+          ]}
+          renderExpanded={(itemType) => <>
+            <div className="register-detail-heading"><div><span>Governed classification</span><h4>{display(itemType)}</h4><p>Database-enforced item type</p></div><span className="status status-ok">Available</span></div>
+            <RegisterDetailGrid facts={[
+              { label: 'Stored value', value: itemType },
+              { label: 'Linked entities', value: 'Catalog items and stock-bearing SKUs' },
+              { label: 'Lifecycle', value: 'Controlled through each linked item or SKU' },
+              { label: 'Edit policy', value: 'Reference choices are database constrained and have no independent edit card' },
+            ]} />
+            <div className="register-detail-actions"><span>Use this category as the current Item register filter.</span><button className="secondary" type="button" onClick={() => onFilterType(itemType)}>View matching items</button></div>
+          </>}
+        />
+      </div>
+      <div className="reference-register-block">
+        <div className="subsection-head"><div><b>Units of measure</b><small>Global UOM codes available to item, pack, recipe, and quality records</small></div></div>
+        <ExpandableRegister
+          ariaLabel="UOM reference register"
+          records={uoms}
+          getRecordId={(uom) => uom.code}
+          getRecordLabel={(uom) => `${uom.code} ${uom.name}`}
+          columnsTemplate="minmax(150px,.8fr) minmax(230px,1.4fr) minmax(150px,.8fr)"
+          columns={[
+            { key: 'code', heading: 'UOM', render: (uom) => <b>{uom.code}</b> },
+            { key: 'name', heading: 'Name', render: (uom) => uom.name },
+            { key: 'precision', heading: 'Precision', render: (uom) => `${uom.precision} decimal places` },
+          ]}
+          renderExpanded={(uom) => <>
+            <div className="register-detail-heading"><div><span>Global reference</span><h4>{uom.name}</h4><p>{uom.code}</p></div><span className="status status-ok">Available</span></div>
+            <RegisterDetailGrid facts={[
+              { label: 'Code', value: uom.code },
+              { label: 'Decimal precision', value: uom.precision },
+              { label: 'Linked entities', value: 'Items, SKU packs, recipes, specifications, and inventory positions', wide: true },
+              { label: 'Edit policy', value: 'Reference-only: this API has no UOM record version or authorised edit-card endpoint', wide: true },
+            ]} />
+            <div className="register-detail-actions"><span>UOM changes remain migration-controlled to protect inventory and conversion integrity.</span></div>
+          </>}
+        />
+      </div>
+    </section>
+  );
 }
 
 function ResourceEditor({
@@ -823,6 +1033,39 @@ function structureSummary(resource: ProductMasterResource, record: ProductMaster
   if (resource === 'skus') return `${record.pack_quantity ?? '—'} ${record.pack_uom_code ?? ''}`.trim();
   if (resource === 'recipes') return `${record.yield_percent ?? '—'}% yield`;
   return `version ${record.record_version}`;
+}
+
+function productSpecificFacts(
+  resource: ProductMasterResource,
+  record: ProductMasterDetail,
+): Array<{ label: string; value: string; wide?: boolean }> {
+  if (resource === 'brands') return [
+    { label: 'Commercial links', value: `${record.child_count} governed agreement(s)` },
+  ];
+  if (resource === 'items') return [
+    { label: 'Base UOM', value: record.base_uom ?? 'Not assigned' },
+    {
+      label: 'Shelf life & lot control',
+      value: `${record.shelf_life_days ?? 'No'} days shelf life · ${record.lot_controlled ? 'Lot controlled' : 'Not lot controlled'}`,
+    },
+  ];
+  if (resource === 'skus') return [
+    { label: 'Selling pack', value: `${record.pack_quantity ?? '—'} ${record.pack_uom_code ?? record.base_uom ?? ''}`.trim() },
+    { label: 'Barcode', value: record.barcode ?? 'Not recorded' },
+  ];
+  if (resource === 'recipes') return [
+    { label: 'Output', value: `${record.output_quantity ?? '—'} ${record.output_uom_code ?? ''}`.trim() },
+    { label: 'Yield', value: `${record.yield_percent ?? '—'}%` },
+    { label: 'Effective period', value: `${record.effective_from ?? 'Open'} to ${record.effective_to ?? 'open ended'}` },
+  ];
+  if (resource === 'routes') return [
+    { label: 'Production steps', value: `${record.child_count} ordered operation(s)` },
+  ];
+  return [
+    { label: 'Target type', value: record.target_type ?? 'Not assigned' },
+    { label: 'Effective period', value: `${record.effective_from ?? 'Open'} to ${record.effective_to ?? 'open ended'}` },
+    { label: 'Sampling plan', value: record.sampling_plan ?? 'Not recorded' },
+  ];
 }
 
 function FieldError({ value }: { value?: string }) {

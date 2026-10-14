@@ -6,6 +6,7 @@ use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -213,6 +214,42 @@ final class ProductMasterService
             $this->record($definition, 'CHANGE_STATUS', $recordId, $data, $version, [
                 'status' => ['from' => $record->status, 'to' => $targetStatus],
                 'reason' => $reason,
+            ], $result);
+            $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
+
+            return $result;
+        }, 3);
+    }
+
+    public function delete(string $resource, string $recordId, array $data): array
+    {
+        $definition = $this->definition($resource);
+
+        return DB::transaction(function () use ($resource, $definition, $recordId, $data) {
+            $namespace = $definition['event'].'.delete.'.$recordId;
+            $payload = [
+                'resource' => $resource, 'record_id' => $recordId,
+                'expected_version' => $data['expected_version'], 'confirmed' => true,
+            ];
+            $replay = $this->idempotency->begin($namespace, $data['idempotency_key'], $payload);
+            if ($replay !== null) {
+                return $replay;
+            }
+
+            $record = $this->findLocked($definition, $recordId, $data['company_id']);
+            $this->assertVersion($definition, $record, $data['expected_version']);
+            try {
+                DB::table($definition['table'])->where('id', $recordId)->delete();
+            } catch (QueryException) {
+                throw ValidationException::withMessages([
+                    $definition['entity'] => ["This {$definition['label']} is used by another ERP entry and cannot be deleted. Deactivate it instead."],
+                ]);
+            }
+
+            $version = (int) $record->record_version + 1;
+            $result = $this->result($definition, $recordId, 'DELETED', $version) + ['deleted' => true];
+            $this->record($definition, 'DELETE', $recordId, $data, $version, [
+                'deleted' => ['code' => $record->code, 'name' => $record->name],
             ], $result);
             $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
 
@@ -1006,6 +1043,7 @@ final class ProductMasterService
         $eventSuffix = match ($verb) {
             'CREATE' => 'created',
             'UPDATE' => 'updated',
+            'DELETE' => 'deleted',
             default => 'status_changed',
         };
         $this->outbox->append($definition['event'].'.'.$eventSuffix, $definition['entity'], $recordId,

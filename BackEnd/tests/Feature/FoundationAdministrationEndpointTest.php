@@ -195,6 +195,40 @@ final class FoundationAdministrationEndpointTest extends TestCase
             ->assertNotFound()->assertJsonPath('error.code', 'NOT_FOUND');
     }
 
+    public function test_only_an_erp_admin_can_confirm_and_delete_an_unused_entry(): void
+    {
+        $locationId = $this->createLocation('DELETE-E2E', 'Delete candidate', null);
+
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson("/api/v1/admin/locations/{$locationId}/delete", [])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('confirmed');
+
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson("/api/v1/admin/locations/{$locationId}/delete", ['confirmed' => true])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'DELETED')
+            ->assertJsonPath('data.deleted', true);
+        $this->assertDatabaseMissing('locations', ['id' => $locationId]);
+        $this->assertDatabaseHas('audit_events', ['command' => 'DELETE_LOCATION', 'entity_id' => $locationId]);
+
+        $protectedId = $this->createLocation('ADMIN-ONLY', 'Admin only candidate', null);
+        $permissionIds = DB::table('permissions')->whereIn('code', [
+            'SCREEN:ADM-LOC:VIEW', 'ACTION:ADM-LOC:UPDATE',
+        ])->pluck('id');
+        foreach ($permissionIds as $permissionId) {
+            DB::table('role_permissions')->insertOrIgnore([
+                'role_id' => self::SALES_ROLE_ID,
+                'permission_id' => $permissionId,
+            ]);
+        }
+        $this->signIn(self::SALES_USER_ID, self::TRAINING_PLANT_ID);
+        $this->withHeaders($this->commandHeaders(1))
+            ->postJson("/api/v1/admin/locations/{$protectedId}/delete", ['confirmed' => true])
+            ->assertForbidden();
+        $this->assertDatabaseHas('locations', ['id' => $protectedId]);
+    }
+
     public function test_user_and_role_assignment_commands_hash_credentials_and_enforce_versions(): void
     {
         $created = $this->command()->postJson('/api/v1/admin/users', [
@@ -386,7 +420,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
         $assignmentId = $created->json('data.role_assignment_id');
 
         $this->withHeaders($this->commandHeaders(1))
-            ->postJson("/api/v1/admin/users/{$userId}/delete", [])
+            ->postJson("/api/v1/admin/users/{$userId}/delete", ['confirmed' => true])
             ->assertOk()
             ->assertJsonPath('data.deleted', true)
             ->assertJsonPath('data.status', 'DELETED');
@@ -424,18 +458,19 @@ final class FoundationAdministrationEndpointTest extends TestCase
             'email' => 'delete.me@example.local', 'method' => 'password', 'password' => 'InitialPass123',
         ])->assertUnprocessable();
 
-        $salesRoleId = self::SALES_ROLE_ID;
-        $permissionIds = DB::table('permissions')->whereIn('code', [
-            'SCREEN:ADM-USER:VIEW', 'ACTION:ADM-USER:DELETE',
-        ])->pluck('id');
-        foreach ($permissionIds as $permissionId) {
-            DB::table('role_permissions')->insertOrIgnore([
-                'role_id' => $salesRoleId, 'permission_id' => $permissionId,
-            ]);
-        }
-        $this->signIn(self::SALES_USER_ID, self::TRAINING_PLANT_ID);
-        $this->withHeaders($this->commandHeaders(1))
-            ->postJson('/api/v1/admin/users/'.self::ADMIN_USER_ID.'/delete', [])
+        $this->signIn(self::ADMIN_USER_ID, self::TRAINING_PLANT_ID);
+        $secondAdmin = $this->command()->postJson('/api/v1/admin/users', [
+            'email' => 'coverage.admin@example.local',
+            'name' => 'Coverage Administrator',
+            'temporary_password' => 'InitialPass123',
+            'role_id' => self::ERP_ADMIN_ROLE_ID,
+        ])->assertCreated();
+        $secondAdminId = $secondAdmin->json('data.id');
+        DB::table('users')->where('id', $secondAdminId)->update(['password_changed_at' => now()]);
+        $this->signIn($secondAdminId, self::TRAINING_PLANT_ID);
+        $adminVersion = (int) DB::table('users')->where('id', self::ADMIN_USER_ID)->value('record_version');
+        $this->withHeaders($this->commandHeaders($adminVersion))
+            ->postJson('/api/v1/admin/users/'.self::ADMIN_USER_ID.'/delete', ['confirmed' => true])
             ->assertUnprocessable()
             ->assertJsonPath('error.fields.user.0', 'Assign another active ERP Administrator in every affected context before deleting this user.');
     }

@@ -95,6 +95,19 @@ final class ProductMasterController
         )]);
     }
 
+    public function delete(string $recordId, Request $request, string $resource): JsonResponse
+    {
+        $this->service->definition($resource);
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->delete(
+            $resource,
+            $recordId,
+            $validated + $this->commandContext($request, true),
+        )]);
+    }
+
     protected function sessionService(): SessionService
     {
         return $this->sessions;

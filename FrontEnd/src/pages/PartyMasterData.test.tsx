@@ -21,6 +21,7 @@ vi.mock('../api/parties', async () => {
 
 describe('party master workspace', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '#');
     vi.resetAllMocks();
     apiMocks.listParties.mockResolvedValue(workspace());
     apiMocks.getParty.mockResolvedValue(detail());
@@ -41,7 +42,8 @@ describe('party master workspace', () => {
       expect.objectContaining({ q: 'west', role: 'CUSTOMER' }),
     ));
 
-    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: /Expand DIST-WEST West Distributor/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
     expect(await screen.findByDisplayValue('24ABCDE1234F1Z3')).toBeInTheDocument();
     expect(screen.getByLabelText('Commercial currency')).toHaveValue('INR');
     expect(screen.getByLabelText('Credit limit')).toHaveValue(250000);
@@ -97,7 +99,8 @@ describe('party master workspace', () => {
     renderPage();
 
     await screen.findByText('West Distributor');
-    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: /Expand DIST-WEST West Distributor/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
     const displayName = await screen.findByLabelText('Display name');
     await user.clear(displayName);
     await user.type(displayName, 'West Distributor Updated');

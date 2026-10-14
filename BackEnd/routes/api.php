@@ -160,6 +160,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/admin/locations/{locationId}', [LocationAdminController::class, 'update'])
                 ->whereUuid('locationId')
                 ->middleware(['erp.screen:ADM-LOC', 'erp.permission:ACTION:ADM-LOC:UPDATE']);
+            Route::post('/admin/locations/{locationId}/delete', [LocationAdminController::class, 'delete'])
+                ->whereUuid('locationId')
+                ->middleware(['erp.screen:ADM-LOC', 'erp.permission:ACTION:ADM-LOC:UPDATE', 'erp.role:ERP_ADMIN']);
 
             Route::get('/admin/users', [UserAdminController::class, 'index'])
                 ->middleware('erp.screen:ADM-USER');
@@ -175,7 +178,7 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:PASSWORD-RESET']);
             Route::post('/admin/users/{userId}/delete', [UserAdminController::class, 'delete'])
                 ->whereUuid('userId')
-                ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:DELETE']);
+                ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:DELETE', 'erp.role:ERP_ADMIN']);
             Route::post('/admin/users/{userId}/mfa', [UserAdminController::class, 'setMfaRequirement'])
                 ->whereUuid('userId')
                 ->middleware(['erp.screen:ADM-USER', 'erp.permission:ACTION:ADM-USER:MFA']);
@@ -214,6 +217,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/admin/roles/{roleId}', [RoleAdminController::class, 'update'])
                 ->whereUuid('roleId')
                 ->middleware(['erp.screen:ADM-ROLE', 'erp.permission:ACTION:ADM-ROLE:UPDATE']);
+            Route::post('/admin/roles/{roleId}/delete', [RoleAdminController::class, 'delete'])
+                ->whereUuid('roleId')
+                ->middleware(['erp.screen:ADM-ROLE', 'erp.permission:ACTION:ADM-ROLE:UPDATE', 'erp.role:ERP_ADMIN']);
             Route::post('/admin/roles/{roleId}/permissions', [RoleAdminController::class, 'syncPermissions'])
                 ->whereUuid('roleId')
                 ->middleware(['erp.screen:ADM-ROLE', 'erp.permission:ACTION:ADM-ROLE:PERMISSIONS']);
@@ -226,6 +232,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/admin/permissions/{permissionId}', [RoleAdminController::class, 'updatePermission'])
                 ->whereUuid('permissionId')
                 ->middleware(['erp.screen:ADM-ROLE', 'erp.permission:ACTION:ADM-ROLE:UPDATE']);
+            Route::post('/admin/permissions/{permissionId}/delete', [RoleAdminController::class, 'deletePermission'])
+                ->whereUuid('permissionId')
+                ->middleware(['erp.screen:ADM-ROLE', 'erp.permission:ACTION:ADM-ROLE:UPDATE', 'erp.role:ERP_ADMIN']);
             Route::get('/admin/approvals', [ApprovalRuleController::class, 'index'])
                 ->middleware('erp.screen:ADM-RULE');
             Route::post('/admin/approvals/escalate-due', [ApprovalRuleController::class, 'escalateDue'])
@@ -237,6 +246,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/admin/approval-rules/{ruleId}', [ApprovalRuleController::class, 'update'])
                 ->whereUuid('ruleId')
                 ->middleware(['erp.screen:ADM-RULE', 'erp.permission:ACTION:ADM-RULE:UPDATE']);
+            Route::post('/admin/approval-rules/{ruleId}/delete', [ApprovalRuleController::class, 'delete'])
+                ->whereUuid('ruleId')
+                ->middleware(['erp.screen:ADM-RULE', 'erp.permission:ACTION:ADM-RULE:UPDATE', 'erp.role:ERP_ADMIN']);
             Route::post('/admin/approval-delegations', [ApprovalRuleController::class, 'delegate'])
                 ->middleware(['erp.screen:ADM-RULE', 'erp.permission:ACTION:ADM-RULE:DELEGATE']);
             Route::post('/admin/approval-delegations/{delegationId}/revoke', [ApprovalRuleController::class, 'revokeDelegation'])
@@ -304,6 +316,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/master/parties/{partyId}/status', [PartyController::class, 'changeStatus'])
                 ->whereUuid('partyId')
                 ->middleware(['erp.screen:MD-PARTY', 'erp.permission:ACTION:MD-PARTY:LIFECYCLE']);
+            Route::post('/master/parties/{partyId}/delete', [PartyController::class, 'delete'])
+                ->whereUuid('partyId')
+                ->middleware(['erp.screen:MD-PARTY', 'erp.permission:ACTION:MD-PARTY:UPDATE', 'erp.role:ERP_ADMIN']);
             $productMasterRoutes = [
                 ['master/brands', 'brands', 'MD-BRAND'],
                 ['master/items', 'items', 'MD-ITEM'],
@@ -326,6 +341,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 Route::post('/'.$path.'/{recordId}/status', [ProductMasterController::class, 'changeStatus'])
                     ->whereUuid('recordId')->defaults('resource', $resource)
                     ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:LIFECYCLE"]);
+                Route::post('/'.$path.'/{recordId}/delete', [ProductMasterController::class, 'delete'])
+                    ->whereUuid('recordId')->defaults('resource', $resource)
+                    ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:UPDATE", 'erp.role:ERP_ADMIN']);
             }
 
             Route::get('/procurement/requisitions', [PurchaseRequisitionController::class, 'index'])
@@ -451,6 +469,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/inventory/owners/{ownerId}/status', [InventoryFoundationController::class, 'changeOwnerStatus'])
                 ->whereUuid('ownerId')
                 ->middleware(['erp.screen:INV-STK', 'erp.permission:ACTION:INV-STK:OWNER-LIFECYCLE']);
+            Route::post('/inventory/owners/{ownerId}/delete', [InventoryFoundationController::class, 'deleteOwner'])
+                ->whereUuid('ownerId')
+                ->middleware(['erp.screen:INV-STK', 'erp.permission:ACTION:INV-STK:OWNER-UPDATE', 'erp.role:ERP_ADMIN']);
             Route::get('/inventory/lots', [InventoryFoundationController::class, 'lots'])
                 ->middleware('erp.screen:INV-STK');
             Route::get('/inventory/lots/{lotId}', [InventoryFoundationController::class, 'lot'])
@@ -463,6 +484,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/inventory/lots/{lotId}/status', [InventoryFoundationController::class, 'changeLotStatus'])
                 ->whereUuid('lotId')
                 ->middleware(['erp.screen:INV-STK', 'erp.permission:ACTION:INV-STK:LOT-LIFECYCLE']);
+            Route::post('/inventory/lots/{lotId}/delete', [InventoryFoundationController::class, 'deleteLot'])
+                ->whereUuid('lotId')
+                ->middleware(['erp.screen:INV-STK', 'erp.permission:ACTION:INV-STK:LOT-UPDATE', 'erp.role:ERP_ADMIN']);
             Route::post('/inventory/reservations/{reservationId}/release', [InventoryFoundationController::class, 'releaseReservation'])
                 ->whereUuid('reservationId')
                 ->middleware(['erp.screen:INV-STK', 'erp.permission:ACTION:INV-STK:RELEASE']);

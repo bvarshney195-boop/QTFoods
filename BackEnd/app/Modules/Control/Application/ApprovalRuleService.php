@@ -8,6 +8,7 @@ use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -117,6 +118,29 @@ final class ApprovalRuleService
                     'definition' => $this->diff($rule, $changes),
                     'bands_replaced' => count($bands),
                 ], $result);
+
+            return $result;
+        });
+    }
+
+    public function deleteRule(string $ruleId, array $data): array
+    {
+        return $this->execute("approval.rule.delete.{$ruleId}", $data, function () use ($ruleId, $data) {
+            $this->assertPlant($data);
+            $rule = $this->scopedRule($ruleId, $data, true);
+            $this->assertVersion($rule, $data['expected_version'], 'approval rule');
+            try {
+                DB::table('approval_rules')->where('id', $ruleId)->delete();
+            } catch (QueryException) {
+                throw ValidationException::withMessages([
+                    'approval_rule' => ['This rule has approval history and cannot be deleted. Make it inactive instead.'],
+                ]);
+            }
+
+            $version = (int) $rule->record_version + 1;
+            $result = $this->result('approval_rule', $ruleId, 'DELETED', $version, ['deleted' => true]);
+            $this->record('DELETE_APPROVAL_RULE', 'approval.rule.deleted', 'approval_rule', $ruleId,
+                $data, $version, ['deleted' => ['code' => $rule->code, 'name' => $rule->name]], $result);
 
             return $result;
         });

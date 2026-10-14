@@ -83,6 +83,17 @@ final class LocationAdminController
         )]);
     }
 
+    public function delete(string $locationId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
+        return response()->json(['data' => $this->service->deleteLocation(
+            $locationId,
+            $validated + $this->commandContext($request, true)
+        )]);
+    }
+
     protected function sessionService(): SessionService
     {
         return $this->sessions;

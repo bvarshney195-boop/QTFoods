@@ -107,6 +107,14 @@ final class SessionService
             && in_array($permission, $this->access($user, $context)['permissions'], true);
     }
 
+    public function hasRole(User $user, Request $request, string $roleCode): bool
+    {
+        $context = $this->currentContext($user, $request);
+
+        return $context !== null
+            && in_array($roleCode, $this->access($user, $context)['roles'], true);
+    }
+
     public function permissions(User $user, Request $request): array
     {
         $context = $this->currentContext($user, $request);

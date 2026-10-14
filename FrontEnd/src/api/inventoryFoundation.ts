@@ -282,6 +282,12 @@ export async function changeInventoryOwnerStatus(
   }, { idempotencyKey: key, expectedVersion: owner.record_version })).data;
 }
 
+export async function deleteInventoryOwner(owner: InventoryOwner, key: string) {
+  return (await apiMutation<{ data: InventoryCommandResult & { deleted: true } }>(`/api/v1/inventory/owners/${owner.id}/delete`, {
+    confirmed: true,
+  }, { idempotencyKey: key, expectedVersion: owner.record_version })).data;
+}
+
 export async function createInventoryLot(body: LotWrite & { internal_lot_code: string; status: 'DRAFT' | 'ACTIVE' }, key: string) {
   return (await apiMutation<{ data: InventoryCommandResult }>('/api/v1/inventory/lots', body, {
     idempotencyKey: key,
@@ -304,6 +310,12 @@ export async function changeInventoryLotStatus(
   return (await apiMutation<{ data: InventoryCommandResult }>(`/api/v1/inventory/lots/${lot.id}/status`, {
     target_status: targetStatus,
     reason,
+  }, { idempotencyKey: key, expectedVersion: lot.record_version })).data;
+}
+
+export async function deleteInventoryLot(lot: InventoryLot, key: string) {
+  return (await apiMutation<{ data: InventoryCommandResult & { deleted: true } }>(`/api/v1/inventory/lots/${lot.id}/delete`, {
+    confirmed: true,
   }, { idempotencyKey: key, expectedVersion: lot.record_version })).data;
 }
 

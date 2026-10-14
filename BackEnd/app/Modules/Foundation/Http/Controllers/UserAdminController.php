@@ -87,9 +87,12 @@ final class UserAdminController
 
     public function delete(string $userId, Request $request): JsonResponse
     {
+        $this->selectedScope($request, true);
+        $validated = $request->validate(['confirmed' => ['required', 'accepted']]);
+
         return response()->json(['data' => $this->service->deleteUser(
             $userId,
-            $this->commandContext($request, true)
+            $validated + $this->commandContext($request, true)
         )]);
     }
 
