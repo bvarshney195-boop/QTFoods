@@ -131,19 +131,23 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   const commandKey = useRef<string | null>(null);
   const lifecycleKey = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
+  const initialisedFormKey = useRef<string | null>(null);
+  const loadedWorkspaceKey = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setWorkspace(await listProductMasters(resource, {
+      const loadedWorkspace = await listProductMasters(resource, {
         page,
         q: search || undefined,
         status,
         type: type || undefined,
         parent_id: parentId || undefined,
         sort,
-      }));
+      });
+      loadedWorkspaceKey.current = `${contextKey}:${resource}`;
+      setWorkspace(loadedWorkspace);
     } catch (caught) {
       setError(apiMessage(caught, `Unable to load ${config.plural}.`));
     } finally {
@@ -152,6 +156,8 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   }, [contextKey, resource, page, search, status, type, parentId, sort, config.plural]);
 
   useEffect(() => {
+    initialisedFormKey.current = null;
+    loadedWorkspaceKey.current = null;
     setWorkspace(null);
     setSelected(null);
     selectedId.current = null;
@@ -166,6 +172,15 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
   }, [contextKey, resource]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!workspace || workspace.resource !== resource) return;
+    const formKey = `${contextKey}:${resource}`;
+    if (loadedWorkspaceKey.current !== formKey) return;
+    if (initialisedFormKey.current === formKey) return;
+    initialisedFormKey.current = formKey;
+    if (selectedId.current === null) setForm(blankForm(resource, workspace.lookups));
+  }, [contextKey, resource, workspace]);
 
   async function choose(recordId: string) {
     selectedId.current = recordId;
@@ -274,9 +289,12 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     setSearch(searchDraft.trim());
   }
 
-  const canSave = selected
+  const hasSavePermission = selected
     ? selected.allowed_actions.includes('UPDATE')
     : workspace?.allowed_actions.includes('CREATE');
+  const requiresUoms = resource === 'items' || resource === 'skus' || resource === 'recipes';
+  const missingRequiredUoms = Boolean(workspace && requiresUoms && workspace.lookups.uoms.length === 0);
+  const canSave = Boolean(hasSavePermission && !missingRequiredUoms);
   const typeOptions = resource === 'specifications'
     ? workspace?.lookups.spec_target_types ?? []
     : resource === 'items' || resource === 'skus'
@@ -335,6 +353,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
           <div className="panel-head"><div><h3>{selected ? `Edit ${selected.code}` : `New ${config.noun}`}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div>{selected && <StatusBadge status={selected.status} />}</div>
           <form className="panel-body party-form" onSubmit={save} noValidate>
             {error && workspace && <div className="form-error" role="alert"><span>{error}</span></div>}
+            {missingRequiredUoms && <div className="form-error" role="alert"><span>Units of measure are not configured. Ask an administrator to apply the required reference data before creating this {config.noun}.</span></div>}
             {success && <div className="form-success" role="status"><span></span>{success}</div>}
             <fieldset className="party-form-fields" disabled={busy || detailLoading}>
               <section className="party-subsection">
@@ -413,6 +432,9 @@ function ResourceEditor({
     (item) => <option key={item.id} value={item.id}>{item.code} · {item.name}{item.status !== 'ACTIVE' ? ` (${item.status})` : ''}</option>,
   );
   const uoms = lookups?.uoms ?? [];
+  const requiredUomOptions = () => uoms.length > 0
+    ? uoms.map((item) => <option key={item.code}>{item.code}</option>)
+    : <option value="">No units configured</option>;
 
   if (resource === 'brands') return <>
     <section className="party-subsection">
@@ -446,7 +468,7 @@ function ResourceEditor({
       <div className="party-card-grid three">
         <label>Brand<select aria-label="Item brand" value={form.brand_id ?? ''} onChange={(event) => change({ brand_id: nullable(event.target.value) })}><option value="">Unbranded</option>{options(lookups?.brands)}</select></label>
         <label>Item type<select aria-label="Item type" value={form.item_type} onChange={(event) => change({ item_type: event.target.value })}>{lookups?.item_types.map((item) => <option key={item}>{item}</option>)}</select></label>
-        <label>Base UOM<select aria-label="Base UOM" value={form.base_uom} onChange={(event) => change({ base_uom: event.target.value })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select><FieldError value={fieldErrors.base_uom ?? fieldErrors.uom} /></label>
+        <label>Base UOM<select aria-label="Base UOM" value={form.base_uom} onChange={(event) => change({ base_uom: event.target.value })}>{requiredUomOptions()}</select><FieldError value={fieldErrors.base_uom ?? fieldErrors.uom} /></label>
         <label>Shelf life days<input aria-label="Shelf life days" type="number" min="0" value={form.shelf_life_days} onChange={(event) => change({ shelf_life_days: event.target.value })} /></label>
         <label className="check-label"><input aria-label="Lot controlled" type="checkbox" checked={form.lot_controlled} onChange={(event) => change({ lot_controlled: event.target.checked })} />Lot controlled</label>
         <label className="wide">Description<textarea aria-label="Item description" rows={3} value={form.description ?? ''} onChange={(event) => change({ description: nullable(event.target.value) })} /></label>
@@ -459,8 +481,8 @@ function ResourceEditor({
       {form.conversions.map((row, index) => <div className="party-repeat-card" key={row.id ?? `conversion-${index}`}>
         <RepeatHeader label={`Conversion ${index + 1}`} onRemove={() => change({ conversions: form.conversions.filter((_, itemIndex) => itemIndex !== index) })} />
         <div className="party-card-grid three">
-          <label>From UOM<select aria-label={`Conversion from UOM ${index + 1}`} value={row.from_uom_code} onChange={(event) => change({ conversions: update(form.conversions, index, { from_uom_code: event.target.value }) })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
-          <label>To UOM<select aria-label={`Conversion to UOM ${index + 1}`} value={row.to_uom_code} onChange={(event) => change({ conversions: update(form.conversions, index, { to_uom_code: event.target.value }) })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
+          <label>From UOM<select aria-label={`Conversion from UOM ${index + 1}`} value={row.from_uom_code} onChange={(event) => change({ conversions: update(form.conversions, index, { from_uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
+          <label>To UOM<select aria-label={`Conversion to UOM ${index + 1}`} value={row.to_uom_code} onChange={(event) => change({ conversions: update(form.conversions, index, { to_uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
           <label>Multiplier<input aria-label={`Conversion multiplier ${index + 1}`} type="number" min="0" step="any" value={row.multiplier} onChange={(event) => change({ conversions: update(form.conversions, index, { multiplier: event.target.value }) })} /></label>
           <label>Rounding<select aria-label={`Conversion rounding ${index + 1}`} value={row.rounding_mode} onChange={(event) => change({ conversions: update(form.conversions, index, { rounding_mode: event.target.value as UomConversion['rounding_mode'] }) })}>{lookups?.rounding_modes.map((item) => <option key={item}>{item}</option>)}</select></label>
         </div>
@@ -475,7 +497,7 @@ function ResourceEditor({
         <label className="wide">Catalog item<select aria-label="SKU catalog item" value={form.catalog_item_id} onChange={(event) => change({ catalog_item_id: event.target.value })}><option value="">Select item</option>{options(lookups?.items)}</select><FieldError value={fieldErrors.catalog_item_id} /></label>
         <label>Barcode<input aria-label="SKU barcode" value={form.barcode ?? ''} onChange={(event) => change({ barcode: nullable(event.target.value) })} /><FieldError value={fieldErrors.barcode} /></label>
         <label>Pack quantity<input aria-label="SKU pack quantity" type="number" min="0" step="any" value={form.pack_quantity} onChange={(event) => change({ pack_quantity: event.target.value })} /></label>
-        <label>Pack UOM<select aria-label="SKU pack UOM" value={form.pack_uom_code} onChange={(event) => change({ pack_uom_code: event.target.value })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
+        <label>Pack UOM<select aria-label="SKU pack UOM" value={form.pack_uom_code} onChange={(event) => change({ pack_uom_code: event.target.value })}>{requiredUomOptions()}</select></label>
         <label className="wide">Description<textarea aria-label="SKU description" rows={3} value={form.description ?? ''} onChange={(event) => change({ description: nullable(event.target.value) })} /></label>
       </div>
     </section>
@@ -488,7 +510,7 @@ function ResourceEditor({
         <div className="party-card-grid three">
           <label>Code<input aria-label={`Pack code ${index + 1}`} value={row.code} onChange={(event) => change({ packs: update(form.packs, index, { code: event.target.value.toUpperCase() }) })} /></label>
           <label>Name<input aria-label={`Pack name ${index + 1}`} value={row.name} onChange={(event) => change({ packs: update(form.packs, index, { name: event.target.value }) })} /></label>
-          <label>UOM<select aria-label={`Pack UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ packs: update(form.packs, index, { uom_code: event.target.value }) })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
+          <label>UOM<select aria-label={`Pack UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ packs: update(form.packs, index, { uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
           <label>Quantity<input aria-label={`Pack quantity ${index + 1}`} type="number" min="0" step="any" value={row.quantity} onChange={(event) => change({ packs: update(form.packs, index, { quantity: event.target.value }) })} /></label>
           <label>Barcode<input aria-label={`Pack barcode ${index + 1}`} value={row.barcode ?? ''} onChange={(event) => change({ packs: update(form.packs, index, { barcode: nullable(event.target.value) }) })} /></label>
           <label className="check-label"><input aria-label={`Default pack ${index + 1}`} type="checkbox" checked={row.is_default} onChange={(event) => change({ packs: form.packs.map((item, itemIndex) => ({ ...item, is_default: itemIndex === index ? event.target.checked : event.target.checked ? false : item.is_default })) })} />Default pack</label>
@@ -504,7 +526,7 @@ function ResourceEditor({
         <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({ output_sku_id: event.target.value })}><option value="">Select SKU</option>{options(lookups?.skus)}</select></label>
         <label>Revision<input aria-label="Recipe revision" type="number" min="1" value={form.revision} onChange={(event) => change({ revision: event.target.value })} /></label>
         <label>Output quantity<input aria-label="Recipe output quantity" type="number" min="0" step="any" value={form.output_quantity} onChange={(event) => change({ output_quantity: event.target.value })} /></label>
-        <label>Output UOM<select aria-label="Recipe output UOM" value={form.output_uom_code} onChange={(event) => change({ output_uom_code: event.target.value })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
+        <label>Output UOM<select aria-label="Recipe output UOM" value={form.output_uom_code} onChange={(event) => change({ output_uom_code: event.target.value })}>{requiredUomOptions()}</select></label>
         <label>Yield %<input aria-label="Recipe yield percent" type="number" min="0" max="100" step="any" value={form.yield_percent} onChange={(event) => change({ yield_percent: event.target.value })} /></label>
         <label>Effective from<input aria-label="Recipe effective from" type="date" value={form.effective_from ?? ''} onChange={(event) => change({ effective_from: nullable(event.target.value) })} /></label>
         <label>Effective to<input aria-label="Recipe effective to" type="date" value={form.effective_to ?? ''} onChange={(event) => change({ effective_to: nullable(event.target.value) })} /></label>
@@ -521,7 +543,7 @@ function ResourceEditor({
           <label className="wide">Component SKU<select aria-label={`Component SKU ${index + 1}`} value={row.component_sku_id} onChange={(event) => change({ components: update(form.components, index, { component_sku_id: event.target.value }) })}><option value="">Select SKU</option>{options(lookups?.skus)}</select></label>
           <label>Sequence<input aria-label={`Component sequence ${index + 1}`} type="number" min="1" value={row.sequence_no} onChange={(event) => change({ components: update(form.components, index, { sequence_no: Number(event.target.value) }) })} /></label>
           <label>Quantity<input aria-label={`Component quantity ${index + 1}`} type="number" min="0" step="any" value={row.quantity} onChange={(event) => change({ components: update(form.components, index, { quantity: event.target.value }) })} /></label>
-          <label>UOM<select aria-label={`Component UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ components: update(form.components, index, { uom_code: event.target.value }) })}>{uoms.map((item) => <option key={item.code}>{item.code}</option>)}</select></label>
+          <label>UOM<select aria-label={`Component UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ components: update(form.components, index, { uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
           <label>Waste %<input aria-label={`Component waste percent ${index + 1}`} type="number" min="0" max="100" step="any" value={row.waste_percent} onChange={(event) => change({ components: update(form.components, index, { waste_percent: event.target.value }) })} /></label>
         </div>
       </div>)}
@@ -599,7 +621,7 @@ function RepeatHeader({ label, onRemove }: { label: string; onRemove: () => void
 function blankForm(resource?: ProductMasterResource, lookups?: ProductMasterLookups): MasterForm {
   const activeItems = lookups?.items.filter((item) => item.status === 'ACTIVE') ?? [];
   const activeSkus = lookups?.skus.filter((item) => item.status === 'ACTIVE') ?? [];
-  const eachUom = lookups?.uoms.find((item) => item.code === 'EA')?.code ?? lookups?.uoms[0]?.code ?? 'EA';
+  const eachUom = lookups?.uoms.find((item) => item.code === 'EA')?.code ?? lookups?.uoms[0]?.code ?? '';
   const weightUom = lookups?.uoms.find((item) => item.code === 'KG')?.code ?? eachUom;
   const packUom = lookups?.uoms.find((item) => item.code === 'PACK')?.code ?? eachUom;
   return {
@@ -638,7 +660,7 @@ function blankPack(isDefault: boolean, uom: string): SkuPack {
 function blankComponent(rows: RecipeComponent[], lookups?: ProductMasterLookups): RecipeComponent {
   return {
     component_sku_id: lookups?.skus.find((item) => item.status === 'ACTIVE')?.id ?? '',
-    sequence_no: (rows.length + 1) * 10, quantity: '1', uom_code: lookups?.uoms[0]?.code ?? 'EA',
+    sequence_no: (rows.length + 1) * 10, quantity: '1', uom_code: lookups?.uoms[0]?.code ?? '',
     waste_percent: '0',
   };
 }

@@ -99,6 +99,22 @@ describe('product master workspaces', () => {
     ));
   });
 
+  it('initialises new items from loaded UOMs and blocks creation when UOM reference data is missing', async () => {
+    const loaded = renderPage('items');
+    await screen.findByText('Item Seed');
+    await waitFor(() => expect(screen.getByLabelText('Base UOM')).toHaveValue('KG'));
+    loaded.unmount();
+
+    const withoutUoms = workspace('items');
+    withoutUoms.lookups.uoms = [];
+    apiMocks.listProductMasters.mockResolvedValue(withoutUoms);
+    renderPage('items');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Units of measure are not configured');
+    expect(screen.getByLabelText('Base UOM')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Create item' })).toBeDisabled();
+  });
+
   it('creates a stock-bearing SKU with one default pack', async () => {
     const user = userEvent.setup();
     renderPage('skus');

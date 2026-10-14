@@ -4,14 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { useEditorActionReveal } from './useEditorActionReveal';
 
 describe('useEditorActionReveal', () => {
-  it('reveals mobile editors after New and newly appended fields after Add', () => {
+  it('reveals editors after New and newly appended fields after Add', () => {
     const originalWidth = window.innerWidth;
     const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
     const scrolled: HTMLElement[] = [];
     const options: ScrollIntoViewOptions[] = [];
     let pendingFrame: FrameRequestCallback | null = null;
 
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       value(this: HTMLElement, option: ScrollIntoViewOptions) {

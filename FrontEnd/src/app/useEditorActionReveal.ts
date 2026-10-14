@@ -27,7 +27,7 @@ export function useEditorActionReveal(rootRef: RefObject<HTMLElement | null>): v
 
         if (!containingEditor) {
           editor.scrollTop = 0;
-          if (window.innerWidth <= 820) editor.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+          editor.scrollIntoView?.({ block: 'start', inline: 'nearest' });
           return;
         }
 
