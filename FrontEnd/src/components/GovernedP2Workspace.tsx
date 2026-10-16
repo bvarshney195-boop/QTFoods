@@ -84,7 +84,12 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
   const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
-  const contextualCreator = availableCreators[collectionIndex] ?? availableCreators[0];
+  const configuredCreator = config.creators?.[collectionIndex] ?? config.creators?.[0];
+  const contextualCreator = configuredCreator
+    && workspace?.allowed_actions?.includes(configuredCreator.action)
+    && (!configuredCreator.available || configuredCreator.available(workspace))
+    ? configuredCreator
+    : undefined;
   const grantedPermissions = session.granted_permissions ?? [...session.allowed_actions, ...session.allowed_screens.map((screen) => `SCREEN:${screen}:VIEW`)];
   const visibilityOptions = Array.isArray(workspace?.lookups && (workspace.lookups as Record<string, unknown>).visibility_filters)
     ? ((workspace!.lookups as Record<string, unknown>).visibility_filters as string[])

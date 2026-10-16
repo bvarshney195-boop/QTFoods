@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type KeyboardEvent } from 'react';
 import type { P2Workspace } from '../api/p2Operations';
 
 type PathPart = string | number;
@@ -195,7 +195,7 @@ function ScalarField({ fieldKey, value, path, catalog, errors, required, onChang
 
   if (longTextField(fieldKey)) {
     return <label className="full-span">{title}<RequiredMark show={requiredField} />
-      <textarea {...common} rows={3} value={stringValue(value)} placeholder={optional ? 'Optional' : `Enter ${title.toLowerCase()}`} onChange={(event) => onChange(path, nullableValue(event.target.value, optional))} />
+      <textarea {...common} rows={3} value={stringValue(value)} placeholder={optional ? 'Optional' : `Enter ${title.toLowerCase()}`} onKeyDown={keepTextEditingKeysLocal} onChange={(event) => onChange(path, nullableValue(event.target.value, optional))} />
       <FieldError id={errorId} text={error} />
     </label>;
   }
@@ -338,6 +338,7 @@ function referenceOptions(fieldKey: string, currentValue: unknown, catalog: Look
 function explicitLookupCollection(fieldKey: string, catalog: LookupCatalog): LookupCollection | undefined {
   const keys: Record<string, string> = {
     asset_id: 'lookups.assets', source_position_id: 'lookups.source_positions', destination_position_id: 'lookups.destination_positions',
+    sales_order_id: 'lookups.sales_orders', order_id: 'data',
   };
   const expected = keys[fieldKey];
   return expected ? catalog.records.find((collection) => collection.key === expected) : undefined;
@@ -357,15 +358,15 @@ function primitiveOptions(fieldKey: string, currentValue: unknown, catalog: Look
   if (!primitiveChoiceField(fieldKey)) return [];
   const current = currentValue === null || currentValue === undefined ? '' : String(currentValue);
   const exactLookup = CHOICE_LOOKUPS[fieldKey];
+  const known = KNOWN_CHOICES[fieldKey] ?? [];
   const semantic = catalog.primitives.filter((collection) => exactLookup
     ? collection.key.split('.').at(-1) === exactLookup
-    : lookupScore(fieldKey, collection.key) > 0);
+    : !known.length && lookupScore(fieldKey, collection.key) > 0);
   const collection = semantic.sort((left, right) => {
     const leftContains = current && left.values.map(String).includes(current) ? 10 : 0;
     const rightContains = current && right.values.map(String).includes(current) ? 10 : 0;
     return (lookupScore(fieldKey, right.key) + rightContains) - (lookupScore(fieldKey, left.key) + leftContains);
   })[0];
-  const known = KNOWN_CHOICES[fieldKey] ?? [];
   return Array.from(new Set([...(collection?.values.map(String) ?? []), ...known, ...(current ? [current] : [])]));
 }
 
@@ -380,7 +381,7 @@ function lookupScore(fieldKey: string, collectionKey: string): number {
     contract: ['contract'], lead: ['lead'], price: ['price'], asset: ['asset'], group: ['group'], specification: ['specification'],
   };
   fieldTokens.forEach((token) => { if ((aliases[token] ?? []).some((alias) => collectionTokens.includes(alias))) score += 2; });
-  if (collectionKey.startsWith('lookups.')) score += 1;
+  if (score > 0 && collectionKey.startsWith('lookups.')) score += 1;
   return score;
 }
 
@@ -453,6 +454,11 @@ function scalarValue(raw: string, previous: unknown, optional: boolean, inputTyp
 }
 
 function nullableValue(raw: string, optional: boolean): string | null { return raw === '' && optional ? null : raw; }
+function keepTextEditingKeysLocal(event: KeyboardEvent<HTMLTextAreaElement>): void {
+  // Space is text inside long-form fields. Keep it away from page-level
+  // keyboard handlers without cancelling the browser's character insertion.
+  if (event.key === ' ' || event.key === 'Spacebar') event.stopPropagation();
+}
 function stringValue(value: unknown): string { return value === null || value === undefined ? '' : String(value); }
 function dateTimeInputValue(value: unknown): string { return stringValue(value).replace(/Z$/, '').slice(0, 16); }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
