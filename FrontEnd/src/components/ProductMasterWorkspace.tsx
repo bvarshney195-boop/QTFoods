@@ -397,13 +397,17 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
     : selected?.allowed_actions.includes('UPDATE') ?? false;
   const requiresUoms = resource === 'items' || resource === 'skus' || resource === 'recipes';
   const missingRequiredUoms = Boolean(workspace && requiresUoms && workspace.lookups.uoms.length === 0);
-  const canSave = Boolean(hasSavePermission && !missingRequiredUoms);
   const typeOptions = resource === 'specifications'
     ? workspace?.lookups.spec_target_types ?? []
     : resource === 'items' || resource === 'skus'
       ? workspace?.lookups.item_types ?? []
       : [];
   const parentOptions = parentFilterOptions(resource, workspace?.lookups);
+  const missingRequiredSkus = Boolean(resource === 'recipes' && workspace && workspace.lookups.skus.length === 0);
+  const sessionPermissions = session.granted_permissions ?? session.allowed_actions;
+  const canCreateSku = session.allowed_screens.includes('MD-SKU')
+    && sessionPermissions.includes('ACTION:MD-SKU:CREATE');
+  const canSave = Boolean(hasSavePermission && !missingRequiredUoms && !missingRequiredSkus);
 
   return (
     <>
@@ -480,6 +484,9 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
                 setForm={setForm}
                 lookups={workspace?.lookups}
                 fieldErrors={fieldErrors}
+                lookupLoading={loading}
+                canCreateSku={canCreateSku}
+                onRefreshLookups={() => void refresh()}
                 resetFeedback={resetCommandFeedback}
               />
             </fieldset>
@@ -641,6 +648,9 @@ function ResourceEditor({
   setForm,
   lookups,
   fieldErrors,
+  lookupLoading,
+  canCreateSku,
+  onRefreshLookups,
   resetFeedback,
 }: {
   resource: ProductMasterResource;
@@ -649,6 +659,9 @@ function ResourceEditor({
   setForm: Dispatch<SetStateAction<MasterForm>>;
   lookups?: ProductMasterLookups;
   fieldErrors: Record<string, string>;
+  lookupLoading: boolean;
+  canCreateSku: boolean;
+  onRefreshLookups: () => void;
   resetFeedback: () => void;
 }) {
   const change = (patch: Partial<MasterForm>) => {
@@ -753,7 +766,15 @@ function ResourceEditor({
     <section className="party-subsection">
       <h4>Basis, output and yield model</h4>
       <div className="party-card-grid three">
-        <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({ output_sku_id: event.target.value })}><option value="">Select SKU</option>{options(lookups?.skus)}</select></label>
+        {lookups?.skus.length === 0 && <div className="routing-warning recipe-sku-prerequisite" role="status">
+          <b>No output SKU is configured for this company.</b>
+          <span>An output SKU is the stock-bearing finished or intermediate product made by this recipe. Create it in SKUs &amp; Packs, then refresh this list.</span>
+          <div>
+            <button className="secondary compact-button" type="button" disabled={lookupLoading} onClick={onRefreshLookups}>{lookupLoading ? 'Refreshing...' : 'Refresh SKU list'}</button>
+            {canCreateSku && <a className="secondary compact-button" href="#MD-SKU?card=new" target="_blank" rel="noreferrer">Create SKU in new tab</a>}
+          </div>
+        </div>}
+        <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({ output_sku_id: event.target.value })}><option value="">{lookups?.skus.length === 0 ? 'No SKUs configured' : 'Select output SKU'}</option>{options(lookups?.skus)}</select><small>The finished or intermediate stock unit produced by this recipe.</small><FieldError value={fieldErrors.output_sku_id} /></label>
         <label>Revision<input aria-label="Recipe revision" type="number" min="1" value={form.revision} onChange={(event) => change({ revision: event.target.value })} /></label>
         <label>Calculation model<select aria-label="Recipe calculation model" value={form.calculation_model} onChange={(event) => change({ calculation_model: event.target.value as MasterForm['calculation_model'] })}><option value="LEGACY_YIELD">Legacy yield</option><option value="WEIGHT_PIECE">Weight-based pieces</option><option value="UNIT_CONVERSION">Approved unit conversion</option><option value="PERCENT_YIELD">Percentage yield</option></select></label>
         <label>Recipe basis quantity<input aria-label="Recipe basis quantity" type="number" min="0" step="any" value={form.basis_quantity} onChange={(event) => change({ basis_quantity: event.target.value })} /><FieldError value={fieldErrors.basis_quantity} /></label>

@@ -141,7 +141,9 @@ test('manufacturing executes a planned batch through quality, packing, cost, gen
   await selectByText(editor.getByLabel('Approved artwork'), 'E2E-MFG-ART-001');
   await selectByText(editor.getByLabel('Finished-goods location'), 'FG-SALE');
   await editor.getByRole('button', { name: 'Create packing run' }).click();
-  await expect(editor.getByRole('status')).toContainText('rendered lot coding');
+  await expect(editor.getByRole('status')).toContainText('Draft packing run created with target and actual weight evidence');
+  await expect(editor.getByText('Rendered coding', { exact: true })).toBeVisible();
+  await expect(editor).toContainText('LOT E2E-MFG-FG-001');
   await editor.getByRole('button', { name: 'Complete and receive stock' }).click();
   await expect(editor.getByRole('status')).toContainText('finished stock and lot genealogy posted');
   await expect(editor).toContainText('RM-APPLE-2609A');
@@ -161,7 +163,7 @@ test('manufacturing executes a planned batch through quality, packing, cost, gen
   await editor.getByLabel('SKU-APPLE-BASE unit cost').fill('50');
   await editor.getByRole('button', { name: 'Finalize cost snapshot' }).click();
   await expect(editor.getByRole('status')).toContainText('Batch cost finalized');
-  await expect(editor).toContainText('Material usage variance');
+  await expect(editor).toContainText('Original-plan and like-for-like material variance');
   await expect(editor).toContainText('Stage time variance');
 
   await navigation.locator('[data-screen-code="TRACE-CASE"]').click();

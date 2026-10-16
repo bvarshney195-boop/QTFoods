@@ -135,6 +135,30 @@ describe('product master workspaces', () => {
     expect(screen.getByRole('button', { name: 'Create item' })).toBeDisabled();
   });
 
+  it('explains the output SKU prerequisite and preserves the recipe form while its lookup is refreshed', async () => {
+    const user = userEvent.setup();
+    const withoutSkus = workspace('recipes');
+    withoutSkus.lookups.skus = [];
+    apiMocks.listProductMasters.mockResolvedValue(withoutSkus);
+    renderPage('recipes');
+
+    await screen.findByText('Recipe Seed');
+    await user.click(screen.getByRole('button', { name: '+ New' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('No output SKU is configured for this company');
+    expect(screen.getByLabelText('Recipe output SKU')).toHaveTextContent('No SKUs configured');
+    expect(screen.getByText('The finished or intermediate stock unit produced by this recipe.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create SKU in new tab' })).toHaveAttribute('href', '#MD-SKU?card=new');
+    expect(screen.getByRole('link', { name: 'Create SKU in new tab' })).toHaveAttribute('target', '_blank');
+    expect(screen.getByRole('button', { name: 'Create recipe' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Recipe code'), { target: { value: 'rec-preserved' } });
+    const callsBeforeRefresh = apiMocks.listProductMasters.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Refresh SKU list' }));
+    await waitFor(() => expect(apiMocks.listProductMasters).toHaveBeenCalledTimes(callsBeforeRefresh + 1));
+    expect(screen.getByLabelText('Recipe code')).toHaveValue('REC-PRESERVED');
+  });
+
   it('creates a stock-bearing SKU with one default pack', async () => {
     const user = userEvent.setup();
     renderPage('skus');
