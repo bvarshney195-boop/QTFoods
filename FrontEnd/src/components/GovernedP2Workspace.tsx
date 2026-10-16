@@ -97,10 +97,22 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
 
   async function open(record: P2Record) {
     setEditor(null); setFeedback(clear());
-    if (!collection?.detailPath) { setSelected(record); return; }
+    if (!collection?.detailPath) {
+      openLoadedRecord(record);
+      return;
+    }
     setSelected(null);
-    try { setSelected({ ...(await getP2(collection.detailPath(record))), _kind: collection.kind ?? collection.key, _visibility_type: collection.visibilityType }); }
+    try {
+      openLoadedRecord({ ...(await getP2(collection.detailPath(record))), _kind: collection.kind ?? collection.key, _visibility_type: collection.visibilityType });
+    }
     catch (error) { setFailure(setFeedback, error, 'Unable to load record detail.'); }
+  }
+
+  function openLoadedRecord(record: P2Record) {
+    setSelected(record);
+    if (!record.allowed_actions?.includes('UPDATE') || !workspace || !config.resolveAction) return;
+    const update = config.resolveAction('UPDATE', record, workspace);
+    if (update && 'editor' in update) setEditor(update.editor);
   }
 
   function startCreator(creator: P2Creator) {

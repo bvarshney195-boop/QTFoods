@@ -125,6 +125,33 @@ describe('inbound procure-to-pay workspaces', () => {
     await waitFor(() => expect(apiMocks.postSupplierReturn).toHaveBeenCalledWith(expect.objectContaining({ id: 'return-1', record_version: 1 }), expect.any(String)));
     expect(await screen.findByText('Rejected stock returned to the supplier.')).toBeInTheDocument();
   });
+
+  it('opens every editable inbound draft directly in its edit form', async () => {
+    const user = userEvent.setup();
+
+    apiMocks.listGateEntries.mockResolvedValue(gateWorkspace([gate()]));
+    apiMocks.getGateEntry.mockResolvedValue(gate());
+    const gateView = renderPage(<GateEntryWorkspace />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Issued purchase order')).toHaveValue('po-1');
+    gateView.unmount();
+
+    apiMocks.listReceipts.mockResolvedValue(receiptWorkspace([receipt()]));
+    apiMocks.getReceipt.mockResolvedValue(receipt());
+    const receiptView = renderPage(<GoodsReceiptWorkspace />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save draft GRN' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Arrived gate entry')).toHaveValue('gate-1');
+    receiptView.unmount();
+
+    apiMocks.listSupplierReturns.mockResolvedValue(returnWorkspace([supplierReturn()]));
+    apiMocks.getSupplierReturn.mockResolvedValue(supplierReturn());
+    renderPage(<SupplierReturnWorkspace />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save draft return' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Rejected QC lot')).toHaveValue('qc-line-1');
+  });
 });
 
 function renderPage(component: React.ReactNode) {

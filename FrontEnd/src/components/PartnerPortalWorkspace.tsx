@@ -81,7 +81,9 @@ export function PartnerPortalWorkspace() {
     setEditor(null); setFile(null); setError(null); setSuccess(null);
     const resource = resourceFor(tab.key);
     try {
-      setSelected(resource ? await getP2(`/api/v1/partner/${resource}/${record.id}`) : record);
+      const detail = resource ? await getP2(`/api/v1/partner/${resource}/${record.id}`) : record;
+      setSelected(detail);
+      if (tab.key === 'access_grants' && detail.allowed_actions?.includes('UPDATE')) startGrant(detail);
     } catch (caught) {
       setError(errorMessage(caught, 'Unable to load the selected portal record.'));
     }
@@ -152,7 +154,7 @@ export function PartnerPortalWorkspace() {
   function startGrant(record?: P2Record) {
     const lookupUsers = rows(workspace, 'users').filter((user) => Boolean(user.portal_eligible));
     const customers = rows(workspace, 'customers');
-    setSelected(null); setFile(null); setError(null); setSuccess(null);
+    setSelected(record ?? null); setFile(null); setError(null); setSuccess(null);
     setEditor({
       kind: record ? 'GRANT_UPDATE' : 'GRANT', title: record ? 'Update access entitlements' : 'Grant partner access', record,
       draft: {

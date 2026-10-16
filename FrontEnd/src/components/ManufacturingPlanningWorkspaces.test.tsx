@@ -92,6 +92,25 @@ describe('manufacturing planning workspaces', () => {
     expect(await screen.findByText('Schedule released and materials reserved by FEFO.')).toBeInTheDocument();
     expect(screen.getByText(/RM-APPLE-2609A/)).toBeInTheDocument();
   });
+
+  it('opens editable planning drafts directly in their edit forms', async () => {
+    const user = userEvent.setup();
+
+    apiMocks.listDemandPlans.mockResolvedValue(demandWorkspace([demand()]));
+    apiMocks.getDemandPlan.mockResolvedValue(demand());
+    const demandView = renderPage(<DemandPlanningWorkspace />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save demand plan' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Demand line 1 output SKU')).toHaveValue('finished-1');
+    demandView.unmount();
+
+    apiMocks.listProductionSchedules.mockResolvedValue(scheduleWorkspace([schedule()]));
+    apiMocks.getProductionSchedule.mockResolvedValue(schedule());
+    renderPage(<ProductionScheduleWorkspace />);
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Recalculate schedule' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Completed MRP run')).toHaveValue('mrp-1');
+  });
 });
 
 function renderPage(component: React.ReactNode) {

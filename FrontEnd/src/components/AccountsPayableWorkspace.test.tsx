@@ -71,6 +71,46 @@ describe('accounts payable workspace', () => {
     expect(await screen.findByText('Draft payment proposal created.')).toBeInTheDocument();
   });
 
+  it('opens an editable payable invoice directly in edit mode and retains its historical order', async () => {
+    const user = userEvent.setup();
+    const draft = invoice();
+    const source = workspace({ data: [draft] });
+    source.lookups.eligible_orders = [];
+    apiMocks.listPayables.mockResolvedValue(source);
+    apiMocks.getPayableInvoice.mockResolvedValue(draft);
+    apiMocks.updatePayableInvoice.mockResolvedValue(command('invoice-1', 'DRAFT', 2));
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save and rematch' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Issued purchase order')).toHaveValue('po-1');
+    expect(screen.getByRole('option', { name: 'PO-UI-001 · Western Ingredients' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-10-20' } });
+    await user.click(screen.getByRole('button', { name: 'Save and rematch' }));
+
+    await waitFor(() => expect(apiMocks.updatePayableInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'invoice-1', record_version: 1 }),
+      expect.objectContaining({ due_date: '2026-10-20' }),
+      expect.any(String),
+    ));
+  });
+
+  it('opens an editable payment proposal directly and retains its selected invoice', async () => {
+    const user = userEvent.setup();
+    const draft = proposal();
+    const source = workspace({ proposals: [draft] });
+    source.lookups.payable_invoices = [];
+    apiMocks.listPayables.mockResolvedValue(source);
+    apiMocks.getPaymentProposal.mockResolvedValue(draft);
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Payment proposals' }));
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save proposal' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Approved invoice')).toHaveValue('invoice-1');
+    expect(screen.getByRole('option', { name: /AP-UI-001 · Western Ingredients/ })).toBeInTheDocument();
+  });
+
   it('posts an approved proposal, filters payments, and reconciles the bank statement', async () => {
     const user = userEvent.setup();
     const approved = proposal({ status: 'APPROVED', record_version: 2, approved_by: { id: 'admin-1', name: 'Administrator' }, approved_at: '2026-09-11T12:00:00Z', allowed_actions: ['EXECUTE', 'CANCEL'] });

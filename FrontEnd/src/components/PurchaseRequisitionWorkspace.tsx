@@ -124,6 +124,7 @@ export function PurchaseRequisitionWorkspace() {
       if (selectedId.current !== id) return;
       setSelected(detail);
       setForm(toForm(detail));
+      setEditing(detail.allowed_actions.includes('UPDATE'));
       setCancellationReason('');
       setApprovalReason(detail.approval?.decision?.reason ?? '');
     } catch (caught) {
@@ -461,7 +462,7 @@ export function PurchaseRequisitionWorkspace() {
               <RequisitionEditor
                 form={form}
                 setForm={setForm}
-                items={workspace?.lookups.items ?? []}
+                items={editorItems(workspace?.lookups.items ?? [], selected)}
                 currencies={workspace?.lookups.currencies ?? ['INR']}
                 errors={fieldErrors}
                 busy={busy}
@@ -683,6 +684,18 @@ function RequisitionEditor({
       </div>
     </form>
   );
+}
+
+function editorItems(items: Workspace['lookups']['items'], selected: PurchaseRequisition | null): Workspace['lookups']['items'] {
+  const merged = [...items];
+  const known = new Set(merged.map((item) => item.id));
+  for (const line of selected?.lines ?? []) {
+    if (!known.has(line.item.id)) {
+      merged.push({ ...line.item, uom_code: line.uom_code });
+      known.add(line.item.id);
+    }
+  }
+  return merged;
 }
 
 function RequisitionDetail({

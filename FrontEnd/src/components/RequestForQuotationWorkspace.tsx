@@ -114,7 +114,7 @@ export function RequestForQuotationWorkspace() {
       - number(quoteForm.discount_amount);
   }, [quoteForm, selected?.lines]);
 
-  async function choose(id: string) {
+  async function choose(id: string, openEditor = true) {
     setDetailLoading(true);
     setEditing(false);
     setQuoteEditing(false);
@@ -122,6 +122,8 @@ export function RequestForQuotationWorkspace() {
     try {
       const detail = await getRfq(id);
       setSelected(detail);
+      setForm(toRfqForm(detail));
+      setEditing(openEditor && detail.allowed_actions.includes('UPDATE'));
       setAwardQuoteId('');
       setAwardReason('');
       setCancellationReason('');
@@ -142,13 +144,7 @@ export function RequestForQuotationWorkspace() {
 
   function startEdit() {
     if (!selected) return;
-    setForm({
-      rfq_number: selected.rfq_number,
-      requisition_id: selected.requisition.id,
-      response_due_date: selected.response_due_date,
-      commercial_terms: selected.commercial_terms ?? '',
-      supplier_ids: selected.suppliers?.map((item) => item.supplier.id) ?? [],
-    });
+    setForm(toRfqForm(selected));
     setEditing(true);
     setQuoteEditing(false);
     clearFeedback();
@@ -186,7 +182,7 @@ export function RequestForQuotationWorkspace() {
       setEditing(false);
       setSuccess(selected ? 'Draft RFQ updated.' : 'Draft RFQ created from the approved requisition.');
       await refresh();
-      await choose(result.id);
+      await choose(result.id, false);
       setSuccess(selected ? 'Draft RFQ updated.' : 'Draft RFQ created from the approved requisition.');
     } catch (caught) {
       capture(caught, 'Unable to save the RFQ.');
@@ -417,14 +413,16 @@ function RfqEditor({ form, setForm, workspace, selected, busy, errors, onSave, o
   selected: RequestForQuotation | null; busy: boolean; errors: Record<string, string>;
   onSave: (event: FormEvent) => void; onClose: () => void;
 }) {
+  const requisitions = workspace ? editorRequisitions(workspace, selected) : [];
+  const suppliers = workspace ? editorSuppliers(workspace, selected) : [];
   return <form className="requisition-form" onSubmit={onSave}><fieldset disabled={busy}><div className="requisition-field-grid">
     <label>RFQ number<input maxLength={80} readOnly={Boolean(selected)} className={selected ? 'read-only' : ''} value={form.rfq_number} onChange={(event) => setForm((value) => ({ ...value, rfq_number: event.target.value }))} /><Field text={errors.rfq_number} /></label>
-    <label>Approved requisition<select disabled={Boolean(selected)} value={form.requisition_id} onChange={(event) => setForm((value) => ({ ...value, requisition_id: event.target.value }))}><option value="">Select requisition</option>{workspace?.lookups.approved_requisitions.map((item) => <option key={item.id} value={item.id}>{item.number} · {money(item.estimated_total, item.currency)} · due {date(item.required_by_date)}</option>)}</select><Field text={errors.requisition_id} /></label>
+    <label>Approved requisition<select disabled={Boolean(selected)} value={form.requisition_id} onChange={(event) => setForm((value) => ({ ...value, requisition_id: event.target.value }))}><option value="">Select requisition</option>{requisitions.map((item) => <option key={item.id} value={item.id}>{item.number} · {money(item.estimated_total, item.currency)} · due {date(item.required_by_date)}</option>)}</select><Field text={errors.requisition_id} /></label>
     <label>Response due date<input type="date" value={form.response_due_date} onChange={(event) => setForm((value) => ({ ...value, response_due_date: event.target.value }))} /><Field text={errors.response_due_date} /></label>
     <label className="wide">Commercial instructions<textarea rows={3} maxLength={4000} value={form.commercial_terms} onChange={(event) => setForm((value) => ({ ...value, commercial_terms: event.target.value }))} /></label>
   </div>
   <div className="requisition-lines-head"><div><h4>Invited suppliers</h4><small>Select at least two active supplier masters.</small></div></div>
-  <div className="supplier-choice-grid">{workspace?.lookups.suppliers.map((supplier) => <label key={supplier.id} className={form.supplier_ids.includes(supplier.id) ? 'selected' : ''}><input type="checkbox" checked={form.supplier_ids.includes(supplier.id)} onChange={() => setForm((value) => ({ ...value, supplier_ids: toggle(value.supplier_ids, supplier.id) }))} /><span><b>{supplier.name}</b><small>{supplier.code} · {supplier.payment_terms_days ?? 0} days · {supplier.incoterm_code ?? 'terms pending'}</small></span></label>)}</div><Field text={errors.supplier_ids} />
+  <div className="supplier-choice-grid">{suppliers.map((supplier) => <label key={supplier.id} className={form.supplier_ids.includes(supplier.id) ? 'selected' : ''}><input type="checkbox" checked={form.supplier_ids.includes(supplier.id)} onChange={() => setForm((value) => ({ ...value, supplier_ids: toggle(value.supplier_ids, supplier.id) }))} /><span><b>{supplier.name}</b><small>{supplier.code} · {supplier.payment_terms_days ?? 0} days · {supplier.incoterm_code ?? 'terms pending'}</small></span></label>)}</div><Field text={errors.supplier_ids} />
   <div className="form-actions requisition-save-actions"><button className="secondary" type="button" onClick={onClose}>{selected ? 'Close without saving' : 'Close'}</button><button className="primary" type="submit">{selected ? 'Save RFQ changes' : 'Create draft RFQ'}</button></div>
   </fieldset></form>;
 }
@@ -481,6 +479,45 @@ function RfqDetail({ rfq, busy, awardQuoteId, awardReason, cancellationReason, e
 
 function blankRfqForm(): RfqForm {
   return { rfq_number: '', requisition_id: '', response_due_date: offsetDate(3), commercial_terms: '', supplier_ids: [] };
+}
+
+function toRfqForm(record: RequestForQuotation): RfqForm {
+  return {
+    rfq_number: record.rfq_number,
+    requisition_id: record.requisition.id,
+    response_due_date: record.response_due_date,
+    commercial_terms: record.commercial_terms ?? '',
+    supplier_ids: record.suppliers?.map((item) => item.supplier.id) ?? [],
+  };
+}
+
+function editorRequisitions(workspace: RfqWorkspace, selected: RequestForQuotation | null): RfqWorkspace['lookups']['approved_requisitions'] {
+  const records = [...workspace.lookups.approved_requisitions];
+  if (selected && !records.some((item) => item.id === selected.requisition.id)) {
+    records.unshift({
+      id: selected.requisition.id,
+      number: selected.requisition.number,
+      department: selected.requisition.department,
+      purpose: selected.requisition.purpose,
+      required_by_date: selected.required_by_date,
+      currency: selected.currency,
+      estimated_total: selected.estimated_total_snapshot,
+      record_version: selected.record_version,
+    });
+  }
+  return records;
+}
+
+function editorSuppliers(workspace: RfqWorkspace, selected: RequestForQuotation | null): RfqWorkspace['lookups']['suppliers'] {
+  const records = [...workspace.lookups.suppliers];
+  const known = new Set(records.map((item) => item.id));
+  for (const response of selected?.suppliers ?? []) {
+    if (!known.has(response.supplier.id)) {
+      records.push(response.supplier);
+      known.add(response.supplier.id);
+    }
+  }
+  return records;
 }
 
 function blankQuoteForm(rfq?: RequestForQuotation, supplierId = ''): QuoteForm {

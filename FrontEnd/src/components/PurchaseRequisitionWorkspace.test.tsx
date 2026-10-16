@@ -112,7 +112,7 @@ describe('purchase requisition workspace', () => {
     renderPage();
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
-    await user.click(await screen.findByRole('button', { name: 'Edit requisition' }));
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
     const department = screen.getByLabelText('Department');
     await user.clear(department);
     await user.type(department, 'Manufacturing');
