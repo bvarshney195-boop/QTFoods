@@ -73,6 +73,120 @@ describe('P2 commercial and finance workspaces', () => {
     await user.click(screen.getByRole('button', { name: '+ New' }));
     expect(screen.getByRole('heading', { level: 2, name: 'Manage credit' })).toBeInTheDocument();
     expect(screen.getByLabelText('Credit Limit')).toBeInTheDocument();
+    expect(screen.getByLabelText('Customer')).toHaveValue('');
+  });
+
+  it('keeps each pricing tab wired to its own creator when catalog prerequisites are missing', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: { customers: [{ id: 'customer-1', name: 'Retail customer' }], items: [] },
+      allowed_actions: ['CREATE_PRICE_LIST', 'CREATE_CONTRACT', 'MANAGE_CREDIT'],
+    });
+    renderPage(<CommercialP2Workspace screen="CRM-PRICE" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    expect(screen.getByRole('heading', { level: 2, name: 'New price list' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Manage credit' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    await user.click(screen.getByRole('button', { name: 'Contracts' }));
+    await user.click(screen.getByRole('button', { name: '+ New' }));
+    expect(screen.getByRole('heading', { level: 2, name: 'New contract' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Manage credit' })).not.toBeInTheDocument();
+  });
+
+  it('shows permissioned create actions even before order and shipment prerequisites exist', async () => {
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), allowed_actions: ['CREATE'] });
+    const orders = renderPage(<CommercialP2Workspace screen="CRM-ORDER" />);
+    expect(await screen.findByRole('button', { name: '+ New' })).toBeInTheDocument();
+    orders.unmount();
+
+    const dispatch = renderPage(<CommercialP2Workspace screen="DSP-LOAD" />);
+    expect(await screen.findByRole('button', { name: '+ New' })).toBeInTheDocument();
+    dispatch.unmount();
+  });
+
+  it('starts lead, credit and contracted-work forms without silently selecting the first party', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: { customers: [{ id: 'customer-adnan', code: 'ADNAN', name: 'Adnan Traders' }], sources: ['DIRECT'] },
+      allowed_actions: ['CREATE'],
+    });
+    const leads = renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    expect(screen.getByLabelText('Customer')).toHaveValue('');
+    expect(screen.getByLabelText('Company Name')).toHaveValue('');
+    leads.unmount();
+
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: {
+        statuses: ['DRAFT', 'RELEASED', 'COMPLETED', 'CANCELLED'],
+        providers: [{ id: 'provider-adnan', code: 'ADNAN', name: 'Adnan Traders' }],
+        sales_orders: [{ id: 'order-1', order_number: 'SO-UI-001', status: 'CONFIRMED' }],
+      },
+      allowed_actions: ['CREATE'],
+    });
+    renderPage(<CommercialP2Workspace screen="CON-WORK" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+
+    expect(screen.getByLabelText('Provider Party')).toHaveValue('');
+    const salesOrder = screen.getByLabelText('Sales Order') as HTMLSelectElement;
+    expect(salesOrder).toHaveValue('');
+    expect(Array.from(salesOrder.options).map((option) => option.text)).toContain('SO-UI-001');
+    expect(Array.from(salesOrder.options).map((option) => option.text)).not.toContain('ADNAN · Adnan Traders');
+
+    const workType = screen.getByLabelText('Work Type') as HTMLInputElement | HTMLSelectElement;
+    expect(workType).toHaveValue('CO_PACKING');
+    const workTypeOptions = workType instanceof HTMLSelectElement ? Array.from(workType.options).map((option) => option.text) : [];
+    expect(workTypeOptions).not.toEqual(expect.arrayContaining(['Draft', 'Released', 'Completed', 'Cancelled']));
+
+    const description = screen.getByLabelText('Description');
+    const documentKeyDown = vi.fn();
+    document.addEventListener('keydown', documentKeyDown);
+    await user.type(description, 'Contract packing batch');
+    document.removeEventListener('keydown', documentKeyDown);
+    expect(description).toHaveValue('Contract packing batch');
+    expect(documentKeyDown.mock.calls.some(([event]) => (event as KeyboardEvent).key === ' ')).toBe(false);
+  });
+
+  it('limits lead conversion paths to conversion methods', async () => {
+    const user = userEvent.setup();
+    const lead = {
+      id: 'lead-convert', lead_number: 'LEAD-CONVERT-001', company_name: 'New Retailer', contact_name: 'Buyer',
+      enquiry_date: '2026-10-16', estimated_value: '25000', status: 'QUALIFIED', record_version: 1, allowed_actions: ['CONVERT'],
+    };
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(), data: [lead],
+      lookups: { statuses: ['NEW', 'QUALIFIED', 'CONVERTED', 'WON', 'LOST'], customers: [{ id: 'customer-1', name: 'Retail customer' }] },
+    });
+    api.getP2.mockResolvedValue(lead);
+    renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    await user.click(await screen.findByRole('button', { name: 'Convert' }));
+    const conversionPath = screen.getByLabelText('Conversion Path') as HTMLSelectElement;
+    expect(Array.from(conversionPath.options).map((option) => option.text)).toEqual(['Existing Customer', 'Create Customer']);
+  });
+
+  it('uses sales orders, not customer parties, for profitability cost backfill', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      data: [
+        { id: 'order-1', order_number: 'SO-UI-001', customer: { id: 'customer-1', name: 'Adnan Traders' } },
+        { id: 'order-2', order_number: 'SO-UI-002', customer: { id: 'customer-2', name: 'North Retail' } },
+      ],
+      lookups: { customers: [{ id: 'customer-1', code: 'ADNAN', name: 'Adnan Traders' }] },
+      allowed_actions: ['COST-BACKFILL'],
+    });
+    renderPage(<CommercialP2Workspace screen="BI-PROFIT" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const order = screen.getByLabelText('Order') as HTMLSelectElement;
+    expect(Array.from(order.options).map((option) => option.text)).toEqual(['No order', 'SO-UI-001', 'SO-UI-002']);
   });
 
   it('keeps sales-order UOM mapped to the selected item master', async () => {
