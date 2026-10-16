@@ -41,6 +41,19 @@ describe('quality and packing workspaces', () => {
     await waitFor(() => expect(api.createArtwork).toHaveBeenCalledWith(expect.objectContaining({ artwork_code: 'ART-UI-001', output_sku_id: 'finished-1', revision: 1 }), expect.any(String))); await user.click(await screen.findByRole('button', { name: 'Approve artwork' })); await waitFor(() => expect(api.approveArtwork).toHaveBeenCalled());
   });
 
+  it('opens draft artwork directly in edit mode and retains an inactive finished SKU', async () => {
+    const user = userEvent.setup(); const draft = artwork();
+    api.listArtworks.mockResolvedValue({ ...artworkWorkspace(), data: [draft], lookups: { ...artworkWorkspace().lookups, output_skus: [] } });
+    api.getArtwork.mockResolvedValue(draft); api.updateArtwork.mockResolvedValue({ id: 'art-1' });
+    renderPage(<PackagingArtworkWorkspace />); await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save artwork' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Artwork finished SKU')).toHaveValue('finished-1');
+    expect(screen.getByRole('option', { name: 'SKU-APPLE-100 · Apple Snack Pack 100g' })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Label name')); await user.type(screen.getByLabelText('Label name'), 'Updated apple retail label');
+    await user.click(screen.getByRole('button', { name: 'Save artwork' }));
+    await waitFor(() => expect(api.updateArtwork).toHaveBeenCalledWith(expect.objectContaining({ id: 'art-1', record_version: 1 }), expect.objectContaining({ label_name: 'Updated apple retail label' }), expect.any(String)));
+  });
+
   it('completes a packing run into stock and exposes finished-lot genealogy', async () => {
     const user = userEvent.setup(); api.createPackingRun.mockResolvedValue({ id: 'pack-1' }); api.completePackingRun.mockResolvedValue({ id: 'pack-1' }); api.getPackingRun.mockResolvedValueOnce(packing()).mockResolvedValueOnce(packing({ status: 'COMPLETED', record_version: 2, allowed_actions: [], finished_lot_id: 'lot-fg-1', completed_at: '2026-09-13T10:00:00Z', genealogy_edges: [{ id: 'edge-1', input_lot_id: 'raw-lot-1', input_lot_code: 'RM-APPLE-2609A', input_quantity: '10.304569', input_uom_code: 'KG', output_quantity: '97.000000', output_uom_code: 'PACK' }] }));
     renderPage(<PackingRunWorkspace />); await user.click(await screen.findByRole('button', { name: '+ New' })); await user.type(screen.getByLabelText('Run number'), 'pack-ui-001'); await user.type(screen.getByLabelText('Finished lot code'), 'fg-ui-001'); await user.selectOptions(screen.getByLabelText('Quality-released batch'), 'order-1'); await user.selectOptions(screen.getByLabelText('Approved artwork'), 'art-1'); await user.selectOptions(screen.getByLabelText('Finished-goods location'), 'location-1'); await user.click(screen.getByRole('button', { name: 'Create packing run' }));

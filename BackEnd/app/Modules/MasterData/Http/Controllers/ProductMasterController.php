@@ -6,6 +6,7 @@ use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
 use App\Modules\MasterData\Application\ProductMasterQuery;
 use App\Modules\MasterData\Application\ProductMasterService;
+use App\Modules\Manufacturing\Application\RecipeYieldService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -18,6 +19,7 @@ final class ProductMasterController
     public function __construct(
         private readonly ProductMasterQuery $query,
         private readonly ProductMasterService $service,
+        private readonly RecipeYieldService $recipeYield,
         private readonly SessionService $sessions,
     ) {}
 
@@ -108,6 +110,25 @@ final class ProductMasterController
         )]);
     }
 
+    public function recipePreview(string $recordId, Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'batch_basis_quantity' => ['required', 'numeric', 'min:0', 'max:99999999999999'],
+            'planned_units' => ['nullable', 'numeric', 'min:0', 'max:99999999999999'],
+            'active_conditions' => ['sometimes', 'array', 'max:100'],
+            'active_conditions.*' => ['required', 'string', 'max:80', 'regex:/^[A-Z0-9][A-Z0-9_-]*$/'],
+            'measured_additions' => ['sometimes', 'array', 'max:100'],
+            'measured_additions.*.quantity' => ['required', 'numeric', 'min:0', 'max:99999999999999'],
+            'measured_additions.*.uom_code' => ['required', 'string', 'max:16'],
+        ]);
+
+        return response()->json(['data' => $this->recipeYield->preview(
+            $recordId,
+            $validated,
+            $this->selectedScope($request, true),
+        )]);
+    }
+
     protected function sessionService(): SessionService
     {
         return $this->sessions;
@@ -176,6 +197,21 @@ final class ProductMasterController
                 'output_quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999'],
                 'output_uom_code' => ['required', 'string', 'max:16'],
                 'yield_percent' => ['required', 'numeric', 'gt:0', 'max:100'],
+                'basis_quantity' => ['sometimes', 'numeric', 'gt:0', 'max:99999999999'],
+                'basis_uom_code' => ['sometimes', 'string', 'max:16'],
+                'calculation_model' => ['sometimes', 'string', Rule::in(['LEGACY_YIELD', 'WEIGHT_PIECE', 'UNIT_CONVERSION', 'PERCENT_YIELD'])],
+                'standard_piece_weight' => ['nullable', 'numeric', 'gt:0', 'max:99999999999'],
+                'piece_weight_uom_code' => ['nullable', 'string', 'max:16'],
+                'target_finished_weight' => ['nullable', 'numeric', 'gt:0', 'max:99999999999'],
+                'target_weight_uom_code' => ['nullable', 'string', 'max:16'],
+                'pieces_per_pack' => ['sometimes', 'integer', 'between:1,1000000'],
+                'handling_loss_percent' => ['sometimes', 'numeric', 'between:0,100'],
+                'handling_loss_in_standard' => ['sometimes', 'boolean'],
+                'transformation_loss_percent' => ['sometimes', 'numeric', 'between:0,100'],
+                'transformation_loss_in_standard' => ['sometimes', 'boolean'],
+                'rejection_allowance_percent' => ['sometimes', 'numeric', 'between:0,100'],
+                'output_rounding_mode' => ['sometimes', 'string', Rule::in(['DOWN', 'UP', 'HALF_UP', 'NONE'])],
+                'unit_conversion_rate' => ['nullable', 'numeric', 'gt:0', 'max:99999999999'],
                 'effective_from' => ['nullable', 'date'],
                 'effective_to' => ['nullable', 'date'],
                 'notes' => ['nullable', 'string', 'max:4000'],
@@ -186,6 +222,13 @@ final class ProductMasterController
                 'components.*.quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999'],
                 'components.*.uom_code' => ['required', 'string', 'max:16'],
                 'components.*.waste_percent' => ['required', 'numeric', 'between:0,100'],
+                'components.*.scaling_method' => ['sometimes', 'string', Rule::in(['SCALABLE', 'FIXED', 'PER_UNIT', 'CONDITIONAL'])],
+                'components.*.bakers_percentage' => ['nullable', 'numeric', 'min:0', 'max:100000'],
+                'components.*.is_basis_component' => ['sometimes', 'boolean'],
+                'components.*.condition_code' => ['nullable', 'string', 'max:80', 'regex:/^[A-Z0-9][A-Z0-9_-]*$/'],
+                'components.*.quantity_per_unit' => ['nullable', 'numeric', 'min:0', 'max:99999999999'],
+                'components.*.loss_included_in_standard' => ['sometimes', 'boolean'],
+                'components.*.is_packaging' => ['sometimes', 'boolean'],
             ],
             'routes' => [
                 'catalog_item_id' => ['required', 'uuid'],
@@ -228,7 +271,8 @@ final class ProductMasterController
     {
         $input = $request->all();
         foreach (['code', 'status', 'target_status', 'item_type', 'base_uom', 'pack_uom_code',
-            'output_uom_code', 'target_type'] as $field) {
+            'output_uom_code', 'basis_uom_code', 'piece_weight_uom_code', 'target_weight_uom_code',
+            'calculation_model', 'output_rounding_mode', 'target_type'] as $field) {
             if (is_string($input[$field] ?? null)) {
                 $input[$field] = Str::upper(trim($input[$field]));
             }
@@ -258,7 +302,7 @@ final class ProductMasterController
             'brands' => ['agreements' => ['agreement_number', 'agreement_type', 'currency_code', 'status']],
             'items' => ['conversions' => ['from_uom_code', 'to_uom_code', 'rounding_mode']],
             'skus' => ['packs' => ['code', 'uom_code']],
-            'recipes' => ['components' => ['uom_code']],
+            'recipes' => ['components' => ['uom_code', 'scaling_method', 'condition_code']],
             'routes' => ['operations' => ['work_center_code']],
             'specifications' => ['parameters' => ['code', 'value_type', 'uom_code']],
         };

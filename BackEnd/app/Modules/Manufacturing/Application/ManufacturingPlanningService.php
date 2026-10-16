@@ -24,6 +24,7 @@ final class ManufacturingPlanningService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly RecipeYieldService $recipeYield,
     ) {}
 
     public function createDemand(array $data): array
@@ -247,15 +248,31 @@ final class ManufacturingPlanningService
                     "lines.{$index}.quantity",
                 );
                 $batchFactor = bcdiv($outputInRecipeUom, $this->decimal($recipe->output_quantity), 12);
+                $calculatedRequirements = null;
+                if (($recipe->calculation_model ?? 'LEGACY_YIELD') !== 'LEGACY_YIELD') {
+                    $calculatedRequirements = collect($this->recipeYield->forPlannedOutput(
+                        (string) $recipe->id,
+                        $outputInRecipeUom,
+                        $data,
+                    )['requirements'])->keyBy('component_id');
+                }
                 foreach ($components as $componentIndex => $component) {
                     if ($component->sku_status !== 'ACTIVE') {
                         throw ValidationException::withMessages([
                             "lines.{$index}.components.{$componentIndex}" => ["Recipe component {$component->sku_code} is not active."],
                         ]);
                     }
-                    $gross = bcmul($batchFactor, $this->decimal($component->quantity), 12);
-                    $gross = bcmul($gross, bcadd('1', bcdiv($this->decimal($component->waste_percent), '100', 12), 12), 12);
-                    $gross = bcdiv($gross, bcdiv($this->decimal($recipe->yield_percent), '100', 12), 12);
+                    if ($calculatedRequirements !== null) {
+                        $calculated = $calculatedRequirements->get((string) $component->id);
+                        $gross = (string) ($calculated['calculated_quantity'] ?? '0');
+                        if (bccomp($gross, '0', 12) <= 0) {
+                            continue;
+                        }
+                    } else {
+                        $gross = bcmul($batchFactor, $this->decimal($component->quantity), 12);
+                        $gross = bcmul($gross, bcadd('1', bcdiv($this->decimal($component->waste_percent), '100', 12), 12), 12);
+                        $gross = bcdiv($gross, bcdiv($this->decimal($recipe->yield_percent), '100', 12), 12);
+                    }
                     $gross = $this->convert(
                         $gross,
                         (string) $component->uom_code,

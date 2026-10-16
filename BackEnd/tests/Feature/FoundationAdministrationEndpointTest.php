@@ -202,7 +202,7 @@ final class FoundationAdministrationEndpointTest extends TestCase
         $this->withHeaders($this->commandHeaders(1))
             ->postJson("/api/v1/admin/locations/{$locationId}/delete", [])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('confirmed');
+            ->assertJsonStructure(['error' => ['fields' => ['confirmed']]]);
 
         $this->withHeaders($this->commandHeaders(1))
             ->postJson("/api/v1/admin/locations/{$locationId}/delete", ['confirmed' => true])

@@ -409,12 +409,42 @@ final class ProductMasterService
         if ((float) $data['yield_percent'] <= 0 || (float) $data['yield_percent'] > 100) {
             throw ValidationException::withMessages(['yield_percent' => ['Yield must be greater than zero and at most 100.']]);
         }
+        $model = $data['calculation_model'] ?? 'LEGACY_YIELD';
+        $basisQuantity = $data['basis_quantity'] ?? $data['output_quantity'];
+        $basisUom = $data['basis_uom_code'] ?? $data['output_uom_code'];
+        if ((float) $basisQuantity <= 0) {
+            throw ValidationException::withMessages(['basis_quantity' => ['Recipe basis quantity must be greater than zero.']]);
+        }
+        if ($model === 'WEIGHT_PIECE') {
+            if (empty($data['standard_piece_weight']) || empty($data['piece_weight_uom_code'])) {
+                throw ValidationException::withMessages([
+                    'standard_piece_weight' => ['A weight-piece recipe requires a positive pre-process piece weight and UOM.'],
+                ]);
+            }
+            if (($data['piece_weight_uom_code'] ?? null) !== $basisUom) {
+                throw ValidationException::withMessages([
+                    'piece_weight_uom_code' => ['Piece weight must use the normalised recipe-basis UOM.'],
+                ]);
+            }
+        }
+        if (in_array($model, ['UNIT_CONVERSION', 'PERCENT_YIELD'], true)
+            && empty($data['unit_conversion_rate']) && $model === 'UNIT_CONVERSION') {
+            throw ValidationException::withMessages(['unit_conversion_rate' => ['A unit-conversion recipe requires a positive conversion rate.']]);
+        }
+        foreach (['handling_loss_percent', 'transformation_loss_percent', 'rejection_allowance_percent'] as $field) {
+            $value = (float) ($data[$field] ?? 0);
+            if ($value < 0 || $value > 100) {
+                throw ValidationException::withMessages([$field => ['Percentage must be between zero and 100.']]);
+            }
+        }
         $output = $this->scopedSku($data['output_sku_id'], $data['company_id']);
         if (! $output) {
             throw ValidationException::withMessages(['output_sku_id' => ['Select an output SKU from the current company.']]);
         }
         $this->assertUniqueChildValues($data['components'], 'sequence_no', 'components');
         $this->assertUniqueChildValues($data['components'], 'component_sku_id', 'components');
+        $basisPercentage = '0.000000';
+        $basisPercentageCount = 0;
         foreach ($data['components'] as $index => $component) {
             if ($component['component_sku_id'] === $data['output_sku_id']) {
                 throw ValidationException::withMessages([
@@ -437,11 +467,46 @@ final class ProductMasterService
                     "components.{$index}.waste_percent" => ['Waste must be between zero and 100.'],
                 ]);
             }
+            $scaling = $component['scaling_method'] ?? 'SCALABLE';
+            if ($scaling === 'PER_UNIT' && ($component['quantity_per_unit'] ?? null) === null) {
+                throw ValidationException::withMessages([
+                    "components.{$index}.quantity_per_unit" => ['A per-unit component requires a quantity per output unit.'],
+                ]);
+            }
+            if ($scaling === 'CONDITIONAL' && trim((string) ($component['condition_code'] ?? '')) === '') {
+                throw ValidationException::withMessages([
+                    "components.{$index}.condition_code" => ['A conditional component requires a condition code.'],
+                ]);
+            }
+            if (($component['is_basis_component'] ?? false) && ($component['is_packaging'] ?? false)) {
+                throw ValidationException::withMessages([
+                    "components.{$index}.is_packaging" => ['A recipe-basis component cannot be packaging.'],
+                ]);
+            }
+            if (($component['bakers_percentage'] ?? null) !== null && $component['uom_code'] !== $basisUom) {
+                throw ValidationException::withMessages([
+                    "components.{$index}.uom_code" => ['Baker-percentage components must use the recipe-basis UOM.'],
+                ]);
+            }
+            if (($component['is_basis_component'] ?? false) && ($component['bakers_percentage'] ?? null) !== null) {
+                $basisPercentage = bcadd($basisPercentage, (string) $component['bakers_percentage'], 6);
+                $basisPercentageCount++;
+            }
             if ($data['status'] === 'ACTIVE' && $sku->status !== 'ACTIVE') {
                 throw ValidationException::withMessages([
                     "components.{$index}.component_sku_id" => ['Active recipes require active component SKUs.'],
                 ]);
             }
+        }
+        if ($basisPercentageCount > 0 && bccomp($basisPercentage, '100', 6) !== 0) {
+            throw ValidationException::withMessages([
+                'components' => ['Basis-component baker percentages must total exactly 100%.'],
+            ]);
+        }
+        if ($model === 'WEIGHT_PIECE' && ! collect($data['components'])->contains(
+            fn (array $component): bool => (bool) ($component['is_basis_component'] ?? false)
+        )) {
+            throw ValidationException::withMessages(['components' => ['A weight-piece recipe requires at least one basis component.']]);
         }
         if ($data['status'] === 'ACTIVE' && $output->status !== 'ACTIVE') {
             throw ValidationException::withMessages(['output_sku_id' => ['An active recipe requires an active output SKU.']]);
@@ -549,7 +614,10 @@ final class ProductMasterService
             'items' => array_merge([$data['base_uom']], collect($data['conversions'])
                 ->flatMap(fn (array $row) => [$row['from_uom_code'], $row['to_uom_code']])->all()),
             'skus' => array_merge([$data['pack_uom_code']], collect($data['packs'])->pluck('uom_code')->all()),
-            'recipes' => array_merge([$data['output_uom_code']], collect($data['components'])->pluck('uom_code')->all()),
+            'recipes' => array_merge([
+                $data['output_uom_code'], $data['basis_uom_code'] ?? $data['output_uom_code'],
+                $data['piece_weight_uom_code'] ?? null, $data['target_weight_uom_code'] ?? null,
+            ], collect($data['components'])->pluck('uom_code')->all()),
             'specifications' => collect($data['parameters'])->pluck('uom_code')->filter()->all(),
             default => [],
         };
@@ -590,6 +658,21 @@ final class ProductMasterService
                 'output_quantity' => $data['output_quantity'],
                 'output_uom_code' => $data['output_uom_code'],
                 'yield_percent' => $data['yield_percent'],
+                'basis_quantity' => $data['basis_quantity'] ?? $data['output_quantity'],
+                'basis_uom_code' => $data['basis_uom_code'] ?? $data['output_uom_code'],
+                'calculation_model' => $data['calculation_model'] ?? 'LEGACY_YIELD',
+                'standard_piece_weight' => $data['standard_piece_weight'] ?? null,
+                'piece_weight_uom_code' => $data['piece_weight_uom_code'] ?? null,
+                'target_finished_weight' => $data['target_finished_weight'] ?? null,
+                'target_weight_uom_code' => $data['target_weight_uom_code'] ?? null,
+                'pieces_per_pack' => (int) ($data['pieces_per_pack'] ?? 1),
+                'handling_loss_percent' => $data['handling_loss_percent'] ?? 0,
+                'handling_loss_in_standard' => (bool) ($data['handling_loss_in_standard'] ?? false),
+                'transformation_loss_percent' => $data['transformation_loss_percent'] ?? 0,
+                'transformation_loss_in_standard' => (bool) ($data['transformation_loss_in_standard'] ?? true),
+                'rejection_allowance_percent' => $data['rejection_allowance_percent'] ?? 0,
+                'output_rounding_mode' => $data['output_rounding_mode'] ?? 'DOWN',
+                'unit_conversion_rate' => $data['unit_conversion_rate'] ?? null,
                 'effective_from' => $data['effective_from'] ?? null,
                 'effective_to' => $data['effective_to'] ?? null,
                 'notes' => $this->nullable($data['notes'] ?? null),
@@ -698,6 +781,13 @@ final class ProductMasterService
                 'quantity' => $row['quantity'],
                 'uom_code' => $row['uom_code'],
                 'waste_percent' => $row['waste_percent'],
+                'scaling_method' => $row['scaling_method'] ?? 'SCALABLE',
+                'bakers_percentage' => $row['bakers_percentage'] ?? null,
+                'is_basis_component' => (bool) ($row['is_basis_component'] ?? false),
+                'condition_code' => $this->nullable($row['condition_code'] ?? null),
+                'quantity_per_unit' => $row['quantity_per_unit'] ?? null,
+                'loss_included_in_standard' => (bool) ($row['loss_included_in_standard'] ?? false),
+                'is_packaging' => (bool) ($row['is_packaging'] ?? false),
             ],
             'routes' => [
                 'sequence_no' => (int) $row['sequence_no'],
@@ -880,6 +970,12 @@ final class ProductMasterService
 
     private function assertSafeStructuralUpdate(string $resource, object $record, array $data): void
     {
+        if ($resource === 'recipes' && (DB::table('mrp_planned_orders')->where('recipe_id', $record->id)->exists()
+            || DB::table('production_orders')->where('recipe_id', $record->id)->exists())) {
+            throw ValidationException::withMessages([
+                'revision' => ['A referenced recipe version is immutable. Create a new recipe revision instead.'],
+            ]);
+        }
         if ($resource === 'items'
             && ($record->item_type !== $data['item_type'] || $record->base_uom !== $data['base_uom'])
             && DB::table('items')->where('catalog_item_id', $record->id)->exists()) {

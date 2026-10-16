@@ -70,6 +70,7 @@ SQL))->map(fn (object $column): string => "{$column->table_name}.{$column->colum
             'outbox_events.request_id',
             'outbox_events.span_id',
             'outbox_events.trace_id',
+            'production_batch_adjustment_effects.subject_id',
             'stock_movements.source_id',
             'transaction_visibilities.transaction_id',
             'transaction_visibility_events.correlation_id',

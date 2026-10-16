@@ -84,6 +84,27 @@ describe('Partner Portal workspace', () => {
       1,
     ));
   });
+
+  it('opens an editable access grant directly in its governed edit form', async () => {
+    const user = userEvent.setup();
+    const workspace = internalWorkspace();
+    const grant = { ...workspace.access_grants[0], effective_from: null, effective_to: null };
+    api.listP2.mockResolvedValue(workspace);
+    api.getP2.mockResolvedValue(grant);
+    renderPage(adminSession());
+
+    await user.click(await screen.findByRole('button', { name: 'Access grants' }));
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Update access entitlements' })).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: 'Document Download' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(api.commandP2).toHaveBeenCalledWith(
+      '/api/v1/partner/access-grants/grant-1',
+      expect.objectContaining({ entitlements: ['DOCUMENTS_VIEW', 'DOCUMENT_DOWNLOAD'] }),
+      1,
+    ));
+  });
 });
 
 function renderPage(session: ErpSession) {

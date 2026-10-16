@@ -109,10 +109,17 @@ final class OrderToCashQuery
                 ], $row->status); return $payload;
             })->all(), 'meta' => $this->meta($page),
             'summary' => $this->visibleStatusSummary($base, 'work.status', OrderToCashService::WORK_STATUSES),
-            'lookups' => ['statuses' => OrderToCashService::WORK_STATUSES, 'sorts' => self::SORTS,
+            'lookups' => ['statuses' => OrderToCashService::WORK_STATUSES, 'work_types' => $this->workTypes($scope), 'sorts' => self::SORTS,
                 'providers' => $this->parties($scope), 'sales_orders' => $this->orderLookup($scope, $permissions)],
             'operational_view' => $this->visibility->viewDescriptor($permissions),
             'allowed_actions' => $this->can($permissions, 'ACTION:CON-WORK:CREATE') ? ['CREATE'] : []];
+    }
+
+    private function workTypes(array $scope): array
+    {
+        return DB::table('third_party_work_orders')->where($scope)->whereNotNull('work_type')
+            ->pluck('work_type')->prepend('CO_PACKING')->map(fn ($value) => strtoupper(trim((string) $value)))
+            ->filter()->unique()->sort()->values()->all();
     }
 
     public function allocations(array $scope, array $filters, array $permissions): array

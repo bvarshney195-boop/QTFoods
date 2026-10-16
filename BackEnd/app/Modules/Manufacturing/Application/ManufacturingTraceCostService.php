@@ -24,6 +24,7 @@ final class ManufacturingTraceCostService
         private readonly OutboxService $outbox,
         private readonly StockPostingService $stock,
         private readonly ManufacturingExecutionService $execution,
+        private readonly ManufacturingMaterialReconciliationService $materialReconciliation,
     ) {}
 
     public function createRecall(array $data): array
@@ -166,15 +167,34 @@ final class ManufacturingTraceCostService
             $labourRate = $this->nonNegative($data['labour_rate_per_minute'], 'labour_rate_per_minute');
             $overheadRate = $this->nonNegative($data['overhead_rate_per_minute'], 'overhead_rate_per_minute');
             $conversionRate = bcadd($labourRate, $overheadRate, 6);
+            $reconciliation = collect($this->materialReconciliation->forOrder((string) $order->id)['materials'])->keyBy('id');
             $plannedMaterial = $actualMaterial = $plannedConversion = $actualConversion = '0.000000';
+            $packagingVarianceQuantity = $packagingVarianceCost = '0.000000';
             $materialLines = [];
             foreach ($materials as $material) {
                 $unitCost = $this->nonNegative($submitted->get($material->id)['unit_cost'], "material_costs.{$material->line_number}.unit_cost");
-                $plannedCost = bcmul($this->decimal($material->required_quantity), $unitCost, 6);
-                $actualCost = bcmul($this->decimal($material->issued_quantity), $unitCost, 6);
-                $materialLines[] = [$material, $unitCost, $plannedCost, $actualCost];
+                $originalQuantity = $this->decimal($material->original_plan_quantity ?? $material->required_quantity);
+                $reconciled = $reconciliation->get((string) $material->id, []);
+                $normalisedQuantity = $this->decimal($reconciled['normalised_standard_quantity']
+                    ?? $material->normalised_standard_quantity ?? $material->required_quantity);
+                $actualQuantity = $this->decimal($reconciled['adjusted_net_consumed_quantity']
+                    ?? $material->net_consumed_quantity ?? $material->issued_quantity);
+                $plannedCost = bcmul($originalQuantity, $unitCost, 6);
+                $normalisedCost = bcmul($normalisedQuantity, $unitCost, 6);
+                $actualCost = bcmul($actualQuantity, $unitCost, 6);
+                $originalQuantityVariance = bcsub($actualQuantity, $originalQuantity, 6);
+                $efficiencyQuantityVariance = bcsub($actualQuantity, $normalisedQuantity, 6);
+                $originalCostVariance = bcsub($actualCost, $plannedCost, 6);
+                $efficiencyCostVariance = bcsub($actualCost, $normalisedCost, 6);
+                $materialLines[] = [$material, $unitCost, $originalQuantity, $normalisedQuantity, $actualQuantity,
+                    $plannedCost, $actualCost, $originalQuantityVariance, $efficiencyQuantityVariance,
+                    $originalCostVariance, $efficiencyCostVariance];
                 $plannedMaterial = bcadd($plannedMaterial, $plannedCost, 6);
                 $actualMaterial = bcadd($actualMaterial, $actualCost, 6);
+                if ((bool) ($material->is_packaging ?? false)) {
+                    $packagingVarianceQuantity = bcadd($packagingVarianceQuantity, $efficiencyQuantityVariance, 6);
+                    $packagingVarianceCost = bcadd($packagingVarianceCost, $efficiencyCostVariance, 6);
+                }
             }
             $stageLines = [];
             foreach ($stages as $stage) {
@@ -191,8 +211,23 @@ final class ManufacturingTraceCostService
                 : bcmul(bcdiv($variance, $plannedTotal, 8), '100', 6);
             $metrics = $this->execution->outputMetrics($order->id);
             $good = $metrics['good_quantity'];
+            if (bccomp($good, '0', 6) <= 0) {
+                throw new ConflictHttpException('A positive final good quantity is required before per-unit batch cost can be finalized.');
+            }
             $yieldPercent = bcmul(bcdiv($good, $this->decimal($order->planned_quantity), 8), '100', 6);
             $costPerGood = bcdiv($actualTotal, $good, 6);
+            $netMaterialCostPerGood = bcdiv($actualMaterial, $good, 6);
+            $allSourceCostsIncluded = (bool) ($data['all_source_costs_included'] ?? false);
+            $fullManufacturingCostPerGood = $allSourceCostsIncluded ? $costPerGood : null;
+            $normalLoss = bcadd($metrics['normal_process_loss_quantity'], $metrics['handling_waste_quantity'], 6);
+            $abnormalLoss = bcadd(bcadd($metrics['rejected_output_quantity'], $metrics['unexplained_variance_quantity'], 6),
+                $metrics['scrapped_rework_quantity'] ?? '0.000000', 6);
+            $reworkQuantity = $this->decimal($metrics['rework_quantity']);
+            $reworkValue = bcmul($reworkQuantity, $netMaterialCostPerGood, 6);
+            $giveawayQuantity = $this->decimal($metrics['overweight_giveaway_quantity']);
+            $inputMass = $this->decimal($order->theoretical_input_mass ?? 0);
+            $giveawayCost = bccomp($inputMass, '0', 6) > 0
+                ? bcmul($giveawayQuantity, bcdiv($actualMaterial, $inputMass, 8), 6) : '0.000000';
             $snapshot = (int) DB::table('batch_costs')->where('production_order_id', $order->id)->max('snapshot_version') + 1;
             $id = (string) Str::uuid();
             $now = CarbonImmutable::now();
@@ -206,18 +241,36 @@ final class ManufacturingTraceCostService
                 'planned_total_cost' => $plannedTotal, 'actual_total_cost' => $actualTotal,
                 'total_variance' => $variance, 'variance_percent' => $variancePercent,
                 'good_quantity' => $good, 'yield_percent' => $yieldPercent, 'cost_per_good_unit' => $costPerGood,
+                'expected_good_quantity' => $metrics['expected_good_quantity'],
+                'output_variance' => $metrics['output_variance'],
+                'output_variance_percent' => $metrics['output_variance_percent'],
+                'normal_loss_quantity' => $normalLoss, 'abnormal_loss_quantity' => $abnormalLoss,
+                'rework_quantity' => $reworkQuantity, 'rework_value' => $reworkValue,
+                'overweight_giveaway_quantity' => $giveawayQuantity, 'overweight_giveaway_cost' => $giveawayCost,
+                'packaging_variance_quantity' => $packagingVarianceQuantity,
+                'packaging_variance_cost' => $packagingVarianceCost,
+                'net_material_cost_per_good_unit' => $netMaterialCostPerGood,
+                'all_source_costs_included' => $allSourceCostsIncluded,
+                'full_manufacturing_cost_per_good_unit' => $fullManufacturingCostPerGood,
                 'status' => 'FINALIZED', 'calculated_by' => $data['actor_id'], 'calculated_at' => $now,
                 'created_at' => $now, 'updated_at' => $now,
             ]);
-            foreach ($materialLines as [$material, $unitCost, $plannedCost, $actualCost]) {
+            foreach ($materialLines as [$material, $unitCost, $originalQuantity, $normalisedQuantity, $actualQuantity,
+                $plannedCost, $actualCost, $originalQuantityVariance, $efficiencyQuantityVariance,
+                $originalCostVariance, $efficiencyCostVariance]) {
                 DB::table('batch_cost_material_lines')->insert([
                     'id' => (string) Str::uuid(), 'batch_cost_id' => $id,
                     'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'production_order_material_id' => $material->id, 'component_sku_id' => $material->component_sku_id,
-                    'planned_quantity' => $material->required_quantity, 'actual_quantity' => $material->issued_quantity,
+                    'planned_quantity' => $originalQuantity, 'actual_quantity' => $actualQuantity,
                     'uom_code' => $material->uom_code, 'unit_cost' => $unitCost,
                     'planned_cost' => $plannedCost, 'actual_cost' => $actualCost,
-                    'usage_variance' => bcsub($actualCost, $plannedCost, 6), 'created_at' => $now,
+                    'usage_variance' => $originalCostVariance, 'is_packaging' => (bool) ($material->is_packaging ?? false),
+                    'normalised_standard_quantity' => $normalisedQuantity,
+                    'original_plan_quantity_variance' => $originalQuantityVariance,
+                    'efficiency_quantity_variance' => $efficiencyQuantityVariance,
+                    'original_plan_cost_variance' => $originalCostVariance,
+                    'efficiency_cost_variance' => $efficiencyCostVariance, 'created_at' => $now,
                 ]);
             }
             foreach ($stageLines as [$stage, $plannedCost, $actualCost]) {
@@ -233,7 +286,9 @@ final class ManufacturingTraceCostService
             $result = ['entity_type' => 'batch_cost', 'id' => $id, 'status' => 'FINALIZED',
                 'snapshot_version' => $snapshot, 'planned_total_cost' => $plannedTotal,
                 'actual_total_cost' => $actualTotal, 'total_variance' => $variance,
-                'variance_percent' => $variancePercent, 'cost_per_good_unit' => $costPerGood];
+                'variance_percent' => $variancePercent, 'cost_per_good_unit' => $costPerGood,
+                'net_material_cost_per_good_unit' => $netMaterialCostPerGood,
+                'full_manufacturing_cost_per_good_unit' => $fullManufacturingCostPerGood];
             $this->record('CALCULATE_BATCH_COST', 'costing.batch.finalized', 'batch_cost', $id, $data, $snapshot, [
                 'production_order_id' => $order->id, 'planned_total_cost' => $plannedTotal,
                 'actual_total_cost' => $actualTotal, 'total_variance' => $variance,

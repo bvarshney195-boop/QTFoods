@@ -183,7 +183,7 @@ function ScalarField({ fieldKey, value, path, catalog, errors, required, onChang
   }
 
   const choices = primitiveOptions(fieldKey, value, catalog);
-  if (choices.length > 1) {
+  if (choices.length > 1 || (choices.length === 1 && hasControlledChoiceSource(fieldKey, catalog))) {
     return <label>{title}<RequiredMark show={requiredField} />
       <select {...common} value={stringValue(value)} onChange={(event) => onChange(path, nullableValue(event.target.value, optional))}>
         {optional ? <option value="">Not specified</option> : null}
@@ -318,7 +318,11 @@ function buildLookupCatalog(workspace: P2Workspace | null): LookupCatalog {
 function referenceOptions(fieldKey: string, currentValue: unknown, catalog: LookupCatalog): Array<{ value: string; label: string }> {
   const current = currentValue === null || currentValue === undefined ? '' : String(currentValue);
   const matches = current ? catalog.records.filter((collection) => collection.rows.some((row) => String(row.id ?? '') === current)) : [];
-  const exactCollection = explicitLookupCollection(fieldKey, catalog);
+  const explicitKeys = REFERENCE_LOOKUPS[fieldKey];
+  const exactCollection = explicitKeys
+    ?.map((key) => catalog.records.find((collection) => collection.key === key))
+    .find((collection): collection is LookupCollection => Boolean(collection));
+  if (explicitKeys && !exactCollection) return current ? [{ value: current, label: 'Current selection' }] : [];
   const candidates = exactCollection ? [exactCollection] : (matches.length ? matches : catalog.records.filter((collection) => lookupScore(fieldKey, collection.key) > 0))
     .sort((left, right) => (lookupScore(fieldKey, right.key) + collectionQuality(right)) - (lookupScore(fieldKey, left.key) + collectionQuality(left)));
   const collection = candidates[0];
@@ -333,15 +337,6 @@ function referenceOptions(fieldKey: string, currentValue: unknown, catalog: Look
   });
   if (current && !seen.has(current)) options.unshift({ value: current, label: 'Current selection' });
   return options;
-}
-
-function explicitLookupCollection(fieldKey: string, catalog: LookupCatalog): LookupCollection | undefined {
-  const keys: Record<string, string> = {
-    asset_id: 'lookups.assets', source_position_id: 'lookups.source_positions', destination_position_id: 'lookups.destination_positions',
-    sales_order_id: 'lookups.sales_orders', order_id: 'data',
-  };
-  const expected = keys[fieldKey];
-  return expected ? catalog.records.find((collection) => collection.key === expected) : undefined;
 }
 
 function suitableReferenceRows(fieldKey: string, rows: LookupRow[]): LookupRow[] {
@@ -368,6 +363,12 @@ function primitiveOptions(fieldKey: string, currentValue: unknown, catalog: Look
     return (lookupScore(fieldKey, right.key) + rightContains) - (lookupScore(fieldKey, left.key) + leftContains);
   })[0];
   return Array.from(new Set([...(collection?.values.map(String) ?? []), ...known, ...(current ? [current] : [])]));
+}
+
+function hasControlledChoiceSource(fieldKey: string, catalog: LookupCatalog): boolean {
+  if (KNOWN_CHOICES[fieldKey]) return true;
+  const lookup = CHOICE_LOOKUPS[fieldKey];
+  return Boolean(lookup && catalog.primitives.some((collection) => collection.key.split('.').at(-1) === lookup));
 }
 
 function lookupScore(fieldKey: string, collectionKey: string): number {
@@ -397,6 +398,8 @@ function lookupRowLabel(row: LookupRow, index: number): string {
   const preferredPairs = [
     ['employee_number', 'name'], ['account_code', 'name'], ['account_code', 'account_name'], ['route_code', 'name'],
     ['order_number', 'customer_name'], ['invoice_number', 'customer_name'], ['item_code', 'name'], ['sku_code', 'name'],
+    ['lead_number', 'company_name'], ['contract_number', 'customer_name'], ['list_number', 'name'], ['allocation_number', 'order_number'],
+    ['shipment_number', 'customer_name'], ['work_order_number', 'description'], ['code', 'display_name'], ['name', 'email'],
     ['code', 'name'], ['number', 'name'], ['period_code', 'name'], ['plant_name', 'company_name'],
   ];
   for (const [first, second] of preferredPairs) {
@@ -548,4 +551,40 @@ const CHOICE_LOOKUPS: Record<string, string> = {
   requested_resolution: 'resolutions',
   resolution_type: 'resolutions',
   payment_method: 'payment_methods',
+  work_type: 'work_types',
+};
+
+const REFERENCE_LOOKUPS: Record<string, readonly string[]> = {
+  account_id: ['lookups.accounts'],
+  asset_account_id: ['lookups.accounts'],
+  bank_account_id: ['lookups.banks'],
+  claimant_user_id: ['lookups.users'],
+  customer_party_id: ['lookups.customers'],
+  depreciation_account_id: ['lookups.accounts'],
+  depreciation_expense_account_id: ['lookups.accounts'],
+  destination_item_id: ['lookups.items'],
+  destination_plant_id: ['lookups.plants'],
+  destination_position_id: ['lookups.destination_positions'],
+  employee_id: ['lookups.employees'],
+  expense_account_id: ['lookups.accounts'],
+  fiscal_period_id: ['lookups.periods'],
+  item_id: ['lookups.items'],
+  invoice_id: ['lookups.open_invoices', 'lookups.invoices'],
+  order_id: ['data'],
+  payable_account_id: ['lookups.accounts'],
+  plant_transfer_route_id: ['lookups.routes'],
+  production_order_id: ['lookups.production_orders'],
+  provider_party_id: ['lookups.providers'],
+  sales_allocation_id: ['lookups.allocations'],
+  sales_contract_id: ['lookups.contracts'],
+  sales_lead_id: ['lookups.leads'],
+  sales_order_id: ['lookups.sales_orders'],
+  sales_price_list_id: ['lookups.price_lists'],
+  shipment_id: ['lookups.shipments'],
+  shipment_line_id: ['lookups.shipment_lines'],
+  source_item_id: ['lookups.items'],
+  source_position_id: ['lookups.source_positions'],
+  specification_id: ['lookups.specifications'],
+  supplier_party_id: ['lookups.suppliers'],
+  target_account_id: ['lookups.accounts'],
 };

@@ -240,6 +240,43 @@ final class ProductMasterDataEndpointTest extends TestCase
             );
     }
 
+    public function test_generic_recipe_preview_scales_non_one_hundred_basis_and_expected_output(): void
+    {
+        $payload = $this->recipePayload('REC-GENERIC-YIELD');
+        $payload += [
+            'basis_quantity' => '50', 'basis_uom_code' => 'KG', 'calculation_model' => 'WEIGHT_PIECE',
+            'standard_piece_weight' => '0.1', 'piece_weight_uom_code' => 'KG',
+            'target_finished_weight' => '0.095', 'target_weight_uom_code' => 'KG', 'pieces_per_pack' => 1,
+            'handling_loss_percent' => '2', 'handling_loss_in_standard' => false,
+            'transformation_loss_percent' => '6', 'transformation_loss_in_standard' => true,
+            'rejection_allowance_percent' => '1', 'output_rounding_mode' => 'DOWN',
+            'unit_conversion_rate' => null,
+        ];
+        $payload['yield_percent'] = '100';
+        $payload['components'][0] += [
+            'scaling_method' => 'SCALABLE', 'bakers_percentage' => null,
+            'is_basis_component' => true, 'condition_code' => null, 'quantity_per_unit' => null,
+            'loss_included_in_standard' => true, 'is_packaging' => false,
+        ];
+        $payload['components'][0]['quantity'] = '50';
+
+        $recipeId = (string) $this->command()->postJson('/api/v1/manufacturing/recipes', $payload)
+            ->assertCreated()->json('data.id');
+        $this->postJson('/api/v1/manufacturing/recipes/'.$recipeId.'/preview', [
+            'batch_basis_quantity' => '75', 'planned_units' => null, 'active_conditions' => [],
+            'measured_additions' => [['quantity' => '5', 'uom_code' => 'KG']],
+        ])->assertOk()->assertJsonPath('data.recipe_basis_quantity', '50.000000')
+            ->assertJsonPath('data.batch_basis_quantity', '75.000000')
+            ->assertJsonPath('data.scaling_factor', '1.500000000')
+            ->assertJsonPath('data.requirements.0.calculated_quantity', '75.000000')
+            ->assertJsonPath('data.measured_additions_mass', '5.000000')
+            ->assertJsonPath('data.theoretical_input_mass', '80.000000')
+            ->assertJsonPath('data.theoretical_complete_units', '800.000000')
+            ->assertJsonPath('data.expected_formed_units', '784.000000')
+            ->assertJsonPath('data.expected_good_units', '776.000000')
+            ->assertJsonPath('data.transformation_loss_deducted_from_piece_count', false);
+    }
+
     public function test_route_and_specification_aggregates_enforce_operations_parameters_and_targets(): void
     {
         $route = $this->command()->postJson('/api/v1/manufacturing/routes', $this->routePayload())

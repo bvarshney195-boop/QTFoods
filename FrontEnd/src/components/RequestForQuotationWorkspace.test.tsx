@@ -84,6 +84,8 @@ describe('request for quotation workspace', () => {
     renderPage();
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Save RFQ changes' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close without saving' }));
     await user.click(await screen.findByRole('button', { name: 'Issue RFQ' }));
     await waitFor(() => expect(apiMocks.issueRfq).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'rfq-1', record_version: 1 }), expect.any(String),

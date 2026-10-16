@@ -306,6 +306,8 @@ final class OrderToCashEndpointTest extends TestCase
             'expected_start_date' => now()->toDateString(), 'expected_end_date' => now()->addDays(2)->toDateString(), 'agreed_cost' => '5000',
         ])->assertCreated();
         $workId = (string) $work->json('data.id');
+        $this->getJson('/api/v1/sales/third-party-work')->assertOk()
+            ->assertJsonPath('lookups.work_types.0', 'CO_PACKING');
         $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/third-party-work/'.$workId.'/release')->assertOk();
         $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/third-party-work/'.$workId.'/complete', ['actual_cost' => '4900'])
             ->assertOk()->assertJsonPath('data.status', 'COMPLETED');

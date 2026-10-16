@@ -51,6 +51,13 @@ export type RecipeComponent = {
   quantity: string;
   uom_code: string;
   waste_percent: string;
+  scaling_method: 'SCALABLE' | 'FIXED' | 'PER_UNIT' | 'CONDITIONAL';
+  bakers_percentage: string | null;
+  is_basis_component: boolean;
+  condition_code: string | null;
+  quantity_per_unit: string | null;
+  loss_included_in_standard: boolean;
+  is_packaging: boolean;
 };
 
 export type RouteOperation = {
@@ -112,6 +119,21 @@ export type ProductMasterRecord = {
   output_quantity?: string;
   output_uom_code?: string;
   yield_percent?: string;
+  basis_quantity?: string;
+  basis_uom_code?: string;
+  calculation_model?: 'LEGACY_YIELD' | 'WEIGHT_PIECE' | 'UNIT_CONVERSION' | 'PERCENT_YIELD';
+  standard_piece_weight?: string | null;
+  piece_weight_uom_code?: string | null;
+  target_finished_weight?: string | null;
+  target_weight_uom_code?: string | null;
+  pieces_per_pack?: number;
+  handling_loss_percent?: string;
+  handling_loss_in_standard?: boolean;
+  transformation_loss_percent?: string;
+  transformation_loss_in_standard?: boolean;
+  rejection_allowance_percent?: string;
+  output_rounding_mode?: 'DOWN' | 'UP' | 'HALF_UP' | 'NONE';
+  unit_conversion_rate?: string | null;
   effective_from?: string | null;
   effective_to?: string | null;
   notes?: string | null;
@@ -151,6 +173,38 @@ export type ProductMasterWorkspace = {
   summary: { total: number; draft: number; active: number; inactive: number };
   lookups: ProductMasterLookups;
   allowed_actions: ('CREATE')[];
+};
+
+export type RecipeCalculation = {
+  recipe: { id: string; code: string; name: string; revision: number; basis_uom_code: string; output_uom_code: string };
+  precision_scale: number;
+  rounding_policy: string;
+  calculation_model: string;
+  recipe_basis_quantity: string;
+  batch_basis_quantity: string;
+  scaling_factor: string;
+  theoretical_input_mass: string;
+  theoretical_complete_units: string;
+  theoretical_residual_quantity: string;
+  expected_formed_units: string;
+  expected_good_units_before_rounding: string;
+  expected_good_units: string;
+  expected_transformation_loss_quantity: string;
+  transformation_loss_deducted_from_piece_count: boolean;
+  exception_code: string | null;
+  requirements: Array<{
+    component_id: string;
+    component_sku_id: string;
+    component_code: string;
+    component_name: string;
+    scaling_method: string;
+    calculated_quantity: string;
+    normalised_input_mass: string;
+    uom_code: string;
+    is_packaging: boolean;
+    condition_applied: boolean;
+    loss_gross_up_applied: boolean;
+  }>;
 };
 
 export type ProductMasterWrite = Record<string, unknown> & { name: string };
@@ -247,4 +301,8 @@ export async function deleteProductMaster(
     expectedVersion: record.record_version,
     idempotencyKey,
   })).data;
+}
+
+export async function previewRecipe(recordId: string, body: unknown): Promise<RecipeCalculation> {
+  return (await apiMutation<{ data: RecipeCalculation }>(`${endpoints.recipes}/${recordId}/preview`, body)).data;
 }

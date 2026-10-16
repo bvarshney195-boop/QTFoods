@@ -56,6 +56,22 @@ describe('P2 commercial and finance workspaces', () => {
     expect(await screen.findByText('Lead qualified.')).toBeInTheDocument();
   });
 
+  it('opens an editable governed record directly in its update form', async () => {
+    const user = userEvent.setup();
+    const lead = { id: 'lead-edit', lead_number: 'LEAD-EDIT-001', company_name: 'North Market', contact_name: 'Commercial Desk', contact_email: 'buyer@example.test', source: 'DIRECT', enquiry_date: '2026-09-13', estimated_value: '25000', status: 'NEW', record_version: 4, allowed_actions: ['UPDATE', 'QUALIFY'] };
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), data: [lead], lookups: { sources: ['DIRECT', 'REFERRAL'], customers: [] } });
+    api.getP2.mockResolvedValue(lead);
+    renderPage(<CommercialP2Workspace screen="CRM-LEAD" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Update lead' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Company Name')).toHaveValue('North Market');
+    expect(screen.queryByRole('button', { name: 'Qualify' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(await screen.findByRole('button', { name: 'Qualify' })).toBeInTheDocument();
+  });
+
   it('creates an allocation from a live eligible order and forwards its source version', async () => {
     const user = userEvent.setup();
     api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { orders: [{ id: 'order-1', order_number: 'SO-UI-001', record_version: 7 }] }, allowed_actions: ['ALLOCATE'] });
@@ -123,7 +139,7 @@ describe('P2 commercial and finance workspaces', () => {
     api.listP2.mockResolvedValue({
       ...emptyWorkspace(),
       lookups: {
-        statuses: ['DRAFT', 'RELEASED', 'COMPLETED', 'CANCELLED'],
+        statuses: ['DRAFT', 'RELEASED', 'COMPLETED', 'CANCELLED'], work_types: ['CO_PACKING'],
         providers: [{ id: 'provider-adnan', code: 'ADNAN', name: 'Adnan Traders' }],
         sales_orders: [{ id: 'order-1', order_number: 'SO-UI-001', status: 'CONFIRMED' }],
       },
@@ -138,9 +154,10 @@ describe('P2 commercial and finance workspaces', () => {
     expect(Array.from(salesOrder.options).map((option) => option.text)).toContain('SO-UI-001');
     expect(Array.from(salesOrder.options).map((option) => option.text)).not.toContain('ADNAN · Adnan Traders');
 
-    const workType = screen.getByLabelText('Work Type') as HTMLInputElement | HTMLSelectElement;
+    const workType = screen.getByLabelText('Work Type') as HTMLSelectElement;
+    expect(workType).toBeInstanceOf(HTMLSelectElement);
     expect(workType).toHaveValue('CO_PACKING');
-    const workTypeOptions = workType instanceof HTMLSelectElement ? Array.from(workType.options).map((option) => option.text) : [];
+    const workTypeOptions = Array.from(workType.options).map((option) => option.text);
     expect(workTypeOptions).not.toEqual(expect.arrayContaining(['Draft', 'Released', 'Completed', 'Cancelled']));
 
     const description = screen.getByLabelText('Description');

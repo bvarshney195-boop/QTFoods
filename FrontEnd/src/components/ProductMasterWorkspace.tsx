@@ -14,6 +14,7 @@ import {
   deleteProductMaster,
   getProductMaster,
   listProductMasters,
+  previewRecipe,
   updateProductMaster,
   type BrandAgreement,
   type ProductMasterDetail,
@@ -22,6 +23,7 @@ import {
   type ProductMasterStatus,
   type ProductMasterWorkspace as ProductMasterWorkspaceData,
   type RecipeComponent,
+  type RecipeCalculation,
   type RouteOperation,
   type SkuPack,
   type SpecificationParameter,
@@ -61,6 +63,21 @@ type MasterForm = {
   output_quantity: string;
   output_uom_code: string;
   yield_percent: string;
+  basis_quantity: string;
+  basis_uom_code: string;
+  calculation_model: 'LEGACY_YIELD' | 'WEIGHT_PIECE' | 'UNIT_CONVERSION' | 'PERCENT_YIELD';
+  standard_piece_weight: string | null;
+  piece_weight_uom_code: string | null;
+  target_finished_weight: string | null;
+  target_weight_uom_code: string | null;
+  pieces_per_pack: string;
+  handling_loss_percent: string;
+  handling_loss_in_standard: boolean;
+  transformation_loss_percent: string;
+  transformation_loss_in_standard: boolean;
+  rejection_allowance_percent: string;
+  output_rounding_mode: 'DOWN' | 'UP' | 'HALF_UP' | 'NONE';
+  unit_conversion_rate: string | null;
   effective_from: string | null;
   effective_to: string | null;
   notes: string | null;
@@ -458,6 +475,7 @@ export function ProductMasterWorkspace({ resource }: { resource: ProductMasterRe
 
               <ResourceEditor
                 resource={resource}
+                recordId={selected?.id}
                 form={form}
                 setForm={setForm}
                 lookups={workspace?.lookups}
@@ -618,6 +636,7 @@ function ItemReferenceRegisters({
 
 function ResourceEditor({
   resource,
+  recordId,
   form,
   setForm,
   lookups,
@@ -625,6 +644,7 @@ function ResourceEditor({
   resetFeedback,
 }: {
   resource: ProductMasterResource;
+  recordId?: string;
   form: MasterForm;
   setForm: Dispatch<SetStateAction<MasterForm>>;
   lookups?: ProductMasterLookups;
@@ -731,13 +751,30 @@ function ResourceEditor({
 
   if (resource === 'recipes') return <>
     <section className="party-subsection">
-      <h4>Output and yield</h4>
+      <h4>Basis, output and yield model</h4>
       <div className="party-card-grid three">
         <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({ output_sku_id: event.target.value })}><option value="">Select SKU</option>{options(lookups?.skus)}</select></label>
         <label>Revision<input aria-label="Recipe revision" type="number" min="1" value={form.revision} onChange={(event) => change({ revision: event.target.value })} /></label>
+        <label>Calculation model<select aria-label="Recipe calculation model" value={form.calculation_model} onChange={(event) => change({ calculation_model: event.target.value as MasterForm['calculation_model'] })}><option value="LEGACY_YIELD">Legacy yield</option><option value="WEIGHT_PIECE">Weight-based pieces</option><option value="UNIT_CONVERSION">Approved unit conversion</option><option value="PERCENT_YIELD">Percentage yield</option></select></label>
+        <label>Recipe basis quantity<input aria-label="Recipe basis quantity" type="number" min="0" step="any" value={form.basis_quantity} onChange={(event) => change({ basis_quantity: event.target.value })} /><FieldError value={fieldErrors.basis_quantity} /></label>
+        <label>Recipe basis UOM<select aria-label="Recipe basis UOM" value={form.basis_uom_code} onChange={(event) => change({ basis_uom_code: event.target.value })}>{requiredUomOptions()}</select></label>
         <label>Output quantity<input aria-label="Recipe output quantity" type="number" min="0" step="any" value={form.output_quantity} onChange={(event) => change({ output_quantity: event.target.value })} /></label>
         <label>Output UOM<select aria-label="Recipe output UOM" value={form.output_uom_code} onChange={(event) => change({ output_uom_code: event.target.value })}>{requiredUomOptions()}</select></label>
         <label>Yield %<input aria-label="Recipe yield percent" type="number" min="0" max="100" step="any" value={form.yield_percent} onChange={(event) => change({ yield_percent: event.target.value })} /></label>
+        {form.calculation_model === 'WEIGHT_PIECE' && <>
+          <label>Pre-process piece weight<input aria-label="Standard pre-process piece weight" type="number" min="0" step="any" value={form.standard_piece_weight ?? ''} onChange={(event) => change({ standard_piece_weight: nullable(event.target.value) })} /></label>
+          <label>Piece-weight UOM<select aria-label="Piece weight UOM" value={form.piece_weight_uom_code ?? ''} onChange={(event) => change({ piece_weight_uom_code: nullable(event.target.value) })}>{requiredUomOptions()}</select></label>
+        </>}
+        {(form.calculation_model === 'UNIT_CONVERSION' || form.calculation_model === 'PERCENT_YIELD') && <label>Approved conversion / yield rate<input aria-label="Recipe unit conversion rate" type="number" min="0" step="any" value={form.unit_conversion_rate ?? ''} onChange={(event) => change({ unit_conversion_rate: nullable(event.target.value) })} /></label>}
+        <label>Finished target weight<input aria-label="Finished target weight" type="number" min="0" step="any" value={form.target_finished_weight ?? ''} onChange={(event) => change({ target_finished_weight: nullable(event.target.value) })} /></label>
+        <label>Target-weight UOM<select aria-label="Target weight UOM" value={form.target_weight_uom_code ?? ''} onChange={(event) => change({ target_weight_uom_code: nullable(event.target.value) })}>{requiredUomOptions()}</select></label>
+        <label>Pieces per pack<input aria-label="Pieces per pack" type="number" min="1" step="1" value={form.pieces_per_pack} onChange={(event) => change({ pieces_per_pack: event.target.value })} /></label>
+        <label>Handling loss %<input aria-label="Handling loss percent" type="number" min="0" max="100" step="any" value={form.handling_loss_percent} onChange={(event) => change({ handling_loss_percent: event.target.value })} /></label>
+        <label className="check-label"><input aria-label="Handling loss included in standard" type="checkbox" checked={form.handling_loss_in_standard} onChange={(event) => change({ handling_loss_in_standard: event.target.checked })} />Handling loss already in standard</label>
+        <label>Transformation / moisture loss %<input aria-label="Transformation loss percent" type="number" min="0" max="100" step="any" value={form.transformation_loss_percent} onChange={(event) => change({ transformation_loss_percent: event.target.value })} /></label>
+        <label className="check-label"><input aria-label="Transformation loss included in standard" type="checkbox" checked={form.transformation_loss_in_standard} onChange={(event) => change({ transformation_loss_in_standard: event.target.checked })} />Transformation loss already in standard</label>
+        <label>Rejection allowance %<input aria-label="Rejection allowance percent" type="number" min="0" max="100" step="any" value={form.rejection_allowance_percent} onChange={(event) => change({ rejection_allowance_percent: event.target.value })} /></label>
+        <label>Output rounding<select aria-label="Output rounding mode" value={form.output_rounding_mode} onChange={(event) => change({ output_rounding_mode: event.target.value as MasterForm['output_rounding_mode'] })}><option>DOWN</option><option>UP</option><option>HALF_UP</option><option>NONE</option></select></label>
         <label>Effective from<input aria-label="Recipe effective from" type="date" value={form.effective_from ?? ''} onChange={(event) => change({ effective_from: nullable(event.target.value) })} /></label>
         <label>Effective to<input aria-label="Recipe effective to" type="date" value={form.effective_to ?? ''} onChange={(event) => change({ effective_to: nullable(event.target.value) })} /></label>
         <label className="wide">Notes<textarea aria-label="Recipe notes" rows={3} value={form.notes ?? ''} onChange={(event) => change({ notes: nullable(event.target.value) })} /></label>
@@ -755,9 +792,17 @@ function ResourceEditor({
           <label>Quantity<input aria-label={`Component quantity ${index + 1}`} type="number" min="0" step="any" value={row.quantity} onChange={(event) => change({ components: update(form.components, index, { quantity: event.target.value }) })} /></label>
           <label>UOM<select aria-label={`Component UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ components: update(form.components, index, { uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
           <label>Waste %<input aria-label={`Component waste percent ${index + 1}`} type="number" min="0" max="100" step="any" value={row.waste_percent} onChange={(event) => change({ components: update(form.components, index, { waste_percent: event.target.value }) })} /></label>
+          <label>Scaling method<select aria-label={`Component scaling method ${index + 1}`} value={row.scaling_method} onChange={(event) => change({ components: update(form.components, index, { scaling_method: event.target.value as RecipeComponent['scaling_method'] }) })}><option>SCALABLE</option><option>FIXED</option><option>PER_UNIT</option><option>CONDITIONAL</option></select></label>
+          <label>Baker's %<input aria-label={`Component baker percentage ${index + 1}`} type="number" min="0" step="any" value={row.bakers_percentage ?? ''} onChange={(event) => change({ components: update(form.components, index, { bakers_percentage: nullable(event.target.value) }) })} /></label>
+          {(row.scaling_method === 'PER_UNIT' || row.is_packaging) && <label>Quantity per output unit<input aria-label={`Component quantity per unit ${index + 1}`} type="number" min="0" step="any" value={row.quantity_per_unit ?? ''} onChange={(event) => change({ components: update(form.components, index, { quantity_per_unit: nullable(event.target.value) }) })} /></label>}
+          {row.scaling_method === 'CONDITIONAL' && <label>Condition code<input aria-label={`Component condition code ${index + 1}`} value={row.condition_code ?? ''} onChange={(event) => change({ components: update(form.components, index, { condition_code: nullable(event.target.value.toUpperCase()) }) })} /></label>}
+          <label className="check-label"><input aria-label={`Component basis ingredient ${index + 1}`} type="checkbox" checked={row.is_basis_component} onChange={(event) => change({ components: update(form.components, index, { is_basis_component: event.target.checked }) })} />Baker's-percentage basis ingredient</label>
+          <label className="check-label"><input aria-label={`Component loss included ${index + 1}`} type="checkbox" checked={row.loss_included_in_standard} onChange={(event) => change({ components: update(form.components, index, { loss_included_in_standard: event.target.checked }) })} />Loss already included</label>
+          <label className="check-label"><input aria-label={`Component packaging ${index + 1}`} type="checkbox" checked={row.is_packaging} onChange={(event) => change({ components: update(form.components, index, { is_packaging: event.target.checked }) })} />Packaging material</label>
         </div>
       </div>)}
     </section>
+    <RecipePreviewPanel recordId={recordId} form={form} />
   </>;
 
   if (resource === 'routes') return <>
@@ -828,6 +873,69 @@ function RepeatHeader({ label, onRemove }: { label: string; onRemove: () => void
   return <div className="subsection-head"><b>{label}</b><button type="button" onClick={onRemove}>Remove</button></div>;
 }
 
+function RecipePreviewPanel({ recordId, form }: { recordId?: string; form: MasterForm }) {
+  const [batchBasis, setBatchBasis] = useState(form.basis_quantity);
+  const [plannedUnits, setPlannedUnits] = useState(form.output_quantity);
+  const [conditions, setConditions] = useState('');
+  const [addition, setAddition] = useState('0');
+  const [result, setResult] = useState<RecipeCalculation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setBatchBasis(form.basis_quantity);
+    setPlannedUnits(form.output_quantity);
+    setResult(null);
+    setError(null);
+  }, [recordId]);
+
+  async function calculate() {
+    if (!recordId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await previewRecipe(recordId, {
+        batch_basis_quantity: batchBasis,
+        planned_units: plannedUnits || null,
+        active_conditions: conditions.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean),
+        measured_additions: Number(addition) > 0
+          ? [{ quantity: addition, uom_code: form.basis_uom_code }]
+          : [],
+      }));
+    } catch (caught) {
+      setResult(null);
+      setError(apiMessage(caught, 'Unable to calculate this recipe preview.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="party-subsection">
+    <div className="subsection-head"><div><h4>Deterministic yield preview</h4><small>Uses the last saved recipe revision; save edits before recalculating.</small></div></div>
+    {!recordId ? <div className="empty-state compact">Create the recipe before running a batch-scale preview.</div> : <>
+      <div className="party-card-grid three">
+        <label>Batch basis ({form.basis_uom_code})<input aria-label="Preview batch basis quantity" type="number" min="0" step="any" value={batchBasis} onChange={(event) => setBatchBasis(event.target.value)} /></label>
+        <label>Planned output units<input aria-label="Preview planned output units" type="number" min="0" step="any" value={plannedUnits} onChange={(event) => setPlannedUnits(event.target.value)} /></label>
+        <label>Measured additions ({form.basis_uom_code})<input aria-label="Preview measured additions" type="number" min="0" step="any" value={addition} onChange={(event) => setAddition(event.target.value)} /></label>
+        <label className="wide">Active condition codes<input aria-label="Preview active condition codes" placeholder="e.g. VEGAN, EXPORT" value={conditions} onChange={(event) => setConditions(event.target.value)} /></label>
+        <button className="secondary" type="button" disabled={busy || Number(batchBasis) <= 0} onClick={() => void calculate()}>{busy ? 'Calculating…' : 'Calculate preview'}</button>
+      </div>
+      {error && <div className="form-error" role="alert"><span>{error}</span></div>}
+      {result && <>
+        <RegisterDetailGrid facts={[
+          { label: 'Scaling factor', value: result.scaling_factor },
+          { label: 'Theoretical input mass', value: `${result.theoretical_input_mass} ${result.recipe.basis_uom_code}` },
+          { label: 'Theoretical complete / residual', value: `${result.theoretical_complete_units} / ${result.theoretical_residual_quantity}` },
+          { label: 'Expected formed units', value: result.expected_formed_units },
+          { label: 'Expected good units', value: result.expected_good_units },
+          { label: 'Rounding / exception', value: `${result.rounding_policy}${result.exception_code ? ` · ${result.exception_code}` : ''}` },
+        ]} />
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>Component</th><th>Method</th><th>Requirement</th><th>Input mass</th><th>Flags</th></tr></thead><tbody>{result.requirements.map((line) => <tr key={line.component_id}><td><b>{line.component_code}</b><small>{line.component_name}</small></td><td>{display(line.scaling_method)}</td><td>{line.calculated_quantity} {line.uom_code}</td><td>{line.normalised_input_mass}</td><td>{[line.is_packaging ? 'Packaging' : null, line.condition_applied ? 'Condition active' : null, line.loss_gross_up_applied ? 'Loss gross-up' : null].filter(Boolean).join(' · ') || 'Standard'}</td></tr>)}</tbody></table></div>
+      </>}
+    </>}
+  </section>;
+}
+
 function blankForm(resource?: ProductMasterResource, lookups?: ProductMasterLookups): MasterForm {
   const activeItems = lookups?.items.filter((item) => item.status === 'ACTIVE') ?? [];
   const activeSkus = lookups?.skus.filter((item) => item.status === 'ACTIVE') ?? [];
@@ -841,6 +949,11 @@ function blankForm(resource?: ProductMasterResource, lookups?: ProductMasterLook
     catalog_item_id: activeItems[0]?.id ?? '', barcode: null, pack_quantity: '1', pack_uom_code: packUom,
     revision: '1', output_sku_id: activeSkus[0]?.id ?? '', output_quantity: '1',
     output_uom_code: packUom, yield_percent: '100', effective_from: null, effective_to: null, notes: null,
+    basis_quantity: '1', basis_uom_code: weightUom, calculation_model: 'LEGACY_YIELD',
+    standard_piece_weight: null, piece_weight_uom_code: weightUom, target_finished_weight: null,
+    target_weight_uom_code: weightUom, pieces_per_pack: '1', handling_loss_percent: '0',
+    handling_loss_in_standard: false, transformation_loss_percent: '0', transformation_loss_in_standard: true,
+    rejection_allowance_percent: '0', output_rounding_mode: 'DOWN', unit_conversion_rate: null,
     target_type: 'ITEM', sku_id: null, sampling_plan: null,
     agreements: [], conversions: [], packs: resource === 'skus' ? [blankPack(true, packUom)] : [],
     components: [], operations: [], parameters: [],
@@ -871,7 +984,8 @@ function blankComponent(rows: RecipeComponent[], lookups?: ProductMasterLookups)
   return {
     component_sku_id: lookups?.skus.find((item) => item.status === 'ACTIVE')?.id ?? '',
     sequence_no: (rows.length + 1) * 10, quantity: '1', uom_code: lookups?.uoms[0]?.code ?? '',
-    waste_percent: '0',
+    waste_percent: '0', scaling_method: 'SCALABLE', bakers_percentage: null, is_basis_component: false,
+    condition_code: null, quantity_per_unit: null, loss_included_in_standard: false, is_packaging: false,
   };
 }
 
@@ -926,6 +1040,21 @@ function toForm(detail: ProductMasterDetail): MasterForm {
     output_quantity: detail.output_quantity ?? '1',
     output_uom_code: detail.output_uom_code ?? 'EA',
     yield_percent: detail.yield_percent ?? '100',
+    basis_quantity: detail.basis_quantity ?? detail.output_quantity ?? '1',
+    basis_uom_code: detail.basis_uom_code ?? detail.output_uom_code ?? 'KG',
+    calculation_model: detail.calculation_model ?? 'LEGACY_YIELD',
+    standard_piece_weight: detail.standard_piece_weight ?? null,
+    piece_weight_uom_code: detail.piece_weight_uom_code ?? detail.basis_uom_code ?? 'KG',
+    target_finished_weight: detail.target_finished_weight ?? null,
+    target_weight_uom_code: detail.target_weight_uom_code ?? detail.basis_uom_code ?? 'KG',
+    pieces_per_pack: String(detail.pieces_per_pack ?? 1),
+    handling_loss_percent: detail.handling_loss_percent ?? '0',
+    handling_loss_in_standard: detail.handling_loss_in_standard ?? false,
+    transformation_loss_percent: detail.transformation_loss_percent ?? '0',
+    transformation_loss_in_standard: detail.transformation_loss_in_standard ?? true,
+    rejection_allowance_percent: detail.rejection_allowance_percent ?? '0',
+    output_rounding_mode: detail.output_rounding_mode ?? 'DOWN',
+    unit_conversion_rate: detail.unit_conversion_rate ?? null,
     effective_from: detail.effective_from ?? null,
     effective_to: detail.effective_to ?? null,
     notes: detail.notes ?? null,
@@ -979,10 +1108,26 @@ function writePayload(resource: ProductMasterResource, form: MasterForm) {
     output_quantity: form.output_quantity,
     output_uom_code: form.output_uom_code,
     yield_percent: form.yield_percent,
+    basis_quantity: form.basis_quantity,
+    basis_uom_code: form.basis_uom_code,
+    calculation_model: form.calculation_model,
+    standard_piece_weight: form.calculation_model === 'WEIGHT_PIECE' ? form.standard_piece_weight : null,
+    piece_weight_uom_code: form.calculation_model === 'WEIGHT_PIECE' ? form.piece_weight_uom_code : null,
+    target_finished_weight: form.target_finished_weight,
+    target_weight_uom_code: form.target_finished_weight ? form.target_weight_uom_code : null,
+    pieces_per_pack: Number(form.pieces_per_pack),
+    handling_loss_percent: form.handling_loss_percent,
+    handling_loss_in_standard: form.handling_loss_in_standard,
+    transformation_loss_percent: form.transformation_loss_percent,
+    transformation_loss_in_standard: form.transformation_loss_in_standard,
+    rejection_allowance_percent: form.rejection_allowance_percent,
+    output_rounding_mode: form.output_rounding_mode,
+    unit_conversion_rate: form.calculation_model === 'UNIT_CONVERSION' || form.calculation_model === 'PERCENT_YIELD'
+      ? form.unit_conversion_rate : null,
     effective_from: form.effective_from,
     effective_to: form.effective_to,
     notes: nullable(form.notes),
-    components: form.components.map((row) => ({ ...row })),
+    components: form.components.map((row) => ({ ...row, condition_code: nullable(row.condition_code) })),
   };
   if (resource === 'routes') return {
     ...common,
@@ -1031,7 +1176,7 @@ function resourceSummary(resource: ProductMasterResource, record: ProductMasterD
 function structureSummary(resource: ProductMasterResource, record: ProductMasterDetail) {
   if (resource === 'items') return `${record.base_uom ?? '—'} base UOM`;
   if (resource === 'skus') return `${record.pack_quantity ?? '—'} ${record.pack_uom_code ?? ''}`.trim();
-  if (resource === 'recipes') return `${record.yield_percent ?? '—'}% yield`;
+  if (resource === 'recipes') return `${display(record.calculation_model ?? 'LEGACY_YIELD')} · ${record.basis_quantity ?? '—'} ${record.basis_uom_code ?? ''}`.trim();
   return `version ${record.record_version}`;
 }
 
@@ -1055,7 +1200,8 @@ function productSpecificFacts(
   ];
   if (resource === 'recipes') return [
     { label: 'Output', value: `${record.output_quantity ?? '—'} ${record.output_uom_code ?? ''}`.trim() },
-    { label: 'Yield', value: `${record.yield_percent ?? '—'}%` },
+    { label: 'Basis / model', value: `${record.basis_quantity ?? '—'} ${record.basis_uom_code ?? ''} · ${display(record.calculation_model ?? 'LEGACY_YIELD')}`.trim() },
+    { label: 'Yield / loss standards', value: `${record.yield_percent ?? '—'}% yield · ${record.handling_loss_percent ?? '0'}% handling · ${record.rejection_allowance_percent ?? '0'}% rejection` },
     { label: 'Effective period', value: `${record.effective_from ?? 'Open'} to ${record.effective_to ?? 'open ended'}` },
   ];
   if (resource === 'routes') return [

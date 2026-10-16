@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   listProductionOrders: vi.fn(), getProductionOrder: vi.fn(), createProductionOrder: vi.fn(), releaseProductionOrder: vi.fn(), issueProductionMaterials: vi.fn(), completeProductionOrder: vi.fn(), cancelProductionOrder: vi.fn(), releaseBatchQuality: vi.fn(),
   listProductionStages: vi.fn(), getProductionStage: vi.fn(), startProductionStage: vi.fn(), completeProductionStage: vi.fn(),
   listProductionLosses: vi.fn(), recordProductionOutput: vi.fn(), resolveProductionRework: vi.fn(),
+  recordProductionMaterialDisposition: vi.fn(),
 }));
 vi.mock('../api/manufacturingExecution', () => api);
 
@@ -58,12 +59,26 @@ describe('production execution workspaces', () => {
     expect(api.cancelProductionOrder).not.toHaveBeenCalled();
   });
 
+  it('classifies WIP material waste without posting inventory twice', async () => {
+    const user = userEvent.setup();
+    const material = { id: 'material-1', line_number: 1, component_sku: { id: 'raw-1', code: 'SKU-APPLE-BASE', name: 'Apple base' }, required_quantity: '10.000000', issued_quantity: '5.000000', additional_issued_quantity: '0.000000', returned_quantity: '0.000000', wasted_quantity: '0.000000', rework_in_quantity: '0.000000', rework_out_quantity: '0.000000', net_consumed_quantity: '5.000000', uom_code: 'KG', issues: [], postings: [{ id: 'posting-1', posting_type: 'PLANNED_ISSUE', quantity: '5.000000', uom_code: 'KG', lot_id: 'lot-1', lot_code: 'RAW-LOT-1', owner_id: 'owner-1', quality_status: 'RELEASED', status: 'POSTED', reason_code: 'MATERIAL_CONSUMPTION', disposition_code: null, stock_movement_id: 'movement-1', parent_posting_id: null, from_position_id: 'position-1', to_position_id: null, posted_at: '2026-09-13T10:00:00Z' }], stock_positions: [] };
+    const active = order({ status: 'IN_PROCESS', record_version: 3, allowed_actions: ['DISPOSE_MATERIAL'], materials: [material] });
+    api.listProductionOrders.mockResolvedValue({ ...orderWorkspace(), data: [active] }); api.getProductionOrder.mockResolvedValue(active); api.recordProductionMaterialDisposition.mockResolvedValue({ id: 'order-1' });
+    renderPage(<ProductionOrderWorkspace />); await user.click((await screen.findAllByRole('button', { name: 'Open' }))[0]);
+    await user.selectOptions(screen.getByLabelText('Material disposition source posting'), 'posting-1');
+    fireEvent.change(screen.getByLabelText('Material disposition quantity'), { target: { value: '0.5' } });
+    await user.type(screen.getByLabelText('Material disposition reason'), 'spill');
+    await user.type(screen.getByLabelText('Material disposition code'), 'discard');
+    await user.click(screen.getByRole('button', { name: 'Post WIP disposition' }));
+    await waitFor(() => expect(api.recordProductionMaterialDisposition).toHaveBeenCalledWith(expect.objectContaining({ id: 'order-1', record_version: 3 }), expect.objectContaining({ parent_posting_id: 'posting-1', disposition_kind: 'WASTE', quantity: '0.5', reason_code: 'SPILL', disposition_code: 'DISCARD' }), expect.any(String)));
+  });
+
   it('records accountable output and resolves open rework', async () => {
     const user = userEvent.setup(); api.recordProductionOutput.mockResolvedValue({ id: 'order-1' }); api.resolveProductionRework.mockResolvedValue({ id: 'order-1' });
     vi.spyOn(window, 'prompt').mockReturnValue('Re-seal passed inspection.'); renderPage(<ProductionLossWorkspace />);
     await user.click((await screen.findAllByRole('button', { name: 'Open' }))[0]);
     await user.selectOptions(screen.getByLabelText('Output type'), 'LOSS'); fireEvent.change(screen.getByLabelText('Output quantity'), { target: { value: '3' } }); await user.type(screen.getByLabelText('Reason code'), 'bake-loss');
-    await user.click(screen.getByRole('button', { name: 'Record output' }));
+    await user.click(screen.getByRole('button', { name: 'Record classified output' }));
     await waitFor(() => expect(api.recordProductionOutput).toHaveBeenCalledWith(expect.objectContaining({ id: 'order-1' }), expect.objectContaining({ event_type: 'LOSS', quantity: '3', reason_code: 'BAKE-LOSS' }), expect.any(String)));
     await user.click(screen.getByRole('button', { name: 'Recover' }));
     await waitFor(() => expect(api.resolveProductionRework).toHaveBeenCalledWith('output-1', { disposition: 'RECOVERED', notes: 'Re-seal passed inspection.' }, expect.any(String)));
