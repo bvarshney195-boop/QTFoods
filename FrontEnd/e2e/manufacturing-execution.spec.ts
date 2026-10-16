@@ -182,11 +182,11 @@ test('manufacturing executes a planned batch through quality, packing, cost, gen
 });
 
 async function recordOutput(editor: Locator, type: string, quantity: string, reason?: string) {
-  await editor.getByLabel('Output type').selectOption(type);
-  await editor.getByLabel('Output quantity').fill(quantity);
-  if (reason) await editor.getByLabel('Reason code').fill(reason);
-  await editor.getByRole('button', { name: 'Record output' }).click();
-  await expect(editor.getByRole('status')).toContainText('Production output recorded');
+  await editor.getByLabel('Output type', { exact: true }).selectOption(type);
+  await editor.getByLabel('Output quantity', { exact: true }).fill(quantity);
+  if (reason) await editor.getByLabel('Reason code', { exact: true }).fill(reason);
+  await editor.getByRole('button', { name: 'Record classified output', exact: true }).click();
+  await expect(editor.getByRole('status')).toContainText('Classified production output recorded');
 }
 async function openRow(page: Page, text: string) { const row = page.locator('.requisition-table tbody tr').filter({ hasText: text }); await expect(row).toBeVisible(); await row.getByRole('button', { name: 'Open' }).click(); }
 async function selectByText(select: Locator, text: string) { const option = select.locator('option').filter({ hasText: text }); await select.selectOption(await option.getAttribute('value') ?? ''); }
