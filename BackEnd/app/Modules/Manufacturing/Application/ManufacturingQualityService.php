@@ -411,12 +411,42 @@ final class ManufacturingQualityService
             $id = (string) Str::uuid();
             $now = CarbonImmutable::now();
             $coding = $this->codingValue($artwork->coding_template, $data, $order);
+            $standardSnapshot = $order->recipe_standard_snapshot;
+            if (is_string($standardSnapshot) && $standardSnapshot !== '') {
+                $standardSnapshot = json_decode($standardSnapshot, true, 512, JSON_THROW_ON_ERROR);
+            }
+            $recipeStandard = is_array($standardSnapshot) ? ($standardSnapshot['recipe'] ?? []) : [];
+            $piecesPerPack = max(1, (int) ($recipeStandard['pieces_per_pack'] ?? 1));
+            $targetWeight = ($recipeStandard['target_finished_weight'] ?? null) === null
+                ? null : $this->positive($recipeStandard['target_finished_weight'], 'target_finished_weight', 'Target finished weight');
+            $targetWeightUom = $recipeStandard['target_weight_uom_code'] ?? null;
+            $weightUom = $this->nullable($data['weight_uom_code'] ?? $targetWeightUom);
+            if ($weightUom !== null) {
+                $weightUom = Str::upper($weightUom);
+                if (! DB::table('uoms')->where('code', $weightUom)->exists()) {
+                    throw ValidationException::withMessages(['weight_uom_code' => ['Choose a configured weight UOM.']]);
+                }
+                if ($targetWeightUom !== null && $weightUom !== $targetWeightUom) {
+                    throw ValidationException::withMessages(['weight_uom_code' => ['Actual samples must use the approved recipe target-weight UOM.']]);
+                }
+            }
+            $samples = collect($data['actual_weight_samples'] ?? [])->map(
+                fn (mixed $sample, int $index): string => $this->positive($sample, "actual_weight_samples.{$index}", 'Sample weight')
+            )->values();
+            $averageWeight = $samples->isEmpty() ? null
+                : bcdiv($samples->reduce(fn (string $sum, string $sample): string => bcadd($sum, $sample, 6), '0.000000'), (string) $samples->count(), 6);
             DB::table('packing_runs')->insert([
                 'id' => $id, 'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                 'run_number' => $data['run_number'], 'production_order_id' => $order->id,
                 'packaging_artwork_id' => $artwork->id, 'packed_quantity' => $quantity, 'uom_code' => $order->uom_code,
                 'finished_lot_code' => $data['finished_lot_code'], 'manufacture_date' => $manufactureDate,
                 'expiry_date' => $data['expiry_date'], 'target_location_id' => $location->id,
+                'pieces_per_pack' => $piecesPerPack, 'target_finished_weight' => $targetWeight,
+                'average_sample_weight' => $averageWeight, 'weight_uom_code' => $weightUom,
+                'actual_weight_samples' => $samples->isEmpty() ? null : json_encode($samples->all(), JSON_THROW_ON_ERROR),
+                'packing_configuration' => json_encode(($data['packing_configuration'] ?? []) + [
+                    'pieces_per_pack' => $piecesPerPack,
+                ], JSON_THROW_ON_ERROR),
                 'coding_value' => $coding, 'status' => 'DRAFT', 'record_version' => 1,
                 'notes' => $this->nullable($data['notes'] ?? null), 'created_by' => $data['actor_id'],
                 'created_at' => $now, 'updated_at' => $now,
@@ -489,12 +519,17 @@ final class ManufacturingQualityService
                 'actor_id' => $data['actor_id'], 'reason_code' => 'PACKING_COMPLETION',
                 'idempotency_key' => "packing-run:{$id}:completion", 'correlation_id' => $data['correlation_id'] ?? null,
             ]);
-            $issues = DB::table('production_material_issues')->where('production_order_id', $order->id)->get();
+            $issues = DB::table('production_material_postings as posting')
+                ->leftJoin('production_material_issues as issue', 'issue.stock_movement_id', '=', 'posting.stock_movement_id')
+                ->where('posting.production_order_id', $order->id)
+                ->whereIn('posting.posting_type', ['PLANNED_ISSUE', 'ADDITIONAL_ISSUE'])
+                ->get(['posting.*', 'issue.id as legacy_issue_id']);
             foreach ($issues as $issue) {
                 DB::table('lot_genealogy_edges')->insert([
                     'id' => (string) Str::uuid(), 'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'production_order_id' => $order->id, 'packing_run_id' => $id,
-                    'production_material_issue_id' => $issue->id, 'input_lot_id' => $issue->input_lot_id,
+                    'production_material_issue_id' => $issue->legacy_issue_id,
+                    'production_material_posting_id' => $issue->id, 'input_lot_id' => $issue->lot_id,
                     'output_lot_id' => $lotId, 'input_quantity' => $issue->quantity,
                     'input_uom_code' => $issue->uom_code, 'output_quantity' => $run->packed_quantity,
                     'output_uom_code' => $run->uom_code, 'created_at' => $now,

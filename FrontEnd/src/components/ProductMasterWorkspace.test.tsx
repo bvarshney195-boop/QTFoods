@@ -443,7 +443,9 @@ function detail(resource: ProductMasterResource, overrides: Partial<ProductMaste
       yield_percent: '98.500', effective_from: '2026-04-01', effective_to: null, notes: 'Recipe notes',
       parent: { code: 'SKU-1', name: 'Output SKU' }, components: [{
         id: 'component-1', component_sku_id: 'sku-raw', sequence_no: 10, quantity: '0.100000',
-        uom_code: 'KG', waste_percent: '1.500',
+        uom_code: 'KG', waste_percent: '1.500', scaling_method: 'SCALABLE', bakers_percentage: null,
+        is_basis_component: false, condition_code: null, quantity_per_unit: null,
+        loss_included_in_standard: false, is_packaging: false,
       }],
     },
     routes: {

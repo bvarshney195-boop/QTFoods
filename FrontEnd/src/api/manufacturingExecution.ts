@@ -11,26 +11,85 @@ export type CommandResult = {
 };
 
 export type MaterialIssue = { id: string; lot_id: string; lot_code: string; quantity: string; uom_code: string; movement_id: string; issued_at: string };
+export type MaterialPosting = {
+  id: string; posting_type: string; quantity: string; uom_code: string; lot_id: string; lot_code: string;
+  owner_id: string; quality_status: string; status: string; reason_code: string; disposition_code: string | null;
+  stock_movement_id: string | null; parent_posting_id: string | null; from_position_id: string | null;
+  to_position_id: string | null; posted_at: string;
+};
+export type MaterialStockPosition = {
+  id: string; lot_id: string; lot_code: string; inventory_owner_id: string; quality_status: string;
+  is_reservable: boolean; quantity: string; reserved_quantity: string; available_quantity: string;
+  uom_code: string; location_code: string;
+};
 export type ProductionMaterial = {
   id: string; line_number: number; component_sku: NamedSku; required_quantity: string;
   issued_quantity: string; uom_code: string; issues: MaterialIssue[];
+  reserved_quantity?: string; additional_issued_quantity?: string; returned_quantity?: string;
+  wasted_quantity?: string; rework_in_quantity?: string; rework_out_quantity?: string;
+  net_consumed_quantity?: string; original_plan_quantity?: string; normalised_standard_quantity?: string;
+  original_plan_variance?: string; efficiency_variance?: string; scaling_method?: string;
+  approved_adjustment_quantity?: string; adjusted_net_consumed_quantity?: string;
+  adjusted_original_plan_variance?: string; adjusted_efficiency_variance?: string;
+  is_packaging?: boolean; postings?: MaterialPosting[]; stock_positions?: MaterialStockPosition[];
+};
+export type StageMeasurementTemplateLine = {
+  id?: string; sequence_no?: number; measurement_kind: string; quantity_dimension: string; uom_code: string;
+  is_required: boolean; default_value_source: string; measurement_method: string | null; balance_tolerance: string;
+};
+export type StageMeasurementTemplate = {
+  id: string; revision: number; recipe_revision?: number; route_revision?: number; name: string; status?: string; record_version?: number;
+  created_by?: { id: string; name: string }; approved_by?: { id: string; name: string } | null;
+  approved_at?: string | null; lines: StageMeasurementTemplateLine[]; allowed_actions?: string[];
+};
+export type StageMeasurement = {
+  id: string; entry_sequence: number; measurement_kind: string; quantity_dimension: string; quantity: string;
+  uom_code: string; value_source: string; measurement_source: string; measurement_method: string;
+  target_quantity: string | null; reason_code: string | null; disposition_code: string | null;
+  notes: string | null; operator: { id: string; name: string }; recorded_at: string; reversal_of_id: string | null;
+};
+export type StageBalance = {
+  quantity_dimension: string; uom_code: string; input_quantity: string; accounted_output_quantity: string;
+  calculated_unexplained_quantity: string; recorded_unexplained_quantity: string;
+  measured_quantity: string; estimated_quantity: string;
+};
+export type StageMeasurementAdjustment = {
+  id: string; adjustment_number: string; signed_quantity: string; uom_code: string;
+  reason: string; approved_at: string;
 };
 export type ProductionStage = {
   id: string; production_order: { id: string; number: string; batch_number: string; status: string };
   sequence_no: number; operation_name: string; work_center_code: string; planned_minutes: string;
   actual_minutes: string | null; status: string; record_version: number; started_at: string | null;
   completed_at: string | null; notes: string | null; allowed_actions: string[];
+  measurement_template?: StageMeasurementTemplate | null; measurement_templates?: StageMeasurementTemplate[];
+  measurements?: StageMeasurement[]; mass_balance?: StageBalance[];
+  measurement_adjustments?: StageMeasurementAdjustment[];
 };
 export type OutputEvent = {
   id: string; sequence_no: number; event_type: string; quantity: string; uom_code: string;
   reason_code: string | null; notes: string | null; rework_status: string; recorded_at: string;
   resolved_at: string | null; resolution_notes: string | null; allowed_actions: string[];
+  loss_category?: string | null; disposition_code?: string | null; value_source?: string;
+  quantity_dimension?: string; weight_quantity?: string | null; weight_uom_code?: string | null;
 };
+export type BatchAdjustmentEffect = {
+  id: string | null; metric_code: string; subject_type: string; subject_id: string | null;
+  signed_quantity: string; uom_code: string | null; signed_value: string; currency: string | null;
+};
+export type BatchAdjustment = {
+  id: string; adjustment_number: string; adjustment_type: string; reason: string; status: string;
+  record_version: number; requested_by: { id: string; name: string }; requested_at: string;
+  reviewed_by: { id: string; name: string } | null; reviewed_at: string | null; review_notes: string | null;
+  proposed_effects: BatchAdjustmentEffect[]; effective_effects: BatchAdjustmentEffect[]; allowed_actions: string[];
+};
+export type CostSnapshotLookup = { id: string; cost_number: string; snapshot_version: number; actual_total_cost: string };
 export type ProductionOrder = {
   id: string; order_number: string; batch_number: string;
   schedule: { id: string; number: string; line_id: string }; output_sku: NamedSku;
   recipe: { id: string; code: string; revision: number }; route: { id: string; code: string; name: string };
   planned_quantity: string; uom_code: string; planned_start_date: string; planned_end_date: string;
+  shift_code?: string | null;
   status: string; quality_status: string; record_version: number; notes: string | null;
   created_by: { id: string; name: string }; released_at: string | null; started_at: string | null;
   completed_at: string | null; quality_released_at: string | null; cancelled_at: string | null;
@@ -38,7 +97,19 @@ export type ProductionOrder = {
   issued_material_count: number; stage_count: number; completed_stage_count: number;
   accounted_quantity: string; good_quantity: string; loss_quantity: string; rework_quantity: string;
   open_rework_count: number; packed_quantity: string; materials?: ProductionMaterial[];
-  stages?: ProductionStage[]; outputs?: OutputEvent[];
+  stages?: ProductionStage[]; outputs?: OutputEvent[]; adjustments?: BatchAdjustment[];
+  cost_snapshots?: CostSnapshotLookup[];
+  material_normalisation?: { planned_quantity: string; actual_quantity: string; normalisation_factor: string;
+    basis_component_count: number; exception_code: string | null };
+  calculation_model?: string; planned_basis_quantity?: string | null; scaling_factor?: string | null;
+  theoretical_input_mass?: string | null; theoretical_complete_units?: string | null;
+  theoretical_residual_quantity?: string | null; expected_formed_units?: string | null;
+  expected_good_quantity?: string; first_pass_good_quantity?: string; recovered_quantity?: string;
+  final_good_quantity?: string; qc_approved_good_quantity?: string; output_variance?: string;
+  output_variance_percent?: string | null; output_variance_exception?: string | null;
+  normal_process_loss_quantity?: string; handling_waste_quantity?: string; rejected_output_quantity?: string;
+  overweight_giveaway_quantity?: string; unexplained_variance_quantity?: string;
+  approved_output_adjustments?: { good: string; loss: string; rework: string };
 };
 export type ScheduleLineLookup = {
   id: string; schedule_number: string; line_number: number; planned_quantity: string; uom_code: string;
@@ -50,11 +121,14 @@ export type ProductionOrderWorkspace = {
 };
 export type ProductionStageWorkspace = {
   data: ProductionStage[]; meta: PageMeta; summary: Record<string, number | string>;
-  lookups: { statuses: string[]; sorts: string[] }; allowed_actions: string[];
+  lookups: { statuses: string[]; sorts: string[]; measurement_kinds?: string[]; quantity_dimensions?: string[];
+    value_sources?: string[]; uoms?: { code: string; name: string }[] }; allowed_actions: string[];
 };
 export type ProductionLossWorkspace = {
   data: ProductionOrder[]; meta: PageMeta; summary: Record<string, number | string>;
-  lookups: { statuses: string[]; sorts: string[]; event_types: string[]; rework_dispositions: string[] };
+  lookups: { statuses: string[]; sorts: string[]; event_types: string[]; rework_dispositions: string[];
+    loss_categories?: string[]; quantity_dimensions?: string[]; value_sources?: string[];
+    uoms?: { code: string; name: string }[] };
   allowed_actions: string[];
 };
 
@@ -116,11 +190,13 @@ export type PackingRun = {
   notes: string | null; finished_lot_id: string | null; finished_position_id: string | null;
   stock_movement_id: string | null; completed_at: string | null; cancelled_at: string | null;
   cancellation_reason: string | null; allowed_actions: string[];
+  pieces_per_pack?: number; target_finished_weight?: string | null; average_sample_weight?: string | null;
+  weight_uom_code?: string | null; actual_weight_samples?: string[] | null; packing_configuration?: Record<string, unknown> | null;
   genealogy_edges?: { id: string; input_lot_id: string; input_lot_code: string; input_quantity: string; input_uom_code: string; output_quantity: string; output_uom_code: string }[];
 };
 export type PackingWorkspace = {
   data: PackingRun[]; meta: PageMeta; summary: Record<string, number | string>;
-  lookups: { statuses: string[]; sorts: string[]; production_orders: QualityOrderLookup[]; artworks: ArtworkLookup[]; locations: LocationLookup[] };
+  lookups: { statuses: string[]; sorts: string[]; production_orders: QualityOrderLookup[]; artworks: ArtworkLookup[]; locations: LocationLookup[]; uoms?: { code: string; name: string }[] };
   allowed_actions: string[];
 };
 export type FinishedLot = {
@@ -152,19 +228,30 @@ export type RecallWorkspace = {
   data: RecallCase[]; meta: PageMeta; summary: Record<string, number | string>;
   lookups: { statuses: string[]; sorts: string[]; classifications: string[]; lots: TraceLot[] }; allowed_actions: string[];
 };
-export type CostOrderLookup = { id: string; number: string; batch_number: string; materials: { id: string; item_code: string; item_name: string; required_quantity: string; issued_quantity: string; uom_code: string }[] };
+export type CostOrderLookup = { id: string; number: string; batch_number: string; materials: { id: string; item_code: string; item_name: string; required_quantity: string; issued_quantity: string; net_consumed_quantity?: string; normalised_standard_quantity?: string; is_packaging?: boolean; uom_code: string }[] };
 export type BatchCost = {
   id: string; cost_number: string; production_order: { id: string; number: string; batch_number: string; output_sku_id: string };
   snapshot_version: number; currency: string; labour_rate_per_minute: string; overhead_rate_per_minute: string;
   planned_material_cost: string; actual_material_cost: string; planned_conversion_cost: string; actual_conversion_cost: string;
   planned_total_cost: string; actual_total_cost: string; total_variance: string; variance_percent: string;
   good_quantity: string; yield_percent: string; cost_per_good_unit: string; status: string; calculated_at: string;
-  materials?: { id: string; item_code: string; item_name: string; planned_quantity: string; actual_quantity: string; uom_code: string; unit_cost: string; planned_cost: string; actual_cost: string; usage_variance: string }[];
+  expected_good_quantity?: string; output_variance?: string; output_variance_percent?: string | null;
+  normal_loss_quantity?: string; abnormal_loss_quantity?: string; rework_quantity?: string; rework_value?: string;
+  overweight_giveaway_quantity?: string; overweight_giveaway_cost?: string;
+  packaging_variance_quantity?: string; packaging_variance_cost?: string;
+  net_material_cost_per_good_unit?: string | null; all_source_costs_included?: boolean;
+  full_manufacturing_cost_per_good_unit?: string | null;
+  approved_cost_adjustment_value?: string; adjusted_actual_total_cost?: string;
+  adjusted_total_variance?: string; adjusted_variance_percent?: string | null;
+  adjusted_cost_per_good_unit?: string | null;
+  dimensions?: { recipe_version: number | null; output_sku: NamedSku; batch_number: string; shift_code: string | null; plant_id: string; operator: { id: string; name: string } };
+  materials?: { id: string; item_code: string; item_name: string; planned_quantity: string; actual_quantity: string; uom_code: string; unit_cost: string; planned_cost: string; actual_cost: string; usage_variance: string; is_packaging?: boolean; normalised_standard_quantity?: string; original_plan_quantity_variance?: string; efficiency_quantity_variance?: string; original_plan_cost_variance?: string; efficiency_cost_variance?: string }[];
   stages?: { id: string; work_center_code: string; planned_minutes: string; actual_minutes: string; planned_cost: string; actual_cost: string; time_variance: string }[];
 };
 export type BatchCostWorkspace = {
   data: BatchCost[]; meta: PageMeta; summary: Record<string, number | string>;
-  lookups: { statuses: string[]; sorts: string[]; production_orders: CostOrderLookup[] }; allowed_actions: string[];
+  lookups: { statuses: string[]; sorts: string[]; production_orders: CostOrderLookup[];
+    output_skus?: NamedSku[]; shifts?: string[]; operators?: { id: string; name: string }[] }; allowed_actions: string[];
 };
 
 const orderPath = '/api/v1/manufacturing/orders';
@@ -181,8 +268,14 @@ export const getProductionOrder = async (id: string) => (await apiRequest<{ data
 export const createProductionOrder = async (body: unknown, key: string) => unwrap(apiMutation<{ data: CommandResult }>(orderPath, body, { idempotencyKey: key }));
 export const releaseProductionOrder = (row: Pick<ProductionOrder, 'id' | 'record_version'>, key: string) => command(`${orderPath}/${row.id}/release`, {}, key, row.record_version);
 export const issueProductionMaterials = (row: Pick<ProductionOrder, 'id' | 'record_version'>, key: string) => command(`${orderPath}/${row.id}/issue-materials`, {}, key, row.record_version);
+export const issueProductionMaterial = (row: Pick<ProductionOrder, 'id' | 'record_version'>, body: unknown, key: string) => command(`${orderPath}/${row.id}/material-issues`, body, key, row.record_version);
+export const returnProductionMaterial = (row: Pick<ProductionOrder, 'id' | 'record_version'>, body: unknown, key: string) => command(`${orderPath}/${row.id}/material-returns`, body, key, row.record_version);
+export const recordProductionMaterialDisposition = (row: Pick<ProductionOrder, 'id' | 'record_version'>, body: unknown, key: string) => command(`${orderPath}/${row.id}/material-dispositions`, body, key, row.record_version);
+export const releaseProductionMaterialReturn = (row: Pick<ProductionOrder, 'id' | 'record_version'>, postingId: string, body: unknown, key: string) => command(`/api/v1/manufacturing/material-returns/${postingId}/release`, body, key, row.record_version);
 export const completeProductionOrder = (row: Pick<ProductionOrder, 'id' | 'record_version'>, key: string) => command(`${orderPath}/${row.id}/complete`, {}, key, row.record_version);
 export const cancelProductionOrder = (row: Pick<ProductionOrder, 'id' | 'record_version'>, reason: string, key: string) => command(`${orderPath}/${row.id}/cancel`, { reason }, key, row.record_version);
+export const requestProductionBatchAdjustment = (row: Pick<ProductionOrder, 'id' | 'record_version'>, body: unknown, key: string) => command(`${orderPath}/${row.id}/adjustments`, body, key, row.record_version);
+export const reviewProductionBatchAdjustment = (row: Pick<BatchAdjustment, 'id' | 'record_version'>, body: unknown, key: string) => command(`/api/v1/manufacturing/batch-adjustments/${row.id}/review`, body, key, row.record_version);
 export const recordProductionOutput = (row: Pick<ProductionOrder, 'id' | 'record_version'>, body: unknown, key: string) => command(`${orderPath}/${row.id}/outputs`, body, key, row.record_version);
 export const resolveProductionRework = (id: string, body: unknown, key: string) => command(`/api/v1/manufacturing/output-events/${id}/resolve`, body, key);
 export const listProductionLosses = (filters: Record<string, unknown> = {}) => apiRequest<ProductionLossWorkspace>(withQuery('/api/v1/manufacturing/pro-loss', filters));
@@ -191,6 +284,9 @@ export const listProductionStages = (filters: Record<string, unknown> = {}) => a
 export const getProductionStage = async (id: string) => (await apiRequest<{ data: ProductionStage }>(`${stagePath}/${id}`)).data;
 export const startProductionStage = (row: Pick<ProductionStage, 'id' | 'record_version'>, key: string) => command(`${stagePath}/${row.id}/start`, {}, key, row.record_version);
 export const completeProductionStage = (row: Pick<ProductionStage, 'id' | 'record_version'>, body: unknown, key: string) => command(`${stagePath}/${row.id}/complete`, body, key, row.record_version);
+export const createStageMeasurementTemplate = (stageId: string, body: unknown, key: string) => command(`${stagePath}/${stageId}/measurement-templates`, body, key);
+export const approveStageMeasurementTemplate = (templateId: string, key: string) => command(`/api/v1/manufacturing/measurement-templates/${templateId}/approve`, {}, key);
+export const recordStageMeasurements = (stageId: string, body: unknown, key: string) => command(`${stagePath}/${stageId}/measurements`, body, key);
 
 export const listLabSamples = (filters: Record<string, unknown> = {}) => apiRequest<LabWorkspace>(withQuery(labPath, filters));
 export const getLabSample = async (id: string) => (await apiRequest<{ data: LabSample }>(`${labPath}/${id}`)).data;

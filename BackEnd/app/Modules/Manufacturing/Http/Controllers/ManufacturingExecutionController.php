@@ -4,8 +4,10 @@ namespace App\Modules\Manufacturing\Http\Controllers;
 
 use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Http\Controllers\Concerns\BuildsAdminContext;
+use App\Modules\Manufacturing\Application\ManufacturingAdjustmentService;
 use App\Modules\Manufacturing\Application\ManufacturingExecutionQuery;
 use App\Modules\Manufacturing\Application\ManufacturingExecutionService;
+use App\Modules\Manufacturing\Application\ManufacturingMeasurementService;
 use App\Modules\Manufacturing\Application\ManufacturingQualityService;
 use App\Modules\Manufacturing\Application\ManufacturingTraceCostService;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +23,8 @@ final class ManufacturingExecutionController
         private readonly SessionService $sessions,
         private readonly ManufacturingExecutionQuery $query,
         private readonly ManufacturingExecutionService $execution,
+        private readonly ManufacturingAdjustmentService $adjustments,
+        private readonly ManufacturingMeasurementService $measurements,
         private readonly ManufacturingQualityService $quality,
         private readonly ManufacturingTraceCostService $traceCost,
     ) {}
@@ -46,6 +50,7 @@ final class ManufacturingExecutionController
             'production_schedule_line_id' => ['required', 'uuid'],
             'planned_start_date' => ['nullable', 'date_format:Y-m-d'],
             'planned_end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:planned_start_date'],
+            'shift_code' => ['nullable', 'string', 'max:40', 'regex:/^[A-Za-z0-9][A-Za-z0-9 _-]*$/'],
             'notes' => ['nullable', 'string', 'max:4000'],
         ]);
 
@@ -64,6 +69,73 @@ final class ManufacturingExecutionController
         return response()->json(['data' => $this->execution->issueMaterials($productionOrderId, $this->commandContext($request, true))]);
     }
 
+    public function orderMaterialIssue(string $productionOrderId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'production_order_material_id' => ['required', 'uuid'],
+            'issue_kind' => ['required', 'string', Rule::in(['PLANNED', 'ADDITIONAL'])],
+            'quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'source_position_id' => ['nullable', 'uuid'],
+            'reason_code' => ['nullable', 'string', 'max:80'],
+            'notes' => ['nullable', 'string', 'max:4000'],
+        ]);
+        return response()->json(['data' => $this->execution->issueMaterial(
+            $productionOrderId,
+            $validated + $this->commandContext($request, true),
+        )], 201);
+    }
+
+    public function orderMaterialReturn(string $productionOrderId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'production_material_posting_id' => ['nullable', 'uuid', 'required_without:production_material_issue_id'],
+            'production_material_issue_id' => ['nullable', 'uuid', 'required_without:production_material_posting_id'],
+            'quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'quarantine_position_id' => ['required', 'uuid'],
+            'reason_code' => ['required', 'string', 'max:80'],
+            'notes' => ['nullable', 'string', 'max:4000'],
+        ]);
+        return response()->json(['data' => $this->execution->returnMaterial(
+            $productionOrderId,
+            $validated + $this->commandContext($request, true),
+        )], 201);
+    }
+
+    public function orderMaterialDisposition(string $productionOrderId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'parent_posting_id' => ['required', 'uuid'],
+            'disposition_kind' => ['required', 'string', Rule::in(ManufacturingExecutionService::MATERIAL_DISPOSITIONS)],
+            'quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'reason_code' => ['required', 'string', 'max:80'],
+            'disposition_code' => ['required', 'string', 'max:80'],
+            'notes' => ['nullable', 'string', 'max:4000'],
+        ]);
+        return response()->json(['data' => $this->execution->recordMaterialDisposition(
+            $productionOrderId,
+            $validated + $this->commandContext($request, true),
+        )], 201);
+    }
+
+    public function materialReturnRelease(string $materialPostingId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'reusable_position_id' => ['required', 'uuid'],
+            'notes' => ['required', 'string', 'min:3', 'max:4000'],
+        ]);
+        return response()->json(['data' => $this->execution->releaseMaterialReturn(
+            $materialPostingId,
+            $validated + $this->commandContext($request, true),
+        )]);
+    }
+
     public function orderOutput(string $productionOrderId, Request $request): JsonResponse
     {
         $this->normalise($request);
@@ -71,6 +143,12 @@ final class ManufacturingExecutionController
         $validated = $request->validate([
             'event_type' => ['required', 'string', Rule::in(ManufacturingExecutionService::OUTPUT_TYPES)],
             'quantity' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'loss_category' => ['nullable', 'string', Rule::in(ManufacturingExecutionService::LOSS_CATEGORIES)],
+            'quantity_dimension' => ['sometimes', 'string', Rule::in(ManufacturingExecutionService::QUANTITY_DIMENSIONS)],
+            'value_source' => ['sometimes', 'string', Rule::in(ManufacturingExecutionService::VALUE_SOURCES)],
+            'weight_quantity' => ['nullable', 'numeric', 'gt:0', 'max:99999999999999'],
+            'weight_uom_code' => ['nullable', 'string', 'max:16'],
+            'disposition_code' => ['nullable', 'string', 'max:80'],
             'reason_code' => ['nullable', 'string', 'max:80'], 'notes' => ['nullable', 'string', 'max:4000'],
         ]);
         return response()->json(['data' => $this->execution->recordOutput($productionOrderId,
@@ -103,6 +181,46 @@ final class ManufacturingExecutionController
             trim($validated['reason']), $this->commandContext($request, true))]);
     }
 
+    public function batchAdjustmentCreate(string $productionOrderId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'adjustment_number' => $this->numberRules(),
+            'adjustment_type' => ['required', 'string', Rule::in(ManufacturingAdjustmentService::TYPES)],
+            'reason' => ['required', 'string', 'min:3', 'max:4000'],
+            'effects' => ['required', 'array', 'between:1,50'],
+            'effects.*.metric_code' => ['required', 'string', Rule::in(ManufacturingAdjustmentService::METRICS)],
+            'effects.*.subject_id' => ['nullable', 'uuid'],
+            'effects.*.signed_quantity' => ['required', 'numeric'],
+            'effects.*.uom_code' => ['nullable', 'string', 'max:16'],
+            'effects.*.signed_value' => ['required', 'numeric'],
+            'effects.*.currency' => ['nullable', 'string', Rule::in(['INR'])],
+        ]);
+
+        return response()->json(['data' => $this->adjustments->request(
+            $productionOrderId,
+            $validated + $this->commandContext($request, true),
+        )], 201);
+    }
+
+    public function batchAdjustmentReview(string $batchAdjustmentId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'decision' => ['required', 'string', Rule::in(['APPROVED', 'REJECTED'])],
+            'review_notes' => ['required', 'string', 'min:3', 'max:4000'],
+        ]);
+
+        return response()->json(['data' => $this->adjustments->review(
+            $batchAdjustmentId,
+            $validated['decision'],
+            $validated['review_notes'],
+            $this->commandContext($request, true),
+        )]);
+    }
+
     public function stageIndex(Request $request): JsonResponse
     {
         return response()->json($this->query->stageWorkspace($this->selectedScope($request, true),
@@ -130,6 +248,61 @@ final class ManufacturingExecutionController
         ]);
         return response()->json(['data' => $this->execution->completeStage($productionStageId,
             $validated + $this->commandContext($request, true))]);
+    }
+
+    public function stageMeasurementTemplateCreate(string $productionStageId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'min:3', 'max:160'],
+            'lines' => ['required', 'array', 'between:1,50'],
+            'lines.*.measurement_kind' => ['required', 'string', Rule::in(ManufacturingMeasurementService::KINDS)],
+            'lines.*.quantity_dimension' => ['required', 'string', Rule::in(ManufacturingMeasurementService::DIMENSIONS)],
+            'lines.*.uom_code' => ['required', 'string', 'max:16'],
+            'lines.*.is_required' => ['required', 'boolean'],
+            'lines.*.default_value_source' => ['required', 'string', Rule::in(ManufacturingMeasurementService::VALUE_SOURCES)],
+            'lines.*.measurement_method' => ['nullable', 'string', 'max:120'],
+            'lines.*.balance_tolerance' => ['required', 'numeric', 'min:0', 'max:99999999999999'],
+        ]);
+        return response()->json(['data' => $this->measurements->createTemplateForStage(
+            $productionStageId,
+            $validated + $this->commandContext($request, false),
+        )], 201);
+    }
+
+    public function stageMeasurementTemplateApprove(string $measurementTemplateId, Request $request): JsonResponse
+    {
+        $this->selectedScope($request, true);
+        return response()->json(['data' => $this->measurements->approveTemplate(
+            $measurementTemplateId,
+            $this->commandContext($request, false),
+        )]);
+    }
+
+    public function stageMeasurementsRecord(string $productionStageId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'measurements' => ['required', 'array', 'between:1,100'],
+            'measurements.*.measurement_kind' => ['required', 'string', Rule::in(ManufacturingMeasurementService::KINDS)],
+            'measurements.*.quantity_dimension' => ['required', 'string', Rule::in(ManufacturingMeasurementService::DIMENSIONS)],
+            'measurements.*.quantity' => ['required', 'numeric', 'min:0', 'max:99999999999999'],
+            'measurements.*.uom_code' => ['required', 'string', 'max:16'],
+            'measurements.*.value_source' => ['required', 'string', Rule::in(ManufacturingMeasurementService::VALUE_SOURCES)],
+            'measurements.*.measurement_source' => ['required', 'string', 'min:2', 'max:120'],
+            'measurements.*.measurement_method' => ['required', 'string', 'min:2', 'max:120'],
+            'measurements.*.target_quantity' => ['nullable', 'numeric', 'min:0', 'max:99999999999999'],
+            'measurements.*.reason_code' => ['nullable', 'string', 'max:80'],
+            'measurements.*.disposition_code' => ['nullable', 'string', 'max:80'],
+            'measurements.*.notes' => ['nullable', 'string', 'max:2000'],
+            'measurements.*.recorded_at' => ['nullable', 'date'],
+        ]);
+        return response()->json(['data' => $this->measurements->recordMeasurements(
+            $productionStageId,
+            $validated + $this->commandContext($request, false),
+        )], 201);
     }
 
     public function lossIndex(Request $request): JsonResponse
@@ -301,7 +474,12 @@ final class ManufacturingExecutionController
             'packaging_artwork_id' => ['required', 'uuid'], 'packed_quantity' => ['required', 'numeric', 'gt:0'],
             'finished_lot_code' => $this->numberRules(), 'manufacture_date' => ['required', 'date_format:Y-m-d'],
             'expiry_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:manufacture_date'],
-            'target_location_id' => ['required', 'uuid'], 'notes' => ['nullable', 'string', 'max:4000'],
+            'target_location_id' => ['required', 'uuid'],
+            'actual_weight_samples' => ['sometimes', 'array', 'max:100'],
+            'actual_weight_samples.*' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'weight_uom_code' => ['nullable', 'required_with:actual_weight_samples', 'string', 'max:16'],
+            'packing_configuration' => ['sometimes', 'array', 'max:50'],
+            'notes' => ['nullable', 'string', 'max:4000'],
         ]);
         return response()->json(['data' => $this->quality->createPackingRun($validated + $this->commandContext($request, false))], 201);
     }
@@ -370,8 +548,14 @@ final class ManufacturingExecutionController
 
     public function costIndex(Request $request): JsonResponse
     {
+        $filters = $request->validate($this->filters(['FINALIZED']) + [
+            'recipe_version' => ['nullable', 'integer', 'min:1'], 'output_sku_id' => ['nullable', 'uuid'],
+            'shift_code' => ['nullable', 'string', 'max:40'], 'operator_id' => ['nullable', 'uuid'],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+        ]);
         return response()->json($this->query->costWorkspace($this->selectedScope($request, true),
-            $request->validate($this->filters(['FINALIZED'])), $this->currentPermissions($request)));
+            $filters, $this->currentPermissions($request)));
     }
 
     public function costShow(string $batchCostId, Request $request): JsonResponse
@@ -387,6 +571,7 @@ final class ManufacturingExecutionController
             'cost_number' => $this->numberRules(), 'production_order_id' => ['required', 'uuid'],
             'labour_rate_per_minute' => ['required', 'numeric', 'min:0'],
             'overhead_rate_per_minute' => ['required', 'numeric', 'min:0'],
+            'all_source_costs_included' => ['sometimes', 'boolean'],
             'material_costs' => ['required', 'array', 'between:1,100'], 'material_costs.*' => ['required', 'array'],
             'material_costs.*.production_order_material_id' => ['required', 'uuid', 'distinct'],
             'material_costs.*.unit_cost' => ['required', 'numeric', 'min:0'],
@@ -423,12 +608,24 @@ final class ManufacturingExecutionController
     private function normalise(Request $request): void
     {
         $input = $request->all();
-        foreach (['order_number', 'batch_number', 'event_type', 'reason_code', 'disposition', 'sample_number',
+        foreach (['order_number', 'batch_number', 'event_type', 'issue_kind', 'disposition_kind', 'loss_category', 'measurement_kind', 'quantity_dimension',
+            'value_source', 'default_value_source', 'uom_code', 'weight_uom_code', 'reason_code', 'disposition_code', 'disposition', 'sample_number',
             'hold_number', 'hazard_type', 'artwork_code', 'run_number', 'finished_lot_code', 'recall_number',
-            'classification', 'cost_number'] as $field) {
+            'classification', 'cost_number', 'adjustment_number', 'adjustment_type', 'decision'] as $field) {
             if (is_string($input[$field] ?? null)) {
                 $input[$field] = Str::upper(trim($input[$field]));
             }
+        }
+        foreach (['lines', 'measurements', 'effects'] as $collection) {
+            if (! is_array($input[$collection] ?? null)) continue;
+            foreach ($input[$collection] as &$line) {
+                if (! is_array($line)) continue;
+                foreach (['measurement_kind', 'quantity_dimension', 'uom_code', 'value_source', 'default_value_source',
+                    'reason_code', 'disposition_code', 'metric_code', 'currency'] as $field) {
+                    if (is_string($line[$field] ?? null)) $line[$field] = Str::upper(trim($line[$field]));
+                }
+            }
+            unset($line);
         }
         $request->replace($input);
     }

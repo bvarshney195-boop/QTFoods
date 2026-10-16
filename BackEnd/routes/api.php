@@ -345,6 +345,9 @@ Route::middleware('web')->prefix('v1')->group(function () {
                     ->whereUuid('recordId')->defaults('resource', $resource)
                     ->middleware(["erp.screen:{$screen}", "erp.permission:ACTION:{$screen}:UPDATE", 'erp.role:ERP_ADMIN']);
             }
+            Route::post('/manufacturing/recipes/{recordId}/preview', [ProductMasterController::class, 'recipePreview'])
+                ->whereUuid('recordId')
+                ->middleware(['erp.screen:MD-REC', 'erp.permission:ACTION:MD-REC:UPDATE']);
 
             Route::get('/procurement/requisitions', [PurchaseRequisitionController::class, 'index'])
                 ->middleware('erp.screen:PUR-REQ');
@@ -565,6 +568,14 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:RELEASE']);
             Route::post('/manufacturing/orders/{productionOrderId}/issue-materials', [ManufacturingExecutionController::class, 'orderIssue'])
                 ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:ISSUE']);
+            Route::post('/manufacturing/orders/{productionOrderId}/material-issues', [ManufacturingExecutionController::class, 'orderMaterialIssue'])
+                ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:ISSUE']);
+            Route::post('/manufacturing/orders/{productionOrderId}/material-returns', [ManufacturingExecutionController::class, 'orderMaterialReturn'])
+                ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:ISSUE']);
+            Route::post('/manufacturing/orders/{productionOrderId}/material-dispositions', [ManufacturingExecutionController::class, 'orderMaterialDisposition'])
+                ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:ISSUE']);
+            Route::post('/manufacturing/material-returns/{materialPostingId}/release', [ManufacturingExecutionController::class, 'materialReturnRelease'])
+                ->whereUuid('materialPostingId')->middleware(['erp.screen:QC-SAFE', 'erp.permission:ACTION:QC-SAFE:RELEASE']);
             Route::post('/manufacturing/orders/{productionOrderId}/outputs', [ManufacturingExecutionController::class, 'orderOutput'])
                 ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-LOSS', 'erp.permission:ACTION:PRO-LOSS:RECORD']);
             Route::post('/manufacturing/output-events/{outputEventId}/resolve', [ManufacturingExecutionController::class, 'reworkResolve'])
@@ -573,6 +584,10 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:COMPLETE']);
             Route::post('/manufacturing/orders/{productionOrderId}/cancel', [ManufacturingExecutionController::class, 'orderCancel'])
                 ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:CANCEL']);
+            Route::post('/manufacturing/orders/{productionOrderId}/adjustments', [ManufacturingExecutionController::class, 'batchAdjustmentCreate'])
+                ->whereUuid('productionOrderId')->middleware(['erp.screen:PRO-ORDER', 'erp.permission:ACTION:PRO-ORDER:COMPLETE']);
+            Route::post('/manufacturing/batch-adjustments/{batchAdjustmentId}/review', [ManufacturingExecutionController::class, 'batchAdjustmentReview'])
+                ->whereUuid('batchAdjustmentId')->middleware(['erp.screen:QC-SAFE', 'erp.permission:ACTION:QC-SAFE:RELEASE']);
 
             Route::get('/manufacturing/stages', [ManufacturingExecutionController::class, 'stageIndex'])->middleware('erp.screen:PRO-STAGE');
             Route::get('/manufacturing/stages/{productionStageId}', [ManufacturingExecutionController::class, 'stageShow'])
@@ -580,6 +595,12 @@ Route::middleware('web')->prefix('v1')->group(function () {
             Route::post('/manufacturing/stages/{productionStageId}/start', [ManufacturingExecutionController::class, 'stageStart'])
                 ->whereUuid('productionStageId')->middleware(['erp.screen:PRO-STAGE', 'erp.permission:ACTION:PRO-STAGE:START']);
             Route::post('/manufacturing/stages/{productionStageId}/complete', [ManufacturingExecutionController::class, 'stageComplete'])
+                ->whereUuid('productionStageId')->middleware(['erp.screen:PRO-STAGE', 'erp.permission:ACTION:PRO-STAGE:COMPLETE']);
+            Route::post('/manufacturing/stages/{productionStageId}/measurement-templates', [ManufacturingExecutionController::class, 'stageMeasurementTemplateCreate'])
+                ->whereUuid('productionStageId')->middleware(['erp.screen:MD-REC', 'erp.permission:ACTION:MD-REC:UPDATE']);
+            Route::post('/manufacturing/measurement-templates/{measurementTemplateId}/approve', [ManufacturingExecutionController::class, 'stageMeasurementTemplateApprove'])
+                ->whereUuid('measurementTemplateId')->middleware(['erp.screen:MD-REC', 'erp.permission:ACTION:MD-REC:LIFECYCLE']);
+            Route::post('/manufacturing/stages/{productionStageId}/measurements', [ManufacturingExecutionController::class, 'stageMeasurementsRecord'])
                 ->whereUuid('productionStageId')->middleware(['erp.screen:PRO-STAGE', 'erp.permission:ACTION:PRO-STAGE:COMPLETE']);
             Route::get('/manufacturing/pro-loss', [ManufacturingExecutionController::class, 'lossIndex'])->middleware('erp.screen:PRO-LOSS');
 
