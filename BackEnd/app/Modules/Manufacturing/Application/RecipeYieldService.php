@@ -2,13 +2,17 @@
 
 namespace App\Modules\Manufacturing\Application;
 
+use App\Shared\Units\UomConversionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class RecipeYieldService
 {
-    public function __construct(private readonly RecipeYieldCalculator $calculator) {}
+    public function __construct(
+        private readonly RecipeYieldCalculator $calculator,
+        private readonly UomConversionService $uomConversions,
+    ) {}
 
     /** @return array<string, mixed> */
     public function preview(string $recipeId, array $input, array $scope): array
@@ -24,7 +28,7 @@ final class RecipeYieldService
             return ['quantity' => $addition['quantity'], 'contributes_to_input_mass' => true];
         })->all();
         $result = $this->calculator->calculate(
-            $this->standard($recipe),
+            $this->standard($recipe, $scope),
             $components,
             $input['batch_basis_quantity'],
             $input['planned_units'] ?? null,
@@ -78,7 +82,7 @@ final class RecipeYieldService
     {
         $recipe = $this->recipe($recipeId, $scope);
         return [
-            'recipe' => $this->standard($recipe) + [
+            'recipe' => $this->standard($recipe, $scope) + [
                 'id' => (string) $recipe->id,
                 'code' => (string) $recipe->code,
                 'revision' => (int) $recipe->revision,
@@ -92,7 +96,10 @@ final class RecipeYieldService
 
     private function recipe(string $recipeId, array $scope): object
     {
-        $recipe = DB::table('recipes')->where('id', $recipeId)->where('company_id', $scope['company_id'])->first();
+        $recipe = DB::table('recipes as recipe')
+            ->join('items as output', 'output.id', '=', 'recipe.output_sku_id')
+            ->where('recipe.id', $recipeId)->where('recipe.company_id', $scope['company_id'])
+            ->select(['recipe.*', 'output.catalog_item_id as output_catalog_item_id'])->first();
         if (! $recipe) {
             throw new NotFoundHttpException('Recipe not found.');
         }
@@ -151,14 +158,31 @@ final class RecipeYieldService
     }
 
     /** @return array<string, mixed> */
-    private function standard(object $recipe): array
+    private function standard(object $recipe, array $scope): array
     {
+        $pieceWeight = $recipe->standard_piece_weight;
+        if ($recipe->calculation_model === 'WEIGHT_PIECE' && $pieceWeight !== null) {
+            $pieceWeight = $this->uomConversions->convert(
+                $pieceWeight,
+                (string) $recipe->piece_weight_uom_code,
+                (string) $recipe->basis_uom_code,
+                (string) $scope['company_id'],
+                (string) $recipe->output_catalog_item_id,
+            );
+            if ($pieceWeight === null) {
+                throw ValidationException::withMessages([
+                    'piece_weight_uom_code' => ["No approved {$recipe->piece_weight_uom_code}-to-{$recipe->basis_uom_code} conversion is available."],
+                ]);
+            }
+        }
+
         return [
             'basis_quantity' => $this->decimal($recipe->basis_quantity),
             'calculation_model' => (string) $recipe->calculation_model,
             'output_quantity' => $this->decimal($recipe->output_quantity),
             'yield_percent' => $this->decimal($recipe->yield_percent),
-            'standard_piece_weight' => $recipe->standard_piece_weight,
+            'standard_piece_weight' => $pieceWeight,
+            'piece_weight_uom_code' => $recipe->piece_weight_uom_code,
             'target_finished_weight' => $recipe->target_finished_weight,
             'target_weight_uom_code' => $recipe->target_weight_uom_code,
             'pieces_per_pack' => (int) $recipe->pieces_per_pack,
@@ -174,20 +198,7 @@ final class RecipeYieldService
 
     private function massConversionFactor(string $from, string $to, string $catalogItemId, array $scope): ?string
     {
-        if ($from === $to) {
-            return '1.000000000000';
-        }
-        $direct = DB::table('item_uom_conversions')->where('company_id', $scope['company_id'])
-            ->where('catalog_item_id', $catalogItemId)->where('from_uom_code', $from)->where('to_uom_code', $to)->first();
-        if ($direct) {
-            return $this->decimal($direct->multiplier, 12);
-        }
-        $reverse = DB::table('item_uom_conversions')->where('company_id', $scope['company_id'])
-            ->where('catalog_item_id', $catalogItemId)->where('from_uom_code', $to)->where('to_uom_code', $from)->first();
-        if ($reverse && bccomp((string) $reverse->multiplier, '0', 12) > 0) {
-            return bcdiv('1', (string) $reverse->multiplier, 12);
-        }
-        return null;
+        return $this->uomConversions->factor($from, $to, (string) $scope['company_id'], $catalogItemId);
     }
 
     private function decimal(mixed $value, int $scale = 6): string

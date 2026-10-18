@@ -182,16 +182,24 @@ describe('product master workspaces', () => {
     ));
   });
 
-  it('creates a recipe with an ordered BOM component', async () => {
+  it('creates a recipe without defaulting its output as a component and preserves the effective date after save', async () => {
     const user = userEvent.setup();
+    apiMocks.getProductMaster.mockImplementation(async (resource: ProductMasterResource, recordId: string) => detail(resource, recordId === 'created-1'
+      ? { id: recordId, effective_from: '2026-05-17T00:00:00.000000Z' }
+      : {}));
     renderPage('recipes');
     await screen.findByText('Recipe Seed');
     await user.click(screen.getByRole('button', { name: '+ New' }));
     fireEvent.change(screen.getByLabelText('Recipe code'), { target: { value: 'rec-oat' } });
     fireEvent.change(screen.getByLabelText('Recipe name'), { target: { value: 'Oat Recipe' } });
     await user.selectOptions(screen.getByLabelText('Initial status'), 'ACTIVE');
+    fireEvent.change(screen.getByLabelText('Recipe effective from'), { target: { value: '2026-05-17' } });
     await user.click(screen.getByRole('button', { name: 'Add component' }));
-    await user.selectOptions(screen.getByLabelText('Component SKU 1'), 'sku-raw');
+    const component = screen.getByLabelText('Component SKU 1') as HTMLSelectElement;
+    expect(component).toHaveValue('');
+    expect(Array.from(component.options).map((option) => option.text)).not.toContain('SKU-1 · Output SKU');
+    expect(screen.getByLabelText('Component UOM 1')).toHaveValue('KG');
+    await user.selectOptions(component, 'sku-raw');
     fireEvent.change(screen.getByLabelText('Component quantity 1'), { target: { value: '0.1' } });
     await user.selectOptions(screen.getByLabelText('Component UOM 1'), 'KG');
     await user.click(screen.getByRole('button', { name: 'Create recipe' }));
@@ -199,11 +207,12 @@ describe('product master workspaces', () => {
     await waitFor(() => expect(apiMocks.createProductMaster).toHaveBeenCalledWith(
       'recipes',
       expect.objectContaining({
-        code: 'REC-OAT', output_sku_id: 'sku-1',
+        code: 'REC-OAT', output_sku_id: 'sku-1', effective_from: '2026-05-17',
         components: [expect.objectContaining({ component_sku_id: 'sku-raw', sequence_no: 10, quantity: '0.1' })],
       }),
       expect.any(String),
     ));
+    await waitFor(() => expect(screen.getByLabelText('Recipe effective from')).toHaveValue('2026-05-17'));
   });
 
   it('creates a production route with ordered work-centre operations', async () => {
@@ -422,8 +431,8 @@ function workspace(resource: ProductMasterResource): Workspace {
       brands: [{ id: 'brand-1', code: 'BRAND-1', name: 'Brand One', status: 'ACTIVE' }],
       items: [{ id: 'item-1', code: 'ITEM-1', name: 'Item One', status: 'ACTIVE' }],
       skus: [
-        { id: 'sku-1', code: 'SKU-1', name: 'Output SKU', status: 'ACTIVE' },
-        { id: 'sku-raw', code: 'SKU-RAW', name: 'Raw SKU', status: 'ACTIVE' },
+        { id: 'sku-1', code: 'SKU-1', name: 'Output SKU', status: 'ACTIVE', base_uom: 'PACK' },
+        { id: 'sku-raw', code: 'SKU-RAW', name: 'Raw SKU', status: 'ACTIVE', base_uom: 'KG' },
       ],
       parties: [{ id: 'party-1', code: 'PARTY-1', name: 'Party One', status: 'ACTIVE' }],
     },

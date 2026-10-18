@@ -696,11 +696,15 @@ final class OrderToCashQuery
 
     private function orderLookup(array $scope, array $permissions, ?array $statuses = null): array
     {
-        $query = DB::table('sales_orders as lookup_order')->where('lookup_order.company_id', $scope['company_id'])
+        $query = DB::table('sales_orders as lookup_order')
+            ->join('parties as lookup_customer', 'lookup_customer.id', '=', 'lookup_order.customer_party_id')
+            ->where('lookup_order.company_id', $scope['company_id'])
             ->where('lookup_order.plant_id', $scope['plant_id'])->where('lookup_order.order_type', 'SALES')
             ->when($statuses, fn (Builder $builder, array $allowed) => $builder->whereIn('lookup_order.status', $allowed),
                 fn (Builder $builder) => $builder->where('lookup_order.status', '<>', 'CANCELLED'))
-            ->orderByDesc('lookup_order.order_date')->select(['lookup_order.id', 'lookup_order.order_number', 'lookup_order.status', 'lookup_order.record_version', 'lookup_order.total_amount']);
+            ->orderByDesc('lookup_order.order_date')->select(['lookup_order.id', 'lookup_order.order_number', 'lookup_order.status',
+                'lookup_order.record_version', 'lookup_order.total_amount', 'lookup_customer.code as customer_code',
+                'lookup_customer.display_name as customer_name']);
         $this->visibility->apply($query, 'SALES_ORDER', 'lookup_order.id', $permissions, null, 'order_lookup_visibility', false);
 
         return $query->get()->all();

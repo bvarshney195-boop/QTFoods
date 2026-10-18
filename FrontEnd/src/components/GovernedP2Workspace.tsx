@@ -17,11 +17,11 @@ export type P2Collection = { key: string; label: string; columns: P2Column[]; de
 export type P2Creator = {
   action: string;
   label: string;
-  path: string | ((workspace: P2Workspace) => string);
+  path: string | ((workspace: P2Workspace, body: unknown) => string);
   help: string;
   template: (workspace: P2Workspace) => unknown;
   schema: StructuredCommandSchema;
-  expectedVersion?: (workspace: P2Workspace) => number | undefined;
+  expectedVersion?: (workspace: P2Workspace, body: unknown) => number | undefined;
   available?: (workspace: P2Workspace) => boolean;
 };
 export type P2EditorSpec = { label: string; help: string; path: string; body: unknown; schema: StructuredCommandSchema; expectedVersion?: number };
@@ -41,7 +41,12 @@ export type GovernedP2Config = {
   resolveAction?: (action: string, record: P2Record, workspace: P2Workspace) => P2ActionSpec | null;
 };
 
-type EditorState = P2EditorSpec & { visibilityType?: string; restrictEntry?: boolean };
+type EditorState = P2EditorSpec & {
+  visibilityType?: string;
+  restrictEntry?: boolean;
+  resolvePath?: (body: unknown) => string;
+  resolveExpectedVersion?: (body: unknown) => number | undefined;
+};
 type Feedback = { error: string | null; success: string | null; fields: Record<string, string> };
 
 export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
@@ -118,15 +123,33 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
   function startCreator(creator: P2Creator) {
     if (!workspace) return;
     const body = creator.template(workspace);
+    const pathFactory = typeof creator.path === 'function' ? creator.path : null;
+    const resolvePath = pathFactory
+      ? (currentBody: unknown) => pathFactory(workspace, currentBody)
+      : undefined;
+    const resolveExpectedVersion = creator.expectedVersion
+      ? (currentBody: unknown) => creator.expectedVersion!(workspace, currentBody)
+      : undefined;
     setSelected(null); setFeedback(clear());
-    setEditor({ label: creator.label, help: creator.help, path: typeof creator.path === 'function' ? creator.path(workspace) : creator.path, expectedVersion: creator.expectedVersion?.(workspace), body, schema: creator.schema, visibilityType: collection?.visibilityType, restrictEntry: false });
+    setEditor({
+      label: creator.label,
+      help: creator.help,
+      path: resolvePath ? resolvePath(body) : creator.path as string,
+      expectedVersion: resolveExpectedVersion?.(body),
+      body,
+      schema: creator.schema,
+      visibilityType: collection?.visibilityType,
+      restrictEntry: false,
+      resolvePath,
+      resolveExpectedVersion,
+    });
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!editor) return;
     const fields = validateStructuredCommand(editor.body, editor.schema);
     if (Object.keys(fields).length) {
-      setFeedback({ error: 'Check the highlighted field.', success: null, fields });
+      setFeedback({ error: firstFieldError(fields), success: null, fields });
       focusFirstInvalid(fields);
       return;
     }
@@ -134,7 +157,11 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
       && !window.confirm('Restricting this entry will remove it from your operational view immediately. A user with both visibility permissions must recover it. Continue?')) return;
     setBusy(true);
     try {
-      const result = await commandP2(editor.path, editor.body, editor.expectedVersion);
+      const result = await commandP2(
+        editor.resolvePath?.(editor.body) ?? editor.path,
+        editor.body,
+        editor.resolveExpectedVersion?.(editor.body) ?? editor.expectedVersion,
+      );
       if (editor.restrictEntry && editor.visibilityType) {
         try {
           await changeTransactionVisibility(editor.visibilityType, result.id, 'RESTRICTED', 0);
@@ -319,12 +346,13 @@ function workspacePath(workspace: P2Workspace | null, path: string): unknown { r
 function label(value: string) { return value.toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ').replace(/\b\w/g, (character) => character.toUpperCase()); }
 function moneyKey(key: string) { return !key.includes('percent') && /(amount|cost|price|value|revenue|margin|debit|credit)$/i.test(key); }
 function technicalKey(key: string) { return key === 'id' || key.endsWith('_id') || key.endsWith('_by') || key.endsWith('_uuid') || key === 'record_version' || key === 'company_id' || key === 'plant_id'; }
-function businessIdentifier(record: P2Record): string { for (const key of ['order_number', 'invoice_number', 'allocation_number', 'shipment_number', 'claim_number', 'asset_number', 'number', 'code', 'name']) { if (record[key]) return String(record[key]); } return 'Record details'; }
+function businessIdentifier(record: P2Record): string { for (const key of ['work_number', 'order_number', 'invoice_number', 'allocation_number', 'shipment_number', 'claim_number', 'asset_number', 'number', 'code', 'name']) { if (record[key]) return String(record[key]); } return 'Record details'; }
 function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0); if (format === 'unitCost') return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'number') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'date') return formatBusinessDate(String(value)); if (format === 'datetime') return formatZonedDateTime(String(value)); if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
 function failureMessage(error: unknown, fallback: string): string { const api = isApiError(error) ? error : null; return api?.message ?? (error instanceof Error ? error.message : fallback); }
-function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = quantityError(key, values[0] ?? ''); }); const hasFields = Object.keys(fields).length > 0; setter({ error: hasFields ? 'Check the highlighted field.' : api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); if (hasFields) focusFirstInvalid(fields); }
-function quantityError(path: string, message: string): string { return /(?:^|\.)quantity$/.test(path) && /(greater than|gt|at least|positive)/i.test(message) ? 'Quantity must be greater than 0.' : message.replace(/(?:lines\.)?\d+\./g, ''); }
-function focusFirstInvalid(fields: Record<string, string>) { const path = Object.keys(fields)[0]; if (!path) return; window.requestAnimationFrame(() => { const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(path) : path.replace(/["\\]/g, '\\$&'); const target = document.querySelector<HTMLElement>(`[data-field-path="${escaped}"]`); target?.focus(); }); }
+function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = quantityError(key, values[0] ?? ''); }); const hasFields = Object.keys(fields).length > 0; setter({ error: hasFields ? firstFieldError(fields) : api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); if (hasFields) focusFirstInvalid(fields); }
+function quantityError(path: string, message: string): string { return /(?:^|\.)quantity$/.test(path) && /(greater than|gt|at least|positive)/i.test(message) ? 'Quantity must be greater than 0.' : message.replace(/^(?:lines\.)?\d+\./, ''); }
+function firstFieldError(fields: Record<string, string>): string { const reason = Object.values(fields).find((message) => message.trim()); return reason ? `Unable to save: ${reason}` : 'Unable to save: correct the invalid entry.'; }
+function focusFirstInvalid(fields: Record<string, string>) { const path = Object.keys(fields)[0]; if (!path) return; window.requestAnimationFrame(() => { const candidates = path.split('.').map((_, index, parts) => parts.slice(0, parts.length - index).join('.')); const target = candidates.map((candidate) => { const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(candidate) : candidate.replace(/["\\]/g, '\\$&'); return document.querySelector<HTMLElement>(`[data-field-path="${escaped}"]`); }).find(Boolean); target?.focus(); }); }
 function collectionContainsId(value: unknown, id: string): boolean { return Array.isArray(value) && value.some((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).id ?? '') === id); }
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }

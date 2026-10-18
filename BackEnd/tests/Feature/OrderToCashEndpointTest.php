@@ -94,6 +94,9 @@ final class OrderToCashEndpointTest extends TestCase
             ->assertJsonPath('data.fefo_lot_count', 1)->assertJsonPath('data.fefo_break_count', 0);
         $allocationId = (string) $allocation->json('data.id');
         $this->assertDatabaseHas('stock_reservations', ['status' => 'ACTIVE', 'quantity_base' => 10]);
+        $this->getJson('/api/v1/dispatch/allocations')->assertOk()
+            ->assertJsonPath('lookups.orders.0.order_number', 'SO-P2-001')
+            ->assertJsonPath('lookups.orders.0.customer_name', 'North Market Distributor');
         $this->signIn(self::OPERATIONS_ID);
         $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
             ->assertOk()->assertJsonPath('data.status', 'PICKED')->assertJsonPath('data.record_version', 2);

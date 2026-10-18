@@ -158,12 +158,13 @@ function ScalarField({ fieldKey, value, path, catalog, errors, required, onChang
 
   if (referenceField(fieldKey)) {
     const options = referenceOptions(fieldKey, value, catalog);
-    if (options.length) {
+    if (options.length || controlledReferenceField(fieldKey)) {
       return <label>{title}<RequiredMark show={requiredField} />
         <select {...common} value={stringValue(value)} onChange={(event) => onChange(path, nullableValue(event.target.value, optional))}>
           <option value="">{optional ? `No ${title.toLowerCase()}` : `Select ${title.toLowerCase()}`}</option>
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
+        {!options.length ? <small className="field-hint">No eligible records are available in the current company and workplace.</small> : null}
         <FieldError id={errorId} text={error} />
       </label>;
     }
@@ -248,7 +249,7 @@ function ArrayField({ fieldKey, value, path, catalog, errors, required, onChange
   }
 
   const objectRows = value.every(isRecord);
-  return <section className="p2-entry-section full-span" data-field-path={pathText}>
+  return <section className="p2-entry-section full-span" data-field-path={pathText} aria-invalid={Boolean(error)} tabIndex={error ? -1 : undefined}>
     <div className="p2-entry-section-head"><div><h3>{title}</h3><small>{arrayHelp(fieldKey, objectRows)}</small></div>
       {objectRows && value.length ? <button className="secondary compact-button" type="button" onClick={() => onChange(path, [...value, newArrayRow(value[0])])}>+ Add {singularLabel(fieldKey).toLowerCase()}</button> : null}
     </div>
@@ -395,6 +396,7 @@ function lookupRowLabel(row: LookupRow, index: number): string {
     return `${humanValue(row.item_code)} · lot ${humanValue(row.lot_code)} · ${humanValue(row.location_code)} · ${humanValue(row.quality_status)} · available ${humanValue(row.available_quantity)} ${humanValue(row.uom_code)}`;
   }
   if (row.asset_number && row.name) return `${humanValue(row.asset_number)} · ${humanValue(row.name)}`;
+  const nestedCustomer = isRecord(row.customer) ? humanValue(row.customer.name ?? row.customer.display_name) : '';
   const preferredPairs = [
     ['employee_number', 'name'], ['account_code', 'name'], ['account_code', 'account_name'], ['route_code', 'name'],
     ['order_number', 'customer_name'], ['invoice_number', 'customer_name'], ['item_code', 'name'], ['sku_code', 'name'],
@@ -405,8 +407,8 @@ function lookupRowLabel(row: LookupRow, index: number): string {
   for (const [first, second] of preferredPairs) {
     const primary = humanValue(row[first]);
     if (!primary) continue;
-    const secondary = humanValue(row[second]);
-    return [primary, secondary].filter(Boolean).join(' · ');
+    const secondary = humanValue(row[second]) || (second === 'customer_name' ? nestedCustomer : '');
+    if (secondary) return `${primary} · ${secondary}`;
   }
   const values = humanKeys(row).slice(0, 2).map((key) => humanValue(row[key])).filter(Boolean);
   return values.length ? values.join(' · ') : `Available option ${index + 1}`;
@@ -517,6 +519,7 @@ function primitiveChoiceField(fieldKey: string): boolean {
     || fieldKey.endsWith('_status');
 }
 function referenceField(fieldKey: string): boolean { return fieldKey.endsWith('_id'); }
+function controlledReferenceField(fieldKey: string): boolean { return Boolean(REFERENCE_LOOKUPS[fieldKey]); }
 function emailField(fieldKey: string): boolean { return fieldKey.includes('email'); }
 function phoneField(fieldKey: string): boolean { return fieldKey.includes('phone'); }
 function dateTimeField(fieldKey: string, value: unknown): boolean { return fieldKey.endsWith('_at') || /^\d{4}-\d{2}-\d{2}T/.test(stringValue(value)); }
@@ -570,7 +573,7 @@ const REFERENCE_LOOKUPS: Record<string, readonly string[]> = {
   fiscal_period_id: ['lookups.periods'],
   item_id: ['lookups.items'],
   invoice_id: ['lookups.open_invoices', 'lookups.invoices'],
-  order_id: ['data'],
+  order_id: ['lookups.orders', 'data'],
   payable_account_id: ['lookups.accounts'],
   plant_transfer_route_id: ['lookups.routes'],
   production_order_id: ['lookups.production_orders'],
@@ -578,7 +581,7 @@ const REFERENCE_LOOKUPS: Record<string, readonly string[]> = {
   sales_allocation_id: ['lookups.allocations'],
   sales_contract_id: ['lookups.contracts'],
   sales_lead_id: ['lookups.leads'],
-  sales_order_id: ['lookups.sales_orders'],
+  sales_order_id: ['lookups.sales_orders', 'lookups.orders'],
   sales_price_list_id: ['lookups.price_lists'],
   shipment_id: ['lookups.shipments'],
   shipment_line_id: ['lookups.shipment_lines'],

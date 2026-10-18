@@ -277,6 +277,42 @@ final class ProductMasterDataEndpointTest extends TestCase
             ->assertJsonPath('data.transformation_loss_deducted_from_piece_count', false);
     }
 
+    public function test_weight_piece_recipe_accepts_grams_and_normalises_them_to_kilograms(): void
+    {
+        $payload = $this->recipePayload('REC-450G-PIECE');
+        $payload += [
+            'basis_quantity' => '45', 'basis_uom_code' => 'KG', 'calculation_model' => 'WEIGHT_PIECE',
+            'standard_piece_weight' => '450', 'piece_weight_uom_code' => 'G',
+            'target_finished_weight' => '425', 'target_weight_uom_code' => 'G', 'pieces_per_pack' => 1,
+            'handling_loss_percent' => '0', 'handling_loss_in_standard' => false,
+            'transformation_loss_percent' => '0', 'transformation_loss_in_standard' => true,
+            'rejection_allowance_percent' => '0', 'output_rounding_mode' => 'DOWN',
+            'unit_conversion_rate' => null,
+        ];
+        $payload['yield_percent'] = '100';
+        $payload['components'][0] += [
+            'scaling_method' => 'SCALABLE', 'bakers_percentage' => null,
+            'is_basis_component' => true, 'condition_code' => null, 'quantity_per_unit' => null,
+            'loss_included_in_standard' => true, 'is_packaging' => false,
+        ];
+        $payload['components'][0]['quantity'] = '45';
+
+        $recipeId = (string) $this->command()->postJson('/api/v1/manufacturing/recipes', $payload)
+            ->assertCreated()->json('data.id');
+        $this->getJson('/api/v1/manufacturing/recipes/'.$recipeId)->assertOk()
+            ->assertJsonPath('data.standard_piece_weight', '450.000000')
+            ->assertJsonPath('data.piece_weight_uom_code', 'G')
+            ->assertJsonPath('data.effective_from', '2026-04-01');
+        $this->postJson('/api/v1/manufacturing/recipes/'.$recipeId.'/preview', [
+            'batch_basis_quantity' => '45', 'planned_units' => null,
+            'active_conditions' => [], 'measured_additions' => [],
+        ])->assertOk()
+            ->assertJsonPath('data.theoretical_input_mass', '45.000000')
+            ->assertJsonPath('data.theoretical_complete_units', '100.000000')
+            ->assertJsonPath('data.theoretical_residual_quantity', '0.000000')
+            ->assertJsonPath('data.expected_good_units', '100.000000');
+    }
+
     public function test_route_and_specification_aggregates_enforce_operations_parameters_and_targets(): void
     {
         $route = $this->command()->postJson('/api/v1/manufacturing/routes', $this->routePayload())

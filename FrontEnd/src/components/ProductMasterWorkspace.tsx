@@ -774,7 +774,12 @@ function ResourceEditor({
             {canCreateSku && <a className="secondary compact-button" href="#MD-SKU?card=new" target="_blank" rel="noreferrer">Create SKU in new tab</a>}
           </div>
         </div>}
-        <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({ output_sku_id: event.target.value })}><option value="">{lookups?.skus.length === 0 ? 'No SKUs configured' : 'Select output SKU'}</option>{options(lookups?.skus)}</select><small>The finished or intermediate stock unit produced by this recipe.</small><FieldError value={fieldErrors.output_sku_id} /></label>
+        <label className="wide">Output SKU<select aria-label="Recipe output SKU" value={form.output_sku_id} onChange={(event) => change({
+          output_sku_id: event.target.value,
+          components: form.components.map((component) => component.component_sku_id === event.target.value
+            ? { ...component, component_sku_id: '' }
+            : component),
+        })}><option value="">{lookups?.skus.length === 0 ? 'No SKUs configured' : 'Select output SKU'}</option>{options(lookups?.skus)}</select><small>The finished or intermediate stock unit produced by this recipe.</small><FieldError value={fieldErrors.output_sku_id} /></label>
         <label>Revision<input aria-label="Recipe revision" type="number" min="1" value={form.revision} onChange={(event) => change({ revision: event.target.value })} /></label>
         <label>Calculation model<select aria-label="Recipe calculation model" value={form.calculation_model} onChange={(event) => change({ calculation_model: event.target.value as MasterForm['calculation_model'] })}><option value="LEGACY_YIELD">Legacy yield</option><option value="WEIGHT_PIECE">Weight-based pieces</option><option value="UNIT_CONVERSION">Approved unit conversion</option><option value="PERCENT_YIELD">Percentage yield</option></select></label>
         <label>Recipe basis quantity<input aria-label="Recipe basis quantity" type="number" min="0" step="any" value={form.basis_quantity} onChange={(event) => change({ basis_quantity: event.target.value })} /><FieldError value={fieldErrors.basis_quantity} /></label>
@@ -802,13 +807,19 @@ function ResourceEditor({
       </div>
     </section>
     <section className="party-subsection">
-      <div className="subsection-head"><h4>BOM components</h4><button className="secondary compact-button" type="button" onClick={() => change({ components: [...form.components, blankComponent(form.components, lookups)] })}>Add component</button></div>
+      <div className="subsection-head"><h4>BOM components</h4><button className="secondary compact-button" type="button" onClick={() => change({ components: [...form.components, blankComponent(form.components, form.basis_uom_code)] })}>Add component</button></div>
       <FieldError value={fieldErrors.components} />
       {form.components.length === 0 && <div className="empty-state compact">Activation requires at least one component.</div>}
       {form.components.map((row, index) => <div className="party-repeat-card" key={row.id ?? `component-${index}`}>
         <RepeatHeader label={`Component ${index + 1}`} onRemove={() => change({ components: form.components.filter((_, itemIndex) => itemIndex !== index) })} />
         <div className="party-card-grid three">
-          <label className="wide">Component SKU<select aria-label={`Component SKU ${index + 1}`} value={row.component_sku_id} onChange={(event) => change({ components: update(form.components, index, { component_sku_id: event.target.value }) })}><option value="">Select SKU</option>{options(lookups?.skus)}</select></label>
+          <label className="wide">Component SKU<select aria-label={`Component SKU ${index + 1}`} value={row.component_sku_id} onChange={(event) => {
+            const componentSku = lookups?.skus.find((sku) => sku.id === event.target.value);
+            change({ components: update(form.components, index, {
+              component_sku_id: event.target.value,
+              uom_code: componentSku?.base_uom ?? row.uom_code,
+            }) });
+          }}><option value="">Select ingredient or packaging SKU</option>{options(lookups?.skus.filter((sku) => sku.id !== form.output_sku_id))}</select></label>
           <label>Sequence<input aria-label={`Component sequence ${index + 1}`} type="number" min="1" value={row.sequence_no} onChange={(event) => change({ components: update(form.components, index, { sequence_no: Number(event.target.value) }) })} /></label>
           <label>Quantity<input aria-label={`Component quantity ${index + 1}`} type="number" min="0" step="any" value={row.quantity} onChange={(event) => change({ components: update(form.components, index, { quantity: event.target.value }) })} /></label>
           <label>UOM<select aria-label={`Component UOM ${index + 1}`} value={row.uom_code} onChange={(event) => change({ components: update(form.components, index, { uom_code: event.target.value }) })}>{requiredUomOptions()}</select></label>
@@ -1001,10 +1012,10 @@ function blankPack(isDefault: boolean, uom: string): SkuPack {
   return { code: '', name: '', uom_code: uom, quantity: '1', barcode: null, is_default: isDefault };
 }
 
-function blankComponent(rows: RecipeComponent[], lookups?: ProductMasterLookups): RecipeComponent {
+function blankComponent(rows: RecipeComponent[], basisUom: string): RecipeComponent {
   return {
-    component_sku_id: lookups?.skus.find((item) => item.status === 'ACTIVE')?.id ?? '',
-    sequence_no: (rows.length + 1) * 10, quantity: '1', uom_code: lookups?.uoms[0]?.code ?? '',
+    component_sku_id: '',
+    sequence_no: (rows.length + 1) * 10, quantity: '1', uom_code: basisUom,
     waste_percent: '0', scaling_method: 'SCALABLE', bakers_percentage: null, is_basis_component: false,
     condition_code: null, quantity_per_unit: null, loss_included_in_standard: false, is_packaging: false,
   };
@@ -1076,8 +1087,8 @@ function toForm(detail: ProductMasterDetail): MasterForm {
     rejection_allowance_percent: detail.rejection_allowance_percent ?? '0',
     output_rounding_mode: detail.output_rounding_mode ?? 'DOWN',
     unit_conversion_rate: detail.unit_conversion_rate ?? null,
-    effective_from: detail.effective_from ?? null,
-    effective_to: detail.effective_to ?? null,
+    effective_from: dateInputValue(detail.effective_from),
+    effective_to: dateInputValue(detail.effective_to),
     notes: detail.notes ?? null,
     target_type: detail.target_type ?? 'ITEM',
     sku_id: detail.sku_id ?? null,
@@ -1251,6 +1262,12 @@ function apiFields(error: unknown): Record<string, string> {
 function nullable(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? '';
   return trimmed || null;
+}
+
+function dateInputValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
 }
 
 function display(value: string) {

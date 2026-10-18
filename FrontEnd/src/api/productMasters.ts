@@ -9,6 +9,7 @@ export type ReferenceOption = {
   code: string;
   name: string;
   status: string;
+  base_uom?: string;
 };
 
 export type UomOption = { code: string; name: string; precision: number };

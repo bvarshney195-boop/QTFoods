@@ -5,6 +5,7 @@ namespace App\Modules\MasterData\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Units\UomConversionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -66,6 +67,7 @@ final class ProductMasterService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly UomConversionService $uomConversions,
     ) {}
 
     public function create(string $resource, array $data): array
@@ -415,15 +417,25 @@ final class ProductMasterService
         if ((float) $basisQuantity <= 0) {
             throw ValidationException::withMessages(['basis_quantity' => ['Recipe basis quantity must be greater than zero.']]);
         }
+        $output = $this->scopedSku($data['output_sku_id'], $data['company_id']);
+        if (! $output) {
+            throw ValidationException::withMessages(['output_sku_id' => ['Select an output SKU from the current company.']]);
+        }
         if ($model === 'WEIGHT_PIECE') {
             if (empty($data['standard_piece_weight']) || empty($data['piece_weight_uom_code'])) {
                 throw ValidationException::withMessages([
                     'standard_piece_weight' => ['A weight-piece recipe requires a positive pre-process piece weight and UOM.'],
                 ]);
             }
-            if (($data['piece_weight_uom_code'] ?? null) !== $basisUom) {
+            $pieceWeightUom = (string) $data['piece_weight_uom_code'];
+            if ($this->uomConversions->factor(
+                $pieceWeightUom,
+                (string) $basisUom,
+                (string) $data['company_id'],
+                (string) $output->catalog_item_id,
+            ) === null) {
                 throw ValidationException::withMessages([
-                    'piece_weight_uom_code' => ['Piece weight must use the normalised recipe-basis UOM.'],
+                    'piece_weight_uom_code' => ["Configure an approved {$pieceWeightUom}-to-{$basisUom} conversion for this output SKU."],
                 ]);
             }
         }
@@ -436,10 +448,6 @@ final class ProductMasterService
             if ($value < 0 || $value > 100) {
                 throw ValidationException::withMessages([$field => ['Percentage must be between zero and 100.']]);
             }
-        }
-        $output = $this->scopedSku($data['output_sku_id'], $data['company_id']);
-        if (! $output) {
-            throw ValidationException::withMessages(['output_sku_id' => ['Select an output SKU from the current company.']]);
         }
         $this->assertUniqueChildValues($data['components'], 'sequence_no', 'components');
         $this->assertUniqueChildValues($data['components'], 'component_sku_id', 'components');
@@ -1082,7 +1090,8 @@ final class ProductMasterService
 
     private function scopedSku(string $id, string $companyId): ?object
     {
-        return DB::table('items')->where('id', $id)->where('company_id', $companyId)->first(['id', 'status']);
+        return DB::table('items')->where('id', $id)->where('company_id', $companyId)
+            ->first(['id', 'status', 'catalog_item_id', 'base_uom']);
     }
 
     private function findLocked(array $definition, string $recordId, string $companyId): object

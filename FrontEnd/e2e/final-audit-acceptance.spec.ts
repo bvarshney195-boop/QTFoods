@@ -150,7 +150,7 @@ test('audited register layout and design contract hold at 1920, 1366, 768 and 39
   expect(desktopDrawer).toBeGreaterThanOrEqual(480);
   expect(desktopDrawer).toBeLessThanOrEqual(640);
   await expect(editDrawer.getByLabel('Customer', { exact: true })).toHaveValue('00000000-0000-4000-8000-000000000501');
-  await expect(editDrawer.getByLabel('Customer', { exact: true }).locator('option:checked')).toHaveText('DIST-NORTH');
+  await expect(editDrawer.getByLabel('Customer', { exact: true }).locator('option:checked')).toHaveText('DIST-NORTH · North Market Distributor');
   await expect(editDrawer.getByText('00000000-0000-4000-8000-000000000201', { exact: true })).toHaveCount(0);
   await editDrawer.getByRole('button', { name: 'Close', exact: true }).click();
 

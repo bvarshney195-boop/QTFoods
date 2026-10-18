@@ -31,6 +31,7 @@ const choices = (workspace: P2Workspace, key: string): unknown[] => {
   const result = (lookups as Record<string, unknown>)[key];
   return Array.isArray(result) ? result : [];
 };
+const isBody = (body: unknown): body is Record<string, unknown> => Boolean(body) && typeof body === 'object' && !Array.isArray(body);
 const first = (workspace: P2Workspace, key: string) => rows(workspace, key)[0];
 const detailRows = (record: P2Record, key = 'lines') => Array.isArray(record[key]) ? (record[key] as Record<string, unknown>[]) : [];
 const edit = (label: string, help: string, path: string, body: unknown, record: P2Record, schema: StructuredCommandSchema): P2ActionSpec => ({ editor: { label, help, path, body, schema, expectedVersion: record.record_version } });
@@ -51,7 +52,8 @@ const commercialSchemas = {
   orderCreate: { required: ['order_number', 'customer_party_id', 'order_date', 'requested_delivery_date', 'lines[].item_id', 'lines[].uom_code', 'lines[].quantity'], minItems: { lines: 1 } },
   orderUpdate: { required: ['customer_party_id', 'order_date', 'requested_delivery_date', 'lines[].item_id', 'lines[].uom_code', 'lines[].quantity'], minItems: { lines: 1 } },
   orderAmend: { required: ['reason', 'customer_party_id', 'order_date', 'requested_delivery_date', 'lines[].item_id', 'lines[].uom_code', 'lines[].quantity'], minItems: { lines: 1 } },
-  allocation: { required: ['allocation_number', 'lines[].sales_order_line_id', 'lines[].quantity'] },
+  allocation: { required: ['allocation_number'] },
+  allocationCreate: { required: ['sales_order_id', 'allocation_number'] },
   work: { required: ['work_number', 'provider_party_id', 'work_type', 'description', 'expected_start_date', 'expected_end_date', 'agreed_cost'] },
   workComplete: { required: ['actual_cost'] },
   shipment: { required: ['shipment_number', 'sales_allocation_id', 'carrier_name', 'vehicle_number', 'driver_name'] },
@@ -164,7 +166,7 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
     ],
     creators: [
       { action: 'CREATE_PRICE_LIST', label: 'New price list', path: '/api/v1/sales/price-lists', help: 'Start with an active catalog item, then add or update price lines in the form.', schema: commercialSchemas.priceCreate, template: (workspace) => { const item = first(workspace, 'items'); return { list_number: number('PL'), name: '', effective_from: today(), effective_to: future(30), notes: null, lines: [{ item_id: id(item), uom_code: value(item, 'base_uom', 'EA'), minimum_quantity: '1', unit_price: '0', maximum_discount_percent: '0', tax_rate: '0' }] }; } },
-      { action: 'CREATE_CONTRACT', label: 'New contract', path: '/api/v1/sales/contracts', help: 'Contract value and every committed item are validated against the selected customer and plant.', schema: commercialSchemas.contractCreate, template: (workspace) => { const customer = first(workspace, 'customers'); const item = first(workspace, 'items'); return { contract_number: number('CON'), customer_party_id: id(customer), sales_price_list_id: null, effective_from: today(), effective_to: future(90), committed_value: '0', notes: null, lines: [{ item_id: id(item), uom_code: value(item, 'base_uom', 'EA'), committed_quantity: '1', unit_price: '0', tax_rate: '0' }] }; } },
+      { action: 'CREATE_CONTRACT', label: 'New contract', path: '/api/v1/sales/contracts', help: 'Contract value and every committed item are validated against the selected customer and plant.', schema: commercialSchemas.contractCreate, template: (workspace) => { const item = first(workspace, 'items'); return { contract_number: number('CON'), customer_party_id: '', sales_price_list_id: null, effective_from: today(), effective_to: future(90), committed_value: '0', notes: null, lines: [{ item_id: id(item), uom_code: value(item, 'base_uom', 'EA'), committed_quantity: '1', unit_price: '0', tax_rate: '0' }] }; } },
       { action: 'MANAGE_CREDIT', label: 'Manage credit', path: '/api/v1/sales/credit-profiles', available: (workspace) => Boolean(first(workspace, 'customers')), help: 'Set the limit, terms and hold state for one active customer. Supply the displayed version when changing an existing profile.', schema: commercialSchemas.credit, template: () => ({ customer_party_id: null, credit_limit: '0', payment_terms_days: 30, is_on_hold: false, hold_reason: null, record_version: null }) },
     ],
     resolveAction: (action, record) => {
@@ -179,7 +181,7 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
     code: 'CRM-ORDER', title: 'Sales Orders', description: 'Price, confirm, amend and cancel customer orders under credit and contract controls.',
     notice: 'Order totals, prices, discounts, tax, credit availability and immutable revisions are calculated and enforced by the server.', listPath: '/api/v1/sales/orders',
     collections: [{ key: 'data', label: 'Orders', kind: 'order', visibilityType: 'SALES_ORDER', detailPath: (record) => `/api/v1/sales/orders/${record.id}`, columns: [{ label: 'Order', key: 'order_number' }, { label: 'Customer', key: 'customer_name' }, { label: 'Order date', key: 'order_date', format: 'date' }, { label: 'Delivery', key: 'requested_delivery_date', format: 'date' }, { label: 'Total', key: 'total_amount', format: 'money' }] }],
-    creators: [{ action: 'CREATE', label: 'New sales order', path: '/api/v1/sales/orders', help: 'Choose the customer and items from the available business records. Pricing and credit checks are applied automatically.', schema: commercialSchemas.orderCreate, template: (workspace) => { const contract = first(workspace, 'contracts'); const customer = contract ? { id: value(contract, 'customer_party_id') } : first(workspace, 'customers'); const item = first(workspace, 'items'); return { order_number: number('SO'), customer_party_id: id(customer), sales_lead_id: null, sales_contract_id: id(contract) || null, sales_price_list_id: null, order_date: today(), requested_delivery_date: future(7), notes: null, lines: [{ item_id: id(item), uom_code: value(item, 'base_uom', 'EA'), quantity: '1', discount_percent: '0' }] }; } }],
+    creators: [{ action: 'CREATE', label: 'New sales order', path: '/api/v1/sales/orders', help: 'Choose the customer and items from the available business records. Pricing and credit checks are applied automatically.', schema: commercialSchemas.orderCreate, template: (workspace) => { const item = first(workspace, 'items'); return { order_number: number('SO'), customer_party_id: '', sales_lead_id: null, sales_contract_id: null, sales_price_list_id: null, order_date: today(), requested_delivery_date: future(7), notes: null, lines: [{ item_id: id(item), uom_code: value(item, 'base_uom', 'EA'), quantity: '1', discount_percent: '0' }] }; } }],
     resolveAction: (action, record) => { const base = `/api/v1/sales/orders/${record.id}`;
       if (action === 'UPDATE') return edit('Update sales order', 'Replace editable header and line facts while the order remains draft.', base, orderBody(record), record, commercialSchemas.orderUpdate);
       if (action === 'CONFIRM') return run(`${base}/confirm`, 'Sales order confirmed after pricing and credit checks.', record);
@@ -200,7 +202,19 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
     code: 'DSP-PICK', title: 'Allocation & Picking', description: 'Reserve FEFO stock against confirmed orders and record the pick hand-off.',
     notice: 'Reservations lock the stock ledger, respect quality/expiry/availability, and remain linked to exact lots and positions.', listPath: '/api/v1/dispatch/allocations',
     collections: [{ key: 'data', label: 'Allocations', kind: 'allocation', detailPath: (record) => `/api/v1/dispatch/allocations/${record.id}`, columns: [{ label: 'Allocation', key: 'allocation_number' }, { label: 'Order', key: 'order_number' }, { label: 'Customer', key: 'customer_name' }, { label: 'Allocated', key: 'allocated_quantity', format: 'number' }, { label: 'Picked', key: 'picked_quantity', format: 'number' }, { label: 'FEFO lots', key: 'fefo_lot_count', format: 'number' }, { label: 'FEFO exceptions', key: 'fefo_break_count', format: 'number' }] }],
-    creators: [{ action: 'ALLOCATE', label: 'Allocate order', path: (workspace) => `/api/v1/dispatch/orders/${id(first(workspace, 'orders'))}/allocations`, expectedVersion: (workspace) => Number(value(first(workspace, 'orders'), 'record_version')) || undefined, available: (workspace) => Boolean(first(workspace, 'orders')), help: 'The server reserves FEFO stock for the selected confirmed order. Optional line quantities may be added.', schema: commercialSchemas.allocation, template: () => ({ allocation_number: number('ALLOC') }) }],
+    creators: [{
+      action: 'ALLOCATE',
+      label: 'Allocate order',
+      path: (_workspace, body) => `/api/v1/dispatch/orders/${encodeURIComponent(String(value(isBody(body) ? body : undefined, 'sales_order_id', '')))}/allocations`,
+      expectedVersion: (workspace, body) => {
+        const orderId = String(value(isBody(body) ? body : undefined, 'sales_order_id', ''));
+        const order = rows(workspace, 'orders').find((candidate) => id(candidate) === orderId);
+        return Number(value(order, 'record_version')) || undefined;
+      },
+      help: 'Select the confirmed sales order to reserve. The server then reserves released stock in FEFO order.',
+      schema: commercialSchemas.allocationCreate,
+      template: () => ({ sales_order_id: '', allocation_number: number('ALLOC') }),
+    }],
     resolveAction: (action, record) => { const base = `/api/v1/dispatch/allocations/${record.id}`; if (action === 'PICK') return run(`${base}/pick`, 'Allocation picked and stock evidence retained.', record); if (action === 'CANCEL') return edit('Cancel allocation', 'Cancellation releases all active reservations.', `${base}/cancel`, { reason: '' }, record, commercialSchemas.reason); if (action === 'CREATE_SHIPMENT') return edit('Create shipment', 'Create the controlled load from this picked allocation.', '/api/v1/dispatch/shipments', shipmentCommand(record.id), record, commercialSchemas.shipment); return null; },
   },
   'DSP-LOAD': {

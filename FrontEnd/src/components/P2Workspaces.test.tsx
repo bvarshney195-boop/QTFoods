@@ -74,11 +74,45 @@ describe('P2 commercial and finance workspaces', () => {
 
   it('creates an allocation from a live eligible order and forwards its source version', async () => {
     const user = userEvent.setup();
-    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { orders: [{ id: 'order-1', order_number: 'SO-UI-001', record_version: 7 }] }, allowed_actions: ['ALLOCATE'] });
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: { orders: [
+        { id: 'order-1', order_number: 'SO-UI-001', customer_name: 'Adnan Traders', record_version: 7 },
+        { id: 'order-2', order_number: 'SO-UI-002', customer_name: 'North Retail', record_version: 9 },
+      ] },
+      allowed_actions: ['ALLOCATE'],
+    });
     renderPage(<CommercialP2Workspace screen="DSP-PICK" />);
     await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const order = screen.getByLabelText('Sales Order') as HTMLSelectElement;
+    expect(order).toHaveValue('');
+    expect(Array.from(order.options).map((option) => option.text)).toEqual([
+      'Select sales order', 'SO-UI-001 · Adnan Traders', 'SO-UI-002 · North Retail',
+    ]);
+    await user.selectOptions(order, 'order-2');
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(api.commandP2).toHaveBeenCalledWith('/api/v1/dispatch/orders/order-1/allocations', expect.objectContaining({ allocation_number: expect.stringMatching(/^ALLOC-/) }), 7));
+    await waitFor(() => expect(api.commandP2).toHaveBeenCalledWith('/api/v1/dispatch/orders/order-2/allocations', expect.objectContaining({ sales_order_id: 'order-2', allocation_number: expect.stringMatching(/^ALLOC-/) }), 9));
+  });
+
+  it('shows the exact allocation failure instead of claiming an invisible field is highlighted', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(),
+      lookups: { orders: [{ id: 'order-1', order_number: 'SO-UI-001', customer_name: 'Adnan Traders', record_version: 7 }] },
+      allowed_actions: ['ALLOCATE'],
+    });
+    api.commandP2.mockRejectedValueOnce({
+      code: 'VALIDATION_ERROR', message: 'The submitted data was invalid.',
+      fields: { stock: ['Insufficient released FEFO stock for order line 1.'] },
+    });
+    renderPage(<CommercialP2Workspace screen="DSP-PICK" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.selectOptions(screen.getByLabelText('Sales Order'), 'order-1');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Insufficient released FEFO stock for order line 1.');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Check the highlighted field');
   });
 
   it('opens the credit form from the Credit control tab header action', async () => {
@@ -141,7 +175,7 @@ describe('P2 commercial and finance workspaces', () => {
       lookups: {
         statuses: ['DRAFT', 'RELEASED', 'COMPLETED', 'CANCELLED'], work_types: ['CO_PACKING'],
         providers: [{ id: 'provider-adnan', code: 'ADNAN', name: 'Adnan Traders' }],
-        sales_orders: [{ id: 'order-1', order_number: 'SO-UI-001', status: 'CONFIRMED' }],
+        sales_orders: [{ id: 'order-1', order_number: 'SO-UI-001', customer_name: 'North Retail', status: 'CONFIRMED' }],
       },
       allowed_actions: ['CREATE'],
     });
@@ -151,7 +185,7 @@ describe('P2 commercial and finance workspaces', () => {
     expect(screen.getByLabelText('Provider Party')).toHaveValue('');
     const salesOrder = screen.getByLabelText('Sales Order') as HTMLSelectElement;
     expect(salesOrder).toHaveValue('');
-    expect(Array.from(salesOrder.options).map((option) => option.text)).toContain('SO-UI-001');
+    expect(Array.from(salesOrder.options).map((option) => option.text)).toContain('SO-UI-001 · North Retail');
     expect(Array.from(salesOrder.options).map((option) => option.text)).not.toContain('ADNAN · Adnan Traders');
 
     const workType = screen.getByLabelText('Work Type') as HTMLSelectElement;
@@ -167,6 +201,48 @@ describe('P2 commercial and finance workspaces', () => {
     document.removeEventListener('keydown', documentKeyDown);
     expect(description).toHaveValue('Contract packing batch');
     expect(documentKeyDown.mock.calls.some(([event]) => (event as KeyboardEvent).key === ' ')).toBe(false);
+  });
+
+  it('starts sales orders and customer contracts without silently selecting a customer', async () => {
+    const user = userEvent.setup();
+    const lookups = {
+      customers: [{ id: 'customer-adnan', code: 'ADNAN', name: 'Adnan Traders' }],
+      items: [{ id: 'item-1', code: 'BREAD', name: 'Bread', base_uom: 'EA' }],
+      contracts: [{ id: 'contract-1', contract_number: 'CON-1', customer_party_id: 'customer-adnan', customer_name: 'Adnan Traders' }],
+      price_lists: [], leads: [],
+    };
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups, allowed_actions: ['CREATE'] });
+    const orders = renderPage(<CommercialP2Workspace screen="CRM-ORDER" />);
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const orderCustomer = screen.getByLabelText('Customer') as HTMLSelectElement;
+    expect(orderCustomer).toHaveValue('');
+    expect(Array.from(orderCustomer.options).map((option) => option.text)).toContain('ADNAN · Adnan Traders');
+    expect(screen.getByLabelText('Sales contract')).toHaveValue('');
+    orders.unmount();
+
+    api.listP2.mockResolvedValue({
+      ...emptyWorkspace(), lookups, allowed_actions: ['CREATE_PRICE_LIST', 'CREATE_CONTRACT', 'MANAGE_CREDIT'],
+    });
+    renderPage(<CommercialP2Workspace screen="CRM-PRICE" />);
+    await user.click(await screen.findByRole('button', { name: 'Contracts' }));
+    await user.click(screen.getByRole('button', { name: '+ New' }));
+    expect(screen.getByLabelText('Customer')).toHaveValue('');
+  });
+
+  it('uses the contracted-work identifier as the record heading', async () => {
+    const user = userEvent.setup();
+    const work = {
+      id: 'work-1', work_number: 'TPW-UI-009', sales_order_id: 'order-1', order_number: 'SO-UI-001',
+      provider_name: 'Packing Partner', work_type: 'CO_PACKING', status: 'DRAFT', record_version: 1,
+      allowed_actions: [],
+    };
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), data: [work] });
+    api.getP2.mockResolvedValue(work);
+    renderPage(<CommercialP2Workspace screen="CON-WORK" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'TPW-UI-009' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'SO-UI-001' })).not.toBeInTheDocument();
   });
 
   it('limits lead conversion paths to conversion methods', async () => {
@@ -203,7 +279,7 @@ describe('P2 commercial and finance workspaces', () => {
 
     await user.click(await screen.findByRole('button', { name: '+ New' }));
     const order = screen.getByLabelText('Order') as HTMLSelectElement;
-    expect(Array.from(order.options).map((option) => option.text)).toEqual(['No order', 'SO-UI-001', 'SO-UI-002']);
+    expect(Array.from(order.options).map((option) => option.text)).toEqual(['No order', 'SO-UI-001 · Adnan Traders', 'SO-UI-002 · North Retail']);
   });
 
   it('keeps sales-order UOM mapped to the selected item master', async () => {
@@ -270,6 +346,7 @@ describe('P2 commercial and finance workspaces', () => {
     api.commandP2.mockReturnValueOnce(new Promise((resolve) => { resolveCommand = resolve; }));
     renderPage(<CommercialP2Workspace screen="DSP-PICK" />);
     await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.selectOptions(screen.getByLabelText('Sales Order'), 'order-1');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     const saving = await screen.findByRole('button', { name: 'Saving…' });
@@ -299,12 +376,13 @@ describe('P2 commercial and finance workspaces', () => {
     renderPage(<CommercialP2Workspace screen="CRM-ORDER" />);
 
     await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.selectOptions(screen.getByLabelText('Customer'), 'customer-1');
     const quantity = screen.getByLabelText('Quantity');
     await user.clear(quantity);
     await user.type(quantity, '0');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Check the highlighted field.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Quantity must be greater than 0.');
     expect(screen.getByText('Quantity must be greater than 0.')).toBeInTheDocument();
     expect(quantity).toHaveAttribute('aria-invalid', 'true');
     expect(quantity).toHaveAttribute('aria-describedby', expect.stringContaining('field-error-lines-0-quantity'));

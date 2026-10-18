@@ -398,7 +398,15 @@ final class ProductMasterQuery
                 ])->all(),
             'brands' => $reference(DB::table('brands')->where('company_id', $companyId)),
             'items' => $reference(DB::table('catalog_items')->where('company_id', $companyId)),
-            'skus' => $reference(DB::table('items')->where('company_id', $companyId)),
+            'skus' => DB::table('items')->where('company_id', $companyId)->orderBy('code')
+                ->get(['id', 'code', 'name', 'status', 'base_uom'])
+                ->map(fn (object $row) => [
+                    'id' => (string) $row->id,
+                    'code' => (string) $row->code,
+                    'name' => (string) $row->name,
+                    'status' => (string) $row->status,
+                    'base_uom' => (string) $row->base_uom,
+                ])->all(),
             'parties' => DB::table('parties')->where('company_id', $companyId)->orderBy('code')
                 ->get(['id', 'code', 'display_name as name', 'status'])
                 ->map(fn (object $row) => [
