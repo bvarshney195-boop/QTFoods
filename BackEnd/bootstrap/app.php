@@ -68,9 +68,11 @@ return Application::configure(basePath: dirname(__DIR__))
                         422 => 'VALIDATION_FAILED',
                         429 => 'TOO_MANY_REQUESTS',
                     ];
-                    $message = $status >= 500
-                        ? 'An unexpected server error occurred.'
-                        : ($payload['message'] ?? Response::$statusTexts[$status] ?? 'Request failed.');
+                    $message = ! empty($payload['errors'])
+                        ? 'Please correct the highlighted fields.'
+                        : ($status >= 500
+                            ? 'An unexpected server error occurred.'
+                            : ($payload['message'] ?? Response::$statusTexts[$status] ?? 'Request failed.'));
                     $error = ['code' => $codes[$status] ?? 'HTTP_'.$status, 'message' => $message];
                     if (! empty($payload['errors'])) {
                         $error['fields'] = $payload['errors'];

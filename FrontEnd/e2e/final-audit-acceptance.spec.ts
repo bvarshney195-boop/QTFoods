@@ -145,18 +145,21 @@ test('audited register layout and design contract hold at 1920, 1366, 768 and 39
   expect(tableContract).toEqual({ first: 'sticky', firstLeft: '0px', last: 'sticky', lastRight: '0px', overflow: 'auto' });
 
   await page.locator('.p2-register tbody').getByRole('button', { name: 'Open' }).first().click();
-  const editDrawer = page.getByRole('dialog', { name: 'Update sales order' });
-  const desktopDrawer = await editDrawer.evaluate((element) => element.getBoundingClientRect().width);
+  const recordDrawer = page.getByRole('dialog', { name: 'Record details' });
+  const desktopDrawer = await recordDrawer.evaluate((element) => element.getBoundingClientRect().width);
   expect(desktopDrawer).toBeGreaterThanOrEqual(480);
   expect(desktopDrawer).toBeLessThanOrEqual(640);
+  await expect(recordDrawer.getByText('North Market Distributor', { exact: true }).first()).toBeVisible();
+  await expect(recordDrawer.locator('.technical-details').getByText('00000000-0000-4000-8000-000000000201', { exact: true }).first()).toBeHidden();
+
+  await recordDrawer.getByRole('button', { name: 'Update', exact: true }).click();
+  const editDrawer = page.getByRole('dialog', { name: 'Update sales order' });
   await expect(editDrawer.getByLabel('Customer', { exact: true })).toHaveValue('00000000-0000-4000-8000-000000000501');
   await expect(editDrawer.getByLabel('Customer', { exact: true }).locator('option:checked')).toHaveText('DIST-NORTH · North Market Distributor');
   await expect(editDrawer.getByText('00000000-0000-4000-8000-000000000201', { exact: true })).toHaveCount(0);
   await editDrawer.getByRole('button', { name: 'Close', exact: true }).click();
 
-  const recordDrawer = page.getByRole('dialog', { name: 'Record details' });
-  await expect(recordDrawer.getByText('North Market Distributor', { exact: true }).first()).toBeVisible();
-  await expect(recordDrawer.locator('.technical-details').getByText('00000000-0000-4000-8000-000000000201', { exact: true }).first()).toBeHidden();
+  await expect(recordDrawer).toBeVisible();
   await page.getByRole('button', { name: 'Close record details' }).click();
 
   await page.getByRole('button', { name: '+ New', exact: true }).click();

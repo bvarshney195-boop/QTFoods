@@ -30,10 +30,10 @@ export type P2Workspace = {
 };
 
 export type P2CommandResult = {
-  id: string;
+  id?: string;
   entity_type?: string;
-  status: string;
-  record_version: number;
+  status?: string;
+  record_version?: number;
   [key: string]: unknown;
 };
 

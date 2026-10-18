@@ -5,6 +5,7 @@ namespace App\Modules\Scale\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Units\UomQuantityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ final class OptimisationService
         private readonly IdempotencyService $idempotency,
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
+        private readonly UomQuantityService $uomQuantities,
     ) {}
 
     public function create(array $data): array
@@ -125,11 +127,16 @@ final class OptimisationService
                 if (bccomp($available, '0', 6) < 0) {
                     $available = '0.000000';
                 }
+                $available = $this->uomQuantities->roundDown($available, $line->uom_code, 'recommendations.available_quantity');
                 $demandQuantity = $this->decimal($line->demand_quantity);
                 $safety = $line->demand_type === 'SAFETY_STOCK'
                     ? '0.000000'
                     : bcdiv($this->decimal($input->safety_stock_percent), '100', 6);
-                $target = bcround(bcmul($demandQuantity, bcadd('1', $safety, 6), 12), 6);
+                $target = $this->uomQuantities->roundUp(
+                    bcmul($demandQuantity, bcadd('1', $safety, 6), 12),
+                    $line->uom_code,
+                    'recommendations.target_quantity',
+                );
                 $stock = bccomp($available, $target, 6) >= 0 ? $target : $available;
                 $production = bcsub($target, $stock, 6);
                 $allocated[$key] = bcadd($alreadyAllocated, $stock, 6);

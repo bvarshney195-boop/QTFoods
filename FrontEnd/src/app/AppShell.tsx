@@ -10,6 +10,7 @@ import { useEditorActionReveal } from './useEditorActionReveal';
 import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
 import { useResponsiveDataTables } from './useResponsiveDataTables';
 import { roleLabel, screenLabel } from '../utils/displayText';
+import { PageLoadBoundary } from './PageLoadBoundary';
 
 const navigationSections = [
   { key: 'Foundation / Admin', label: 'Home & Administration' },
@@ -285,11 +286,13 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
 
         <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={-1}>
           <ErpSessionContext.Provider value={session}>
-            <Suspense fallback={<section className="panel page-loading" role="status" aria-live="polite"><span aria-hidden="true"></span><b>Opening workspace…</b></section>}>
-              {CurrentPage ? <CurrentPage /> : (
-                <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
-              )}
-            </Suspense>
+            <PageLoadBoundary key={screenCode} screenCode={screenCode}>
+              <Suspense fallback={<section className="panel page-loading" role="status" aria-live="polite"><span aria-hidden="true"></span><b>Opening workspace…</b></section>}>
+                {CurrentPage ? <CurrentPage /> : (
+                  <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
+                )}
+              </Suspense>
+            </PageLoadBoundary>
           </ErpSessionContext.Provider>
         </main>
       </section>

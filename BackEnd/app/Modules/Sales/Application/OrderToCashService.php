@@ -6,6 +6,7 @@ use App\Modules\Inventory\Application\StockPostingService;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Units\UomQuantityService;
 use App\Shared\Visibility\TransactionVisibilityPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
@@ -35,6 +36,7 @@ final class OrderToCashService
         private readonly OutboxService $outbox,
         private readonly StockPostingService $stock,
         private readonly TransactionVisibilityPolicy $visibility,
+        private readonly UomQuantityService $uomQuantities,
     ) {}
 
     public function backfillProfitabilityCosts(array $data): array
@@ -433,6 +435,12 @@ final class OrderToCashService
             $lines = DB::table('sales_order_lines')->where('sales_order_id', $id)->lockForUpdate()->get();
             if ($lines->isEmpty()) throw new ConflictHttpException('The sales order has no lines.');
             foreach ($lines as $line) {
+                $this->uomQuantities->assertPrecision(
+                    $line->ordered_quantity,
+                    $line->uom_code,
+                    'lines.'.max(0, (int) $line->line_number - 1).'.quantity',
+                    'Order quantity',
+                );
                 if ($line->sales_contract_line_id) {
                     $contractLine = DB::table('sales_contract_lines')->where('id', $line->sales_contract_line_id)->lockForUpdate()->first();
                     if (! $contractLine || bccomp(bcadd((string) $contractLine->consumed_quantity, (string) $line->ordered_quantity, 6), (string) $contractLine->committed_quantity, 6) > 0) {
@@ -1362,6 +1370,12 @@ final class OrderToCashService
             $seen[$key] = true;
             $item = $this->assertItem($input['item_id'], $input['uom_code'], $data);
             $quantity = $this->positive($input['quantity'], 'lines', 'Order quantity');
+            $quantity = $this->uomQuantities->assertPrecision(
+                $quantity,
+                $input['uom_code'],
+                "lines.{$index}.quantity",
+                'Order quantity',
+            );
             $contractLine = $contract ? DB::table('sales_contract_lines')->where('sales_contract_id', $contract->id)
                 ->where('item_id', $input['item_id'])->where('uom_code', $input['uom_code'])->first() : null;
             $priceLine = $priceList ? DB::table('sales_price_list_lines')->where('sales_price_list_id', $priceList->id)

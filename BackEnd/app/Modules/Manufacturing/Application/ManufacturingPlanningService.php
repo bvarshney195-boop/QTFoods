@@ -5,6 +5,7 @@ namespace App\Modules\Manufacturing\Application;
 use App\Shared\Audit\AuditService;
 use App\Shared\Idempotency\IdempotencyService;
 use App\Shared\Outbox\OutboxService;
+use App\Shared\Units\UomQuantityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ final class ManufacturingPlanningService
         private readonly AuditService $audit,
         private readonly OutboxService $outbox,
         private readonly RecipeYieldService $recipeYield,
+        private readonly UomQuantityService $uomQuantities,
     ) {}
 
     public function createDemand(array $data): array
@@ -625,11 +627,18 @@ final class ManufacturingPlanningService
                     "lines.{$index}.demand_date" => ['Demand date must fall inside the plan horizon.'],
                 ]);
             }
+            $quantity = $this->positive($line['quantity'], "lines.{$index}.quantity", 'Demand quantity');
+            $quantity = $this->uomQuantities->assertPrecision(
+                $quantity,
+                (string) $item->base_uom,
+                "lines.{$index}.quantity",
+                'Demand quantity',
+            );
             $lines[] = [
                 'output_sku_id' => (string) $item->id,
                 'demand_date' => $date,
                 'demand_type' => Str::upper((string) $line['demand_type']),
-                'quantity' => $this->positive($line['quantity'], "lines.{$index}.quantity", 'Demand quantity'),
+                'quantity' => $quantity,
                 'uom_code' => (string) $item->base_uom,
                 'notes' => $this->nullable($line['notes'] ?? null),
             ];

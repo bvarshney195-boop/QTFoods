@@ -125,6 +125,38 @@ final class OptimisationPlanningEndpointTest extends TestCase
         $this->assertDatabaseHas('mrp_runs', ['id' => $mrpId, 'demand_plan_id' => $demandId]);
     }
 
+    public function test_discrete_uom_demand_and_recommendations_never_produce_fractional_units(): void
+    {
+        DB::table('stock_positions')->where('item_id', self::FINISHED_SKU)->update([
+            'quantity_base' => 0,
+            'reserved_quantity_base' => 0,
+        ]);
+
+        $fractional = $this->command()->postJson(
+            '/api/v1/planning/demand',
+            $this->demandPayload('DEMAND-FRACTIONAL-PACK', '15.5'),
+        )->assertUnprocessable();
+        $this->assertSame(
+            'Demand quantity for PACK must use whole units.',
+            $fractional->json()['error']['fields']['lines.0.quantity'][0] ?? null,
+        );
+
+        [$demandId] = $this->releasedDemand('OPT-WHOLE-PACK', '15');
+        $payload = $this->optimisationPayload('OPT-WHOLE-PACK', $demandId);
+        $payload['safety_stock_percent'] = '10';
+        $created = $this->command()->postJson('/api/v1/optimisation/plans', $payload)->assertCreated();
+        $planId = (string) $created->json('data.id');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/optimisation/plans/'.$planId.'/generate')
+            ->assertOk()
+            ->assertJsonPath('data.production_quantity', '17.000000');
+        $this->getJson('/api/v1/optimisation/plans/'.$planId)
+            ->assertOk()
+            ->assertJsonPath('data.recommendations.0.uom_code', 'PACK')
+            ->assertJsonPath('data.recommendations.0.target_quantity', '17.000000')
+            ->assertJsonPath('data.recommendations.0.production_quantity', '17.000000');
+    }
+
     public function test_rejection_requires_a_new_immutable_input_and_preserves_review_history(): void
     {
         [$demandId] = $this->releasedDemand('OPT-REVISION', '100');

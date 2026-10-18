@@ -11,6 +11,7 @@ import { StructuredCommandForm, validateStructuredCommand, type StructuredComman
 import { formatBusinessDate, formatZonedDateTime } from '../utils/dateTime';
 import { changeTransactionVisibility } from '../api/transactionVisibility';
 import { TransactionVisibilityControl, TRANSACTION_VISIBILITY_HELPER } from './TransactionVisibilityControl';
+import { normaliseApiFieldErrors } from '../utils/validationMessages';
 
 export type P2Column = { label: string; key: string; format?: 'date' | 'datetime' | 'money' | 'unitCost' | 'number' | 'text' };
 export type P2Collection = { key: string; label: string; columns: P2Column[]; detailPath?: (record: P2Record) => string; kind?: string; showStatus?: boolean; visibilityType?: string };
@@ -23,6 +24,7 @@ export type P2Creator = {
   schema: StructuredCommandSchema;
   expectedVersion?: (workspace: P2Workspace, body: unknown) => number | undefined;
   available?: (workspace: P2Workspace) => boolean;
+  unavailableReason?: (workspace: P2Workspace) => string;
 };
 export type P2EditorSpec = { label: string; help: string; path: string; body: unknown; schema: StructuredCommandSchema; expectedVersion?: number };
 export type P2RunSpec = { path: string; body?: unknown; expectedVersion?: number; success: string };
@@ -87,7 +89,8 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     return Array.isArray(values) ? values.map((value) => ({ ...(value as P2Record), _kind: collection?.kind ?? collection?.key, _visibility_type: collection?.visibilityType })) : [];
   }, [collection, workspace]);
   const statuses = useMemo(() => Array.from(new Set(records.map((record) => String(record.status ?? '')).filter(Boolean))).sort(), [records]);
-  const availableCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action) && (!creator.available || creator.available(workspace!))));
+  const permittedCreators = (config.creators ?? []).filter((creator) => Boolean(workspace?.allowed_actions?.includes(creator.action)));
+  const hasUnavailableCreator = permittedCreators.some((creator) => Boolean(workspace && creator.available && !creator.available(workspace)));
   const collectionIndex = config.collections.findIndex((item) => item.key === collectionKey);
   const configuredCreator = config.creators?.[collectionIndex] ?? config.creators?.[0];
   const contextualCreator = configuredCreator
@@ -115,9 +118,6 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
 
   function openLoadedRecord(record: P2Record) {
     setSelected(record);
-    if (!record.allowed_actions?.includes('UPDATE') || !workspace || !config.resolveAction) return;
-    const update = config.resolveAction('UPDATE', record, workspace);
-    if (update && 'editor' in update) setEditor(update.editor);
   }
 
   function startCreator(creator: P2Creator) {
@@ -163,6 +163,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
         editor.resolveExpectedVersion?.(editor.body) ?? editor.expectedVersion,
       );
       if (editor.restrictEntry && editor.visibilityType) {
+        if (!result.id) throw new Error('The record was saved without an identifier, so its visibility could not be changed.');
         try {
           await changeTransactionVisibility(editor.visibilityType, result.id, 'RESTRICTED', 0);
         } catch (visibilityError) {
@@ -171,7 +172,7 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
           return;
         }
       }
-      setEditor(null); setSelected(null); setFeedback({ error: null, success: `${editor.label} saved successfully. Current status: ${label(result.status)}.`, fields: {} });
+      setEditor(null); setSelected(null); setFeedback({ error: null, success: commandSuccess(editor.label, result), fields: {} });
       await refresh();
     } catch (error) { setFailure(setFeedback, error, `Unable to complete ${editor.label.toLowerCase()}.`); }
     finally { setBusy(false); }
@@ -224,10 +225,15 @@ export function GovernedP2Workspace({ config }: { config: GovernedP2Config }) {
     <details className="business-guidance"><summary>How this workspace works</summary><p>{config.notice}</p></details>
     {workspace?.operational_view ? <div className="live-notice visibility-view-label"><span />{workspace.operational_view.label}</div> : null}
     {workspace?.summary ? <SummaryStrip summary={workspace.summary} /> : null}
-    {config.collections.length > 1 || availableCreators.length > 1 ? <div className="workspace-tabs p2-command-tabs">
+    {config.collections.length > 1 || permittedCreators.length > 1 || hasUnavailableCreator ? <div className="workspace-tabs p2-command-tabs">
       {config.collections.map((item) => <button key={item.key} className={item.key === collectionKey ? 'active' : ''} onClick={() => { setCollectionKey(item.key); setSelected(null); setEditor(null); setStatus(''); }}>{item.label}</button>)}
       <i />
-      {availableCreators.map((creator) => <button key={`${creator.action}:${creator.label}`} className="p2-create-command" onClick={() => startCreator(creator)}>+ {creator.label}</button>)}
+      {permittedCreators.map((creator) => {
+        const reason = workspace && creator.available && !creator.available(workspace)
+          ? creator.unavailableReason?.(workspace) ?? 'Required setup records are not available in the selected company and workplace.'
+          : null;
+        return <button key={`${creator.action}:${creator.label}`} className="p2-create-command" aria-disabled={Boolean(reason)} title={reason ?? undefined} onClick={() => reason ? setFeedback({ error: reason, success: null, fields: {} }) : startCreator(creator)}>+ {creator.label}</button>;
+      })}
     </div> : null}
     <div className="p2-workspace" aria-busy={loading}>
       <section className="panel p2-register-panel">
@@ -350,9 +356,17 @@ function businessIdentifier(record: P2Record): string { for (const key of ['work
 function renderValue(value: unknown, format: P2Column['format'] = 'text'): ReactNode { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'object') return Array.isArray(value) ? `${value.length} records` : Object.values(value as Record<string, unknown>).filter((item) => typeof item === 'string').slice(0, 2).join(' · '); if (format === 'money') return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0); if (format === 'unitCost') return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'number') return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 }).format(Number(value) || 0); if (format === 'date') return formatBusinessDate(String(value)); if (format === 'datetime') return formatZonedDateTime(String(value)); if (typeof value === 'boolean') return value ? 'Yes' : 'No'; return String(value); }
 function clear(): Feedback { return { error: null, success: null, fields: {} }; }
 function failureMessage(error: unknown, fallback: string): string { const api = isApiError(error) ? error : null; return api?.message ?? (error instanceof Error ? error.message : fallback); }
-function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const fields: Record<string, string> = {}; Object.entries(api?.fields ?? {}).forEach(([key, values]) => { fields[key] = quantityError(key, values[0] ?? ''); }); const hasFields = Object.keys(fields).length > 0; setter({ error: hasFields ? firstFieldError(fields) : api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); if (hasFields) focusFirstInvalid(fields); }
-function quantityError(path: string, message: string): string { return /(?:^|\.)quantity$/.test(path) && /(greater than|gt|at least|positive)/i.test(message) ? 'Quantity must be greater than 0.' : message.replace(/^(?:lines\.)?\d+\./, ''); }
+function setFailure(setter: (value: Feedback) => void, error: unknown, fallback: string) { const api = isApiError(error) ? error : null; const normalised = normaliseApiFieldErrors(api?.fields); const fields: Record<string, string> = {}; Object.entries(normalised ?? {}).forEach(([key, values]) => { fields[key] = values[0] ?? ''; }); const hasFields = Object.keys(fields).length > 0; setter({ error: hasFields ? firstFieldError(fields) : api?.message ?? (error instanceof Error ? error.message : fallback), success: null, fields }); if (hasFields) focusFirstInvalid(fields); }
 function firstFieldError(fields: Record<string, string>): string { const reason = Object.values(fields).find((message) => message.trim()); return reason ? `Unable to save: ${reason}` : 'Unable to save: correct the invalid entry.'; }
 function focusFirstInvalid(fields: Record<string, string>) { const path = Object.keys(fields)[0]; if (!path) return; window.requestAnimationFrame(() => { const candidates = path.split('.').map((_, index, parts) => parts.slice(0, parts.length - index).join('.')); const target = candidates.map((candidate) => { const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(candidate) : candidate.replace(/["\\]/g, '\\$&'); return document.querySelector<HTMLElement>(`[data-field-path="${escaped}"]`); }).find(Boolean); target?.focus(); }); }
 function collectionContainsId(value: unknown, id: string): boolean { return Array.isArray(value) && value.some((item) => item && typeof item === 'object' && String((item as Record<string, unknown>).id ?? '') === id); }
 function saveBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url); }
+function commandSuccess(commandLabel: string, result: Record<string, unknown>): string {
+  if (typeof result.status === 'string' && result.status.trim()) return `${commandLabel} saved successfully. Current status: ${label(result.status)}.`;
+  if (typeof result.updated_count === 'number' || typeof result.unavailable_count === 'number') {
+    const updated = Number(result.updated_count ?? 0);
+    const unavailable = Number(result.unavailable_count ?? 0);
+    return `${commandLabel} completed: ${updated} line${updated === 1 ? '' : 's'} updated; ${unavailable} line${unavailable === 1 ? '' : 's'} had no finalized cost.`;
+  }
+  return `${commandLabel} completed successfully.`;
+}

@@ -55,6 +55,39 @@ final class OrderToCashEndpointTest extends TestCase
         $this->assertDatabaseHas('party_contacts', ['party_id' => $customerId, 'email' => 'buyer@fresh-retail.example', 'is_primary' => true]);
     }
 
+    public function test_sales_orders_reject_fractional_quantities_for_whole_unit_uoms_at_capture_and_confirmation(): void
+    {
+        $payload = [
+            'order_number' => 'SO-WHOLE-UNIT-001', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Whole-unit UOM acceptance case.',
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '1.5', 'discount_percent' => '0']],
+        ];
+
+        $capture = $this->command()->postJson('/api/v1/sales/orders', $payload)
+            ->assertUnprocessable();
+        $this->assertSame(
+            'Order quantity for PACK must use whole units.',
+            $capture->json()['error']['fields']['lines.0.quantity'][0] ?? null,
+        );
+
+        $payload['order_number'] = 'SO-WHOLE-UNIT-LEGACY';
+        $payload['lines'][0]['quantity'] = '2';
+        $draft = $this->command()->postJson('/api/v1/sales/orders', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $orderId = (string) $draft->json('data.id');
+        DB::table('sales_order_lines')->where('sales_order_id', $orderId)->update(['ordered_quantity' => '1.5']);
+
+        $confirmation = $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertUnprocessable();
+        $this->assertSame(
+            'Order quantity for PACK must use whole units.',
+            $confirmation->json()['error']['fields']['lines.0.quantity'][0] ?? null,
+        );
+        $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'DRAFT', 'record_version' => 1]);
+    }
+
     public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
     {
         $lead = $this->command()->postJson('/api/v1/sales/leads', [
@@ -172,6 +205,7 @@ final class OrderToCashEndpointTest extends TestCase
             ->assertJsonPath('summary.margin_status', 'PARTIAL_COST_COVERAGE');
         $this->assertNotNull($partialProfitability->json('data.0.known_gross_margin'));
 
+        [$productionScheduleId, $productionScheduleLineId] = $this->createCostBackfillScheduleFixture();
         $productionOrderId = (string) Str::uuid();
         DB::table('production_orders')->insert([
             'id' => $productionOrderId,
@@ -182,8 +216,8 @@ final class OrderToCashEndpointTest extends TestCase
             'created_by' => self::FINANCE_ID,
             'order_number' => 'PROD-COST-BACKFILL-001',
             'batch_number' => 'BATCH-COST-BACKFILL-001',
-            'production_schedule_id' => null,
-            'production_schedule_line_id' => null,
+            'production_schedule_id' => $productionScheduleId,
+            'production_schedule_line_id' => $productionScheduleLineId,
             'output_sku_id' => self::ITEM_ID,
             'recipe_id' => '00000000-0000-4000-8000-000000000911',
             'route_id' => '00000000-0000-4000-8000-000000000921',
@@ -329,6 +363,62 @@ final class OrderToCashEndpointTest extends TestCase
         $this->signIn(self::ADMIN_ID, self::OTHER_PLANT_ID);
         $this->getJson('/api/v1/sales/price-lists/'.$priceId)->assertNotFound();
         $this->getJson('/api/v1/sales/pricing')->assertOk()->assertJsonMissing(['list_number' => 'PL-P2-SPECIAL']);
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function createCostBackfillScheduleFixture(): array
+    {
+        $demandPlanId = (string) Str::uuid();
+        $demandLineId = (string) Str::uuid();
+        $mrpRunId = (string) Str::uuid();
+        $plannedOrderId = (string) Str::uuid();
+        $scheduleId = (string) Str::uuid();
+        $scheduleLineId = (string) Str::uuid();
+        $today = now()->toDateString();
+        $timestamps = ['created_at' => now(), 'updated_at' => now()];
+
+        DB::table('demand_plans')->insert([
+            'id' => $demandPlanId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'plan_number' => 'DEMAND-COST-BACKFILL-001', 'name' => 'Cost backfill test demand',
+            'horizon_start' => $today, 'horizon_end' => $today, 'status' => 'DRAFT',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID,
+        ] + $timestamps);
+        DB::table('demand_plan_lines')->insert([
+            'id' => $demandLineId, 'demand_plan_id' => $demandPlanId,
+            'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID, 'line_number' => 1,
+            'output_sku_id' => self::ITEM_ID, 'demand_date' => $today, 'demand_type' => 'FIRM',
+            'quantity' => 100, 'uom_code' => 'PACK',
+        ] + $timestamps);
+        DB::table('mrp_runs')->insert([
+            'id' => $mrpRunId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'run_number' => 'MRP-COST-BACKFILL-001', 'demand_plan_id' => $demandPlanId,
+            'demand_plan_version_snapshot' => 1, 'run_date' => $today, 'status' => 'COMPLETED',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID, 'completed_at' => now(),
+        ] + $timestamps);
+        DB::table('mrp_planned_orders')->insert([
+            'id' => $plannedOrderId, 'mrp_run_id' => $mrpRunId, 'demand_plan_id' => $demandPlanId,
+            'demand_plan_line_id' => $demandLineId, 'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID, 'line_number' => 1, 'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911', 'recipe_revision_snapshot' => 1,
+            'due_date' => $today, 'planned_quantity' => 100, 'uom_code' => 'PACK',
+        ] + $timestamps);
+        DB::table('production_schedules')->insert([
+            'id' => $scheduleId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'schedule_number' => 'SCHED-COST-BACKFILL-001', 'mrp_run_id' => $mrpRunId,
+            'horizon_start' => $today, 'horizon_end' => $today, 'status' => 'DRAFT',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID,
+        ] + $timestamps);
+        DB::table('production_schedule_lines')->insert([
+            'id' => $scheduleLineId, 'production_schedule_id' => $scheduleId, 'mrp_run_id' => $mrpRunId,
+            'mrp_planned_order_id' => $plannedOrderId, 'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID, 'line_number' => 1, 'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911',
+            'route_id' => '00000000-0000-4000-8000-000000000921', 'planned_quantity' => 100,
+            'uom_code' => 'PACK', 'planned_start_date' => $today, 'planned_end_date' => $today,
+            'is_active' => true,
+        ] + $timestamps);
+
+        return [$scheduleId, $scheduleLineId];
     }
 
     private function signIn(string $userId, string $plantId = self::PLANT_ID): void

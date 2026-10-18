@@ -126,13 +126,16 @@ describe('inbound procure-to-pay workspaces', () => {
     expect(await screen.findByText('Rejected stock returned to the supplier.')).toBeInTheDocument();
   });
 
-  it('opens every editable inbound draft directly in its edit form', async () => {
+  it('opens inbound details first and enters editing only from the explicit edit action', async () => {
     const user = userEvent.setup();
 
     apiMocks.listGateEntries.mockResolvedValue(gateWorkspace([gate()]));
     apiMocks.getGateEntry.mockResolvedValue(gate());
     const gateView = renderPage(<GateEntryWorkspace />);
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Edit draft' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit draft' }));
     expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
     expect(screen.getByLabelText('Issued purchase order')).toHaveValue('po-1');
     gateView.unmount();
@@ -141,6 +144,8 @@ describe('inbound procure-to-pay workspaces', () => {
     apiMocks.getReceipt.mockResolvedValue(receipt());
     const receiptView = renderPage(<GoodsReceiptWorkspace />);
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Post document' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit draft' }));
     expect(await screen.findByRole('button', { name: 'Save draft GRN' })).toBeInTheDocument();
     expect(screen.getByLabelText('Arrived gate entry')).toHaveValue('gate-1');
     receiptView.unmount();
@@ -149,8 +154,31 @@ describe('inbound procure-to-pay workspaces', () => {
     apiMocks.getSupplierReturn.mockResolvedValue(supplierReturn());
     renderPage(<SupplierReturnWorkspace />);
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Post document' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit draft' }));
     expect(await screen.findByRole('button', { name: 'Save draft return' })).toBeInTheDocument();
     expect(screen.getByLabelText('Rejected QC lot')).toHaveValue('qc-line-1');
+  });
+
+  it('names and highlights missing GRN locations without exposing internal field paths', async () => {
+    const user = userEvent.setup();
+    const workspace = receiptWorkspace();
+    workspace.lookups.quality_hold_locations = [];
+    workspace.lookups.released_locations = [];
+    apiMocks.listReceipts.mockResolvedValue(workspace);
+    renderPage(<GoodsReceiptWorkspace />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.selectOptions(screen.getByLabelText('Arrived gate entry'), 'gate-1');
+    await user.type(screen.getByLabelText('GRN number'), 'GRN-MISSING-LOCATION');
+    await user.type(screen.getByLabelText('Line 1 internal lot'), 'LOT-MISSING-LOCATION');
+    await user.click(screen.getByRole('button', { name: 'Create draft GRN' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a Quality Hold location.');
+    expect(screen.getByRole('combobox', { name: /Quality Hold/i })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Choose a released store location.')).toBeInTheDocument();
+    expect(screen.queryByText(/lines\.0\.|quality_hold_location_id|released_location_id/i)).not.toBeInTheDocument();
+    expect(apiMocks.createReceipt).not.toHaveBeenCalled();
   });
 });
 

@@ -460,3 +460,4 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
 .required-password-card{width:min(620px,100%)}
 .required-password-card h1{margin:8px 0;color:var(--navy)}
 .required-password-card>p{color:var(--muted);overflow-wrap:anywhere}
+.page-load-error{min-height:220px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:24px}.page-load-error>span{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:#FFF1F1;color:var(--bad);font-weight:900}.page-load-error h1{margin:0;color:var(--navy);font-size:18px}.page-load-error p{margin:7px 0 0;color:var(--muted);line-height:1.5}.page-load-error button{white-space:nowrap}@media(max-width:700px){.page-load-error{grid-template-columns:auto minmax(0,1fr)}.page-load-error button{grid-column:1/-1;width:100%}}

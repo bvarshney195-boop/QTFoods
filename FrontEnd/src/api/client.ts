@@ -1,3 +1,5 @@
+import { firstApiFieldError, normaliseApiFieldErrors } from '../utils/validationMessages';
+
 export type ApiError = {
   code: string;
   message: string;
@@ -127,9 +129,15 @@ async function throwResponseError(path: string, response: Response): Promise<nev
   } catch {
     // ignore malformed error body
   }
-  const error = payload?.error ?? {
+  const source = payload?.error ?? {
     code: `HTTP_${response.status}`,
     message: 'Request failed.',
+  };
+  const fields = normaliseApiFieldErrors(source.fields);
+  const error: ApiError = {
+    ...source,
+    fields,
+    message: firstApiFieldError(fields) ?? source.message,
   };
 
   if (typeof window !== 'undefined' && path !== '/api/v1/me') {

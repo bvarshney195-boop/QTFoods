@@ -56,7 +56,7 @@ describe('P2 commercial and finance workspaces', () => {
     expect(await screen.findByText('Lead qualified.')).toBeInTheDocument();
   });
 
-  it('opens an editable governed record directly in its update form', async () => {
+  it('opens record details first and keeps lifecycle actions beside an explicit update action', async () => {
     const user = userEvent.setup();
     const lead = { id: 'lead-edit', lead_number: 'LEAD-EDIT-001', company_name: 'North Market', contact_name: 'Commercial Desk', contact_email: 'buyer@example.test', source: 'DIRECT', enquiry_date: '2026-09-13', estimated_value: '25000', status: 'NEW', record_version: 4, allowed_actions: ['UPDATE', 'QUALIFY'] };
     api.listP2.mockResolvedValue({ ...emptyWorkspace(), data: [lead], lookups: { sources: ['DIRECT', 'REFERRAL'], customers: [] } });
@@ -65,11 +65,11 @@ describe('P2 commercial and finance workspaces', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
 
+    expect(await screen.findByRole('dialog', { name: 'Record details' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Qualify' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Update' }));
     expect(await screen.findByRole('dialog', { name: 'Update lead' })).toBeInTheDocument();
     expect(screen.getByLabelText('Company Name')).toHaveValue('North Market');
-    expect(screen.queryByRole('button', { name: 'Qualify' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(await screen.findByRole('button', { name: 'Qualify' })).toBeInTheDocument();
   });
 
   it('creates an allocation from a live eligible order and forwards its source version', async () => {
@@ -262,6 +262,8 @@ describe('P2 commercial and finance workspaces', () => {
     await user.click(await screen.findByRole('button', { name: 'Convert' }));
     const conversionPath = screen.getByLabelText('Conversion Path') as HTMLSelectElement;
     expect(Array.from(conversionPath.options).map((option) => option.text)).toEqual(['Existing Customer', 'Create Customer']);
+    expect(conversionPath).toHaveValue('CREATE_CUSTOMER');
+    expect(screen.getByLabelText('Customer')).toHaveValue('');
   });
 
   it('uses sales orders, not customer parties, for profitability cost backfill', async () => {
@@ -280,6 +282,34 @@ describe('P2 commercial and finance workspaces', () => {
     await user.click(await screen.findByRole('button', { name: '+ New' }));
     const order = screen.getByLabelText('Order') as HTMLSelectElement;
     expect(Array.from(order.options).map((option) => option.text)).toEqual(['No order', 'SO-UI-001 · Adnan Traders', 'SO-UI-002 · North Retail']);
+  });
+
+  it('completes profitability cost backfill when the command result has counts but no status', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), data: [], allowed_actions: ['COST-BACKFILL'] });
+    api.commandP2.mockResolvedValueOnce({
+      updated_count: 0,
+      updated_line_ids: [],
+      unavailable_count: 1,
+      unavailable_line_ids: ['line-1'],
+    });
+    renderPage(<CommercialP2Workspace screen="BI-PROFIT" />);
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Backfill finalized costs completed: 0 lines updated; 1 line had no finalized cost.')).toBeInTheDocument();
+  });
+
+  it('keeps a permissioned finance create action visible and explains missing setup', async () => {
+    const user = userEvent.setup();
+    api.listP2.mockResolvedValue({ ...emptyWorkspace(), lookups: { users: [], accounts: [] }, allowed_actions: ['CREATE'] });
+    renderPage(<FinanceP2Workspace screen="FIN-EXP" />);
+
+    const action = await screen.findByRole('button', { name: '+ New expense claim' });
+    expect(action).toHaveAttribute('aria-disabled', 'true');
+    await user.click(action);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Add an eligible claimant before creating an expense claim.');
   });
 
   it('keeps sales-order UOM mapped to the selected item master', async () => {

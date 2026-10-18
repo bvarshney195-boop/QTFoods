@@ -141,13 +141,13 @@ export const commercialP2Configs: Record<CommercialP2Code, GovernedP2Config> = {
       contact_phone: null, source: String(choices(workspace, 'sources')[0] ?? 'DIRECT'), enquiry_date: today(),
       expected_close_date: future(14), estimated_value: '0', notes: null,
     }) }],
-    resolveAction: (action, record, workspace) => {
+    resolveAction: (action, record) => {
       const base = `/api/v1/sales/leads/${record.id}`;
       if (action === 'UPDATE') return edit('Update lead', 'Only editable enquiry facts are sent; identity and history remain immutable.', base, leadBody(record), record, commercialSchemas.leadUpdate);
       if (action === 'QUALIFY') return run(`${base}/qualify`, 'Lead qualified.', record);
       if (action === 'CONVERT') return edit('Convert lead', 'Link an existing customer or create a governed customer directly from the qualified lead.', `${base}/convert`, {
         conversion_path: value(record, 'customer_party_id') ? 'EXISTING_CUSTOMER' : 'CREATE_CUSTOMER',
-        customer_party_id: value(record, 'customer_party_id', id(first(workspace, 'customers'))) || null,
+        customer_party_id: value(record, 'customer_party_id') || null,
         customer_code: `CUST-${String(value(record, 'lead_number', '')).replace(/^LEAD-?/i, '')}`,
         customer_name: value(record, 'company_name', ''), contact_name: value(record, 'contact_name', ''),
         contact_email: value(record, 'contact_email'), contact_phone: value(record, 'contact_phone'),
