@@ -59,7 +59,10 @@ describe('party master workspace', () => {
 
     await screen.findByText('West Distributor');
     await user.click(screen.getByRole('button', { name: '+ New' }));
-    fireEvent.change(screen.getByLabelText('Party code'), { target: { value: 'fresh-cust' } });
+    const partyCode = screen.getByLabelText('Party code');
+    expect(partyCode).toHaveValue('');
+    expect(partyCode).not.toHaveAttribute('placeholder');
+    fireEvent.change(partyCode, { target: { value: 'fresh-cust' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Fresh Customer' } });
     fireEvent.change(screen.getByLabelText('Legal name'), { target: { value: 'Fresh Customer Private Limited' } });
     fireEvent.change(screen.getByLabelText('Initial status'), { target: { value: 'ACTIVE' } });

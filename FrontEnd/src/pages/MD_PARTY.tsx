@@ -405,7 +405,7 @@ export default function MD_PARTY() {
             <section className="party-subsection">
               <h4>Identity and roles</h4>
               <div className="party-card-grid">
-                <label>Party code<input aria-label="Party code" value={form.code} readOnly={Boolean(selected)} className={selected ? 'read-only' : ''} onChange={(event) => change({ code: event.target.value.toUpperCase() })} placeholder="DIST-WEST" /><FieldError value={fieldErrors.code} /></label>
+                <label>Party code<input aria-label="Party code" value={form.code} readOnly={Boolean(selected)} className={selected ? 'read-only' : ''} onChange={(event) => change({ code: event.target.value.toUpperCase() })} /><FieldError value={fieldErrors.code} /></label>
                 <label>Kind<select aria-label="Party kind" value={form.party_kind} onChange={(event) => change({ party_kind: event.target.value as PartyKind })}><option>ORGANISATION</option><option>INDIVIDUAL</option></select></label>
                 {!selected && <label>Initial status<select aria-label="Initial status" value={form.status} onChange={(event) => change({ status: event.target.value as 'DRAFT' | 'ACTIVE' })}><option>DRAFT</option><option>ACTIVE</option></select></label>}
                 <label className="wide">Display name<input aria-label="Display name" value={form.display_name} onChange={(event) => change({ display_name: event.target.value })} /><FieldError value={fieldErrors.display_name} /></label>
