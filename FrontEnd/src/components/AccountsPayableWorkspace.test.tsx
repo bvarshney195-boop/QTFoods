@@ -71,7 +71,7 @@ describe('accounts payable workspace', () => {
     expect(await screen.findByText('Draft payment proposal created.')).toBeInTheDocument();
   });
 
-  it('opens an editable payable invoice directly in edit mode and retains its historical order', async () => {
+  it('opens a payable invoice in detail mode before editing and retains its historical order', async () => {
     const user = userEvent.setup();
     const draft = invoice();
     const source = workspace({ data: [draft] });
@@ -82,6 +82,9 @@ describe('accounts payable workspace', () => {
     renderPage();
 
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Edit invoice' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save and rematch' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit invoice' }));
     expect(await screen.findByRole('button', { name: 'Save and rematch' })).toBeInTheDocument();
     expect(screen.getByLabelText('Issued purchase order')).toHaveValue('po-1');
     expect(screen.getByRole('option', { name: 'PO-UI-001 · Western Ingredients' })).toBeInTheDocument();
@@ -95,7 +98,7 @@ describe('accounts payable workspace', () => {
     ));
   });
 
-  it('opens an editable payment proposal directly and retains its selected invoice', async () => {
+  it('opens a payment proposal in detail mode so approval remains available before editing', async () => {
     const user = userEvent.setup();
     const draft = proposal();
     const source = workspace({ proposals: [draft] });
@@ -106,6 +109,9 @@ describe('accounts payable workspace', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Payment proposals' }));
     await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Approve proposal' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save proposal' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit proposal' }));
     expect(await screen.findByRole('button', { name: 'Save proposal' })).toBeInTheDocument();
     expect(screen.getByLabelText('Approved invoice')).toHaveValue('invoice-1');
     expect(screen.getByRole('option', { name: /AP-UI-001 · Western Ingredients/ })).toBeInTheDocument();
