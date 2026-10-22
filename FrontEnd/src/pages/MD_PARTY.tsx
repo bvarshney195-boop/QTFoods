@@ -396,7 +396,7 @@ export default function MD_PARTY() {
         </section>
 
         {cardNavigation.route.mode !== 'register' && <aside className="panel admin-editor party-editor edit-card" ref={editorRef}>
-          <div className="panel-head"><div><h3 tabIndex={-1}>{selected ? `Edit ${selected.code}` : cardNavigation.route.mode === 'edit' ? 'Open party' : 'New party'}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div><div className="edit-card-navigation">{selected && <StatusBadge status={selected.status} />}<button className="secondary compact-button" type="button" onClick={cardNavigation.returnToRegister}>Back to register</button></div></div>
+          <div className="panel-head"><div><h3 tabIndex={-1}>{selected ? `Edit ${selected.code}` : cardNavigation.route.mode === 'edit' ? 'Open party' : 'New party'}</h3><span>{detailLoading ? 'Loading detail...' : selected ? `Version ${selected.record_version}` : 'Company scoped'}</span></div><div className="edit-card-navigation">{selected && <StatusBadge status={selected.status} />}<button className="secondary compact-button" type="button" disabled={busy || detailLoading} onClick={cardNavigation.returnToRegister}>Back to register</button></div></div>
           <form className="panel-body party-form" onSubmit={save} noValidate>
             {error && workspace && <div className="form-error" role="alert"><span>{error}</span></div>}
             {success && <div className="form-success" role="status"><span></span>{success}</div>}
