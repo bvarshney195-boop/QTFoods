@@ -54,6 +54,16 @@ final class SameOriginSpaTest extends TestCase
         }
     }
 
+    public function test_frontend_route_returns_a_controlled_not_found_response_when_the_spa_is_not_packaged(): void
+    {
+        unlink($this->spaPath);
+
+        $this->getJson('/')
+            ->assertNotFound()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('error.code', 'NOT_FOUND');
+    }
+
     public function test_spa_fallback_does_not_capture_api_routes(): void
     {
         $this->getJson('/api/health')->assertOk()->assertJsonPath('status', 'ok');
