@@ -8,27 +8,29 @@ use Tests\TestCase;
 final class SameOriginSpaTest extends TestCase
 {
     private string $spaPath;
-    private ?string $originalSpa = null;
+    private string $originalPublicPath;
+    private string $testPublicPath;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->spaPath = public_path('index.html');
-        if (is_file($this->spaPath)) {
-            $contents = file_get_contents($this->spaPath);
-            $this->originalSpa = is_string($contents) ? $contents : '';
+        $this->originalPublicPath = public_path();
+        $this->testPublicPath = storage_path('framework/testing/spa-public-'.bin2hex(random_bytes(8)));
+        if (! mkdir($this->testPublicPath, 0700, true) && ! is_dir($this->testPublicPath)) {
+            self::fail("Unable to create the isolated SPA fixture directory {$this->testPublicPath}.");
         }
+
+        $this->app->usePublicPath($this->testPublicPath);
+        $this->spaPath = public_path('index.html');
         file_put_contents($this->spaPath, '<!doctype html><title>Q &amp; T Foods</title><div id="root"></div>');
     }
 
     protected function tearDown(): void
     {
-        if ($this->originalSpa === null) {
-            @unlink($this->spaPath);
-        } else {
-            file_put_contents($this->spaPath, $this->originalSpa);
-        }
+        @unlink($this->spaPath);
+        $this->app->usePublicPath($this->originalPublicPath);
+        @rmdir($this->testPublicPath);
 
         parent::tearDown();
     }
