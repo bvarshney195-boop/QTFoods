@@ -130,6 +130,26 @@ describe('party master workspace', () => {
     ));
     expect(await screen.findByRole('status')).toHaveTextContent('moved to On hold at version 4');
   });
+
+  it('prevents register navigation until a save and its refresh have completed', async () => {
+    const user = userEvent.setup();
+    let finishUpdate!: (value: { entity_type: 'party'; id: string; status: 'ACTIVE'; record_version: number }) => void;
+    apiMocks.updateParty.mockImplementation(() => new Promise((resolve) => { finishUpdate = resolve; }));
+    renderPage();
+
+    await screen.findByText('West Distributor');
+    await user.click(screen.getByRole('button', { name: /Expand DIST-WEST West Distributor/i }));
+    await user.click(screen.getByRole('button', { name: 'Open edit card' }));
+    await screen.findByLabelText('Display name');
+    await user.click(screen.getByRole('button', { name: 'Save party' }));
+
+    await waitFor(() => expect(apiMocks.updateParty).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', { name: 'Back to register' })).toBeDisabled();
+
+    finishUpdate({ entity_type: 'party', id: 'party-1', status: 'ACTIVE', record_version: 3 });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back to register' })).toBeEnabled());
+    expect(screen.getByRole('heading', { name: 'Edit DIST-WEST' })).toBeVisible();
+  });
 });
 
 function renderPage() {

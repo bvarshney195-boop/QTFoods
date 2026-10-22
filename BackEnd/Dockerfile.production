@@ -9,6 +9,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332 /usr/bin/composer /usr/bin/composer
+COPY deploy/php/security.ini /usr/local/etc/php/conf.d/zz-security.ini
 
 WORKDIR /var/www/html
 
@@ -30,7 +31,7 @@ USER www-data
 EXPOSE 9000
 CMD ["php-fpm", "-F"]
 
-FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS gateway-build
+FROM golang:1.26.10-alpine@sha256:5cb67f19c5e7994dcb80c074f7cfca8aeeada45bbdca035f73df269cefdcce61 AS gateway-build
 
 WORKDIR /src
 COPY deploy/caddy-build/go.mod deploy/caddy-build/go.sum deploy/caddy-build/main.go ./
@@ -49,14 +50,14 @@ COPY --from=app /var/www/html/public /var/www/html/public
 
 EXPOSE 80 443
 
-FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS minio-client
+FROM golang:1.26.10-alpine@sha256:5cb67f19c5e7994dcb80c074f7cfca8aeeada45bbdca035f73df269cefdcce61 AS minio-client
 
 RUN apk add --no-cache git
 WORKDIR /src
 RUN git clone --filter=blob:none --no-checkout https://github.com/minio/mc.git . \
     && git checkout --detach 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
     && test "$(git rev-parse HEAD)" = 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
-    && go get github.com/prometheus/prometheus@v0.311.3 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 \
+    && go get github.com/klauspost/compress@v1.18.7 github.com/prometheus/prometheus@v0.311.3 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 \
     && go mod tidy \
     && go mod verify \
     && mc_ldflags="$(go run buildscripts/gen-ldflags.go)" \

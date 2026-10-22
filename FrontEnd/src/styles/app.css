@@ -220,7 +220,7 @@ input:not([type=checkbox]):not([type=radio]):focus,select:focus,textarea:focus{b
 input::placeholder,textarea::placeholder{color:#81938C}
 
 .table-wrap{border-color:var(--line)}table{background:#fff}th{color:var(--muted);background:#F4F8F6;padding-block:11px}td{border-color:#EAF2EE;padding-block:12px}tbody tr{transition:background .12s}tbody tr:hover{background:#F8FCFA}.link,.case-link{color:#10764C}
-.status{border:1px solid transparent}.status-ok{background:#E7F8EF;color:#10764C;border-color:#D2F0E1}.status-warn{background:#FFF4DC;color:#9A6815;border-color:#F7E4B8}.status-bad{background:#FDECEA;color:#B34640;border-color:#F6D5D2}.status-info{background:#EAF3FC;color:#2E6FAF;border-color:#D8E8F8}
+.status{border:1px solid transparent}.status-ok{background:#E7F8EF;color:#10764C;border-color:#D2F0E1}.status-warn{background:#FFF4DC;color:#8B5916;border-color:#F7E4B8}.status-bad{background:#FDECEA;color:#B34640;border-color:#F6D5D2}.status-info{background:#EAF3FC;color:#2E6FAF;border-color:#D8E8F8}.text-bad{color:#B34640!important}
 
 .live-notice,.form-success,.role-pill,.loss-summary,.optimisation-outcome,.help-resolution{border-color:#BFE5D3;background:#EEFAF4;color:#365E50}
 .callout{border-left-color:var(--teal);background:#F0FAF6;color:#48665C}.demo-notice{box-shadow:0 4px 14px rgba(117,90,19,.04)}

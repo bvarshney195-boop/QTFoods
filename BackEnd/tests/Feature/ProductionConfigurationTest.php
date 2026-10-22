@@ -200,10 +200,15 @@ final class ProductionConfigurationTest extends TestCase
             ]);
         self::assertTrue(\Illuminate\Support\Str::isUuid((string) $insecure->json('error.request_id')));
         $insecure->assertHeader('X-Request-ID', $insecure->json('error.request_id'));
+        $insecure->assertHeader('X-Content-Type-Options', 'nosniff');
 
         $this->getJson('/api/health')
             ->assertOk()
-            ->assertHeaderMissing('Strict-Transport-Security');
+            ->assertHeaderMissing('Strict-Transport-Security')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+            ->assertHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
 
         $this->getJson('https://api.erp.secure.test/api/v1/auth/csrf')
             ->assertOk()

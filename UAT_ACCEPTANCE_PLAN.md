@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This plan converts final usability review into auditable acceptance evidence. Testing must be performed by named Q&T Foods users in the Render training environment; the development team must not self-approve business acceptance.
+This plan converts final usability review into auditable acceptance evidence. Testing must be performed by named Q&T Foods users in the Railway training environment; the development team must not self-approve business acceptance.
 
 ## Required participants
 

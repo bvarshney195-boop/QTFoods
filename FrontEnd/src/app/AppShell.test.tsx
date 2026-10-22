@@ -40,6 +40,7 @@ describe('AppShell role navigation', () => {
     expect(screen.getAllByText('Finance Manager').length).toBeGreaterThan(0);
     expect(within(navigation).getByRole('button', { name: 'General ledger' })).toBeVisible();
     expect(within(navigation).queryByText('FIN-GL')).not.toBeInTheDocument();
+    expect(document.getElementById('erp-main-content')).toHaveAttribute('tabindex', '0');
 
     await userEvent.setup().click(within(navigation).getByRole('button', { name: /Finance & People/ }));
     expect(within(navigation).queryByRole('button', { name: 'General ledger' })).not.toBeInTheDocument();
