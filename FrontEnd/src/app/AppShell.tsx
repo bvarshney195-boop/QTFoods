@@ -284,7 +284,7 @@ export default function AppShell({ session, onChooseContext, onLogout }: AppShel
           {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
         </header>
 
-        <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={-1}>
+        <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={0}>
           <ErpSessionContext.Provider value={session}>
             <PageLoadBoundary key={screenCode} screenCode={screenCode}>
               <Suspense fallback={<section className="panel page-loading" role="status" aria-live="polite"><span aria-hidden="true"></span><b>Opening workspace…</b></section>}>
