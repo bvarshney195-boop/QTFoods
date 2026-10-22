@@ -94,10 +94,9 @@ final class ExperienceController
         [$user, $context] = $this->actor($request); $preferences = $this->notificationPreferences($user, $context);
         if (! $preferences['urgent'] && ! $preferences['high'] && ! $preferences['overdue']) return response()->json(['data' => [], 'summary' => ['unread' => 0, 'total' => 0], 'preferences' => $preferences]);
         $permissions = $this->sessions->permissions($user, $request);
-        $query = DB::table('work_items as w')->leftJoin('user_notification_states as ns', fn ($join) => $join->on('ns.work_item_id', '=', 'w.id')->where('ns.user_id', '=', $user->id))
-            ->leftJoin('users as assignee', 'assignee.id', '=', 'w.assigned_user_id')->where('w.company_id', $context['company_id'])
-            ->when($context['plant_id'], fn (Builder $q) => $q->where(fn (Builder $p) => $p->whereNull('w.plant_id')->orWhere('w.plant_id', $context['plant_id'])))
-            ->where(fn (Builder $q) => $q->whereNull('w.required_permission')->orWhereIn('w.required_permission', $permissions))
+        $query = $this->accessibleNotificationItems($context, $permissions)
+            ->leftJoin('user_notification_states as ns', fn ($join) => $join->on('ns.work_item_id', '=', 'w.id')->where('ns.user_id', '=', $user->id))
+            ->leftJoin('users as assignee', 'assignee.id', '=', 'w.assigned_user_id')
             ->whereNull('ns.dismissed_at')->whereIn('w.status', $preferences['include_completed'] ? ['OPEN', 'COMPLETED'] : ['OPEN'])
             ->where(function (Builder $q) use ($preferences): void {
                 if ($preferences['urgent']) $q->orWhere('w.priority', 'URGENT');
@@ -105,7 +104,6 @@ final class ExperienceController
                 if ($preferences['overdue']) $q->orWhere('w.due_at', '<', now());
             })
             ->select(['w.*', 'assignee.name as assignee_name', 'ns.read_at']);
-        $this->visibility->applyWorkItemTargets($query, 'w.target_screen_code', 'w.target_record_id', $permissions);
         $query = $query->orderByRaw('CASE WHEN ns.read_at IS NULL THEN 0 ELSE 1 END')->orderBy('w.due_at')->limit(50)->get();
         $data = $query->map(fn ($row) => ['id' => (string) $row->id, 'title' => $row->title, 'description' => $row->description, 'priority' => $row->priority, 'status' => $row->status, 'is_overdue' => $row->due_at !== null && CarbonImmutable::parse($row->due_at)->isPast() && $row->status === 'OPEN', 'read_at' => $row->read_at, 'assignee_name' => $row->assignee_name, 'target' => $row->target_screen_code ? ['screen_code' => $row->target_screen_code, 'href' => $row->target_screen_code.($row->target_record_id ? '?id='.$row->target_record_id : '')] : null, 'created_at' => $row->created_at])->all();
         return response()->json(['data' => $data, 'summary' => ['unread' => collect($data)->whereNull('read_at')->count(), 'total' => count($data)], 'preferences' => $preferences]);
@@ -280,7 +278,32 @@ final class ExperienceController
     private function actor(Request $request): array { /** @var User $user */ $user = $request->user(); $context = $request->attributes->get('erp.context'); if (! is_array($context)) throw ValidationException::withMessages(['context' => ['An active company context is required.']]); return [$user, ['company_id' => $context['company_id'], 'plant_id' => $context['plant_id']]]; }
     private function scope(User $user, array $context): array { return ['user_id' => (string) $user->id, 'company_id' => $context['company_id'], 'plant_id' => $context['plant_id']]; }
     private function notificationPreferences(User $user, array $context): array { $row = DB::table('user_workspace_settings')->where($this->scope($user, $context))->where('setting_key', 'notification_preferences')->first(); return array_merge(['urgent' => true, 'high' => true, 'overdue' => true, 'include_completed' => true], $row ? json_decode($row->setting_value, true) : []); }
-    private function notificationState(string $id, Request $request, bool $dismiss): JsonResponse { [$user, $context] = $this->actor($request); abort_unless(DB::table('work_items')->where('id', $id)->where('company_id', $context['company_id'])->exists(), 404); DB::table('user_notification_states')->updateOrInsert(['user_id' => $user->id, 'work_item_id' => $id], ['id' => (string) Str::uuid(), 'read_at' => now(), 'dismissed_at' => $dismiss ? now() : null, 'created_at' => now(), 'updated_at' => now()]); return response()->json(['data' => ['id' => $id, 'read' => true, 'dismissed' => $dismiss]]); }
+    private function accessibleNotificationItems(array $context, array $permissions): Builder
+    {
+        $query = DB::table('work_items as w')
+            ->where('w.company_id', $context['company_id'])
+            ->when($context['plant_id'], fn (Builder $items) => $items->where(
+                fn (Builder $plant) => $plant->whereNull('w.plant_id')->orWhere('w.plant_id', $context['plant_id']),
+            ))
+            ->where(fn (Builder $items) => $items->whereNull('w.required_permission')->orWhereIn('w.required_permission', $permissions));
+        $this->visibility->applyWorkItemTargets($query, 'w.target_screen_code', 'w.target_record_id', $permissions);
+
+        return $query;
+    }
+
+    private function notificationState(string $id, Request $request, bool $dismiss): JsonResponse
+    {
+        [$user, $context] = $this->actor($request);
+        $permissions = $this->sessions->permissions($user, $request);
+        abort_unless($this->accessibleNotificationItems($context, $permissions)->where('w.id', $id)->exists(), 404);
+
+        DB::table('user_notification_states')->updateOrInsert(
+            ['user_id' => $user->id, 'work_item_id' => $id],
+            ['id' => (string) Str::uuid(), 'read_at' => now(), 'dismissed_at' => $dismiss ? now() : null, 'created_at' => now(), 'updated_at' => now()],
+        );
+
+        return response()->json(['data' => ['id' => $id, 'read' => true, 'dismissed' => $dismiss]]);
+    }
     private function change(float|int $current, float|int $previous): ?float { return $previous == 0 ? ($current == 0 ? 0.0 : null) : round((($current - $previous) / abs($previous)) * 100, 1); }
     private function normaliseImportRow(string $type, array $row): array
     {
