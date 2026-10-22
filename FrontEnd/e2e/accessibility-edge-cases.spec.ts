@@ -43,6 +43,20 @@ test('every routed administrator screen passes automated WCAG A/AA checks', asyn
   }
 });
 
+test('semantic warning and negative text styles meet minimum contrast without relying on fixture rows', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const fixture = document.createElement('div');
+    fixture.id = 'semantic-contrast-regression';
+    fixture.style.background = '#fff';
+    fixture.style.padding = '20px';
+    fixture.innerHTML = '<span class="status status-warn">Pending</span><b class="text-bad">15 warnings</b>';
+    document.body.append(fixture);
+  });
+
+  await expectNoAccessibilityViolations(page, 'semantic status colors', '#semantic-contrast-regression');
+});
+
 test('unauthorised deep links stay fail closed and context cancellation preserves valid work', async ({ page }) => {
   await loginAndSelect(page, 'demo.user@qtfoods.local');
   const adminRequests: string[] = [];
