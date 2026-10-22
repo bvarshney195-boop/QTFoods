@@ -4,6 +4,8 @@
 **Source of truth:** `C:\Users\bhupe\Downloads\QT_Foods_Final_Master_Production_Readiness_UAT_Audit.html`  
 **Tested codebase:** commit `3e15d0741cbebda8b771551beb77c548ba3b13bf` on `main`
 
+> **Current-platform clarification (22 October 2026):** Q&T Foods confirmed that the current hosted platform is Railway. The Render URL below is retained only as evidence of the environment that this historical 6 October retest accessed; it is not current Railway deployment evidence.
+
 ## Release decision
 
 **Formal deployment decision: NO-GO — 30 PASS, 2 FAIL. Code remediation: 32/32 addressed with passing executable release-candidate tests.**
