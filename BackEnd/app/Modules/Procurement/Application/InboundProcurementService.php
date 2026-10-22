@@ -544,6 +544,12 @@ final class InboundProcurementService
                 if (bccomp(bcadd($already, $this->decimal($line->return_quantity), 6), $this->decimal($quality->rejected_quantity), 6) > 0) {
                     throw ValidationException::withMessages(['lines' => ["Return line {$line->line_number} exceeds rejected stock still returnable."]]);
                 }
+                $sourcePosition = DB::table('stock_positions')->where('id', $line->rejected_position_id)
+                    ->where('company_id', $data['company_id'])->where('plant_id', $data['plant_id'])
+                    ->lockForUpdate()->first(['inventory_owner_id']);
+                if (! $sourcePosition) {
+                    throw new ConflictHttpException('Rejected stock is no longer available for supplier return.');
+                }
                 $movement = $this->stock->issue([
                     'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'source_position_id' => (string) $line->rejected_position_id,
@@ -551,7 +557,7 @@ final class InboundProcurementService
                     'movement_type' => 'SUPPLIER_RETURN', 'source_type' => 'supplier_return_line',
                     'source_id' => (string) $line->id, 'source_version' => 1,
                     'expected_item_id' => (string) $line->item_id, 'expected_lot_id' => (string) $line->lot_id,
-                    'expected_owner_id' => $data['company_id'], 'expected_quality_status' => 'REJECTED',
+                    'expected_owner_id' => (string) $sourcePosition->inventory_owner_id, 'expected_quality_status' => 'REJECTED',
                     'actor_id' => $data['actor_id'], 'reason_code' => 'RETURN_TO_SUPPLIER',
                     'idempotency_key' => $data['idempotency_key'].':return:'.$line->line_number,
                     'correlation_id' => $data['correlation_id'], 'event_at' => now(),
@@ -787,10 +793,17 @@ final class InboundProcurementService
         if ($position) {
             return $position;
         }
+        $owner = DB::table('inventory_owners')->where('id', $ownerId)
+            ->where('company_id', $scope['company_id'])->first(['party_id']);
+        if (! $owner) {
+            throw ValidationException::withMessages([
+                'inventory_owner_id' => ['Select an inventory owner from the current company.'],
+            ]);
+        }
         $id = (string) Str::uuid();
         DB::table('stock_positions')->insert([
             'id' => $id, 'company_id' => $scope['company_id'], 'plant_id' => $scope['plant_id'],
-            'item_id' => $itemId, 'lot_id' => $lotId, 'owner_party_id' => $ownerId === $scope['company_id'] ? null : $ownerId,
+            'item_id' => $itemId, 'lot_id' => $lotId, 'owner_party_id' => $owner->party_id,
             'inventory_owner_id' => $ownerId, 'location_id' => $locationId, 'quality_status' => $quality,
             'quantity_base' => 0, 'reserved_quantity_base' => 0, 'uom_code' => $uom,
             'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,

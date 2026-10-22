@@ -32,6 +32,68 @@ final class ProcureToPayEndpointTest extends TestCase
         $this->signIn(self::OPERATIONS_ID);
     }
 
+    public function test_grn_post_supports_a_company_inventory_owner_with_an_independent_uuid(): void
+    {
+        DB::table('stock_reservations')->delete();
+        DB::table('stock_positions')->delete();
+        DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'COMPANY')->delete();
+        $ownerId = (string) Str::uuid();
+        DB::table('inventory_owners')->insert([
+            'id' => $ownerId,
+            'company_id' => self::COMPANY_ID,
+            'party_id' => null,
+            'code' => 'OWN-INDEPENDENT',
+            'name' => 'Company owned stock with an independent identity',
+            'owner_type' => 'COMPANY',
+            'status' => 'ACTIVE',
+            'record_version' => 1,
+            'status_reason' => 'Regression fixture for a post-migration company owner.',
+            'status_changed_at' => now(),
+            'status_changed_by' => self::ADMIN_ID,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        [$poId, $poLineId] = $this->createIssuedOrder('OWNER-IDENTITY');
+        [, $qualityTaskId] = $this->receive($poId, $poLineId, 'OWNER', '2', 'LOT-OWNER-IDENTITY');
+
+        $this->assertDatabaseHas('stock_positions', [
+            'inventory_owner_id' => $ownerId,
+            'owner_party_id' => null,
+            'quality_status' => 'QUALITY_HOLD',
+            'quantity_base' => 2,
+        ]);
+
+        $quality = $this->getJson('/api/v1/quality/incoming/'.$qualityTaskId)->assertOk();
+        $qualityLineId = (string) $quality->json('data.lines.0.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/quality/incoming/'.$qualityTaskId.'/complete', [
+            'notes' => 'Inventory-owner identity regression inspection.',
+            'lines' => [[
+                'quality_line_id' => $qualityLineId, 'accepted_quantity' => '1',
+                'rejected_quantity' => '1', 'rejection_reason' => 'Controlled regression rejection.',
+            ]],
+        ])->assertOk();
+        $return = $this->command()->postJson('/api/v1/procurement/supplier-returns', [
+            'return_number' => 'SRT-OWNER-IDENTITY', 'return_date' => now()->toDateString(),
+            'reason' => 'Return the controlled rejected quantity.',
+            'lines' => [[
+                'quality_line_id' => $qualityLineId, 'return_quantity' => '1',
+                'reason' => 'Controlled regression rejection.',
+            ]],
+        ])->assertCreated();
+        $returnId = (string) $return->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/procurement/supplier-returns/'.$returnId.'/post')
+            ->assertOk()->assertJsonPath('data.status', 'POSTED');
+
+        $this->assertDatabaseHas('stock_positions', [
+            'inventory_owner_id' => $ownerId,
+            'owner_party_id' => null,
+            'quality_status' => 'REJECTED',
+            'quantity_base' => 0,
+        ]);
+    }
+
     public function test_partial_receipts_qc_supplier_return_and_stock_posting_complete_the_inbound_chain(): void
     {
         [$poId, $poLineId] = $this->createIssuedOrder('INBOUND-A');
