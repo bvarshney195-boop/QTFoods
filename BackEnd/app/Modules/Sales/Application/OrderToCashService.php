@@ -562,6 +562,7 @@ final class OrderToCashService
             $this->assertVersion($order, $data, 'sales order');
             $this->assertStatus($order, ['CONFIRMED', 'ALLOCATED'], 'Only a confirmed sales order can be allocated.');
             $this->uniqueNumber('sales_allocations', 'allocation_number', $data['allocation_number'], $data);
+            $owner = $this->companyInventoryOwner($data, true);
             $lines = DB::table('sales_order_lines')->where('sales_order_id', $orderId)->orderBy('line_number')->lockForUpdate()->get();
             $requested = collect($data['lines'] ?? [])->keyBy('sales_order_line_id');
             if ($requested->isNotEmpty()) {
@@ -591,7 +592,7 @@ final class OrderToCashService
                     ->join('locations as location', 'location.id', '=', 'position.location_id')
                     ->where('position.company_id', $data['company_id'])->where('position.plant_id', $data['plant_id'])
                     ->where('position.item_id', $line->item_id)->where('position.uom_code', $line->uom_code)
-                    ->where('position.inventory_owner_id', $data['company_id'])->where('position.quality_status', 'RELEASED')
+                    ->where('position.inventory_owner_id', $owner->id)->where('position.quality_status', 'RELEASED')
                     ->where('lot.status', 'ACTIVE')->where('location.status', 'ACTIVE')->where('location.location_type', 'FINISHED_GOODS')
                     ->where(function ($query) use ($now): void { $query->whereNull('lot.expiry_date')->orWhereDate('lot.expiry_date', '>=', $now->toDateString()); })
                     ->orderByRaw('CASE WHEN lot.expiry_date IS NULL THEN 1 ELSE 0 END')->orderBy('lot.expiry_date')->orderBy('position.id')
@@ -825,7 +826,7 @@ final class OrderToCashService
                     'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'source_position_id' => $position->id, 'quantity_base' => $line->allocated_quantity,
                     'uom_code' => $line->uom_code, 'expected_item_id' => $line->item_id,
-                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $data['company_id'],
+                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $position->inventory_owner_id,
                     'expected_quality_status' => 'RELEASED', 'movement_type' => 'SALES_DISPATCH',
                     'source_type' => 'sales_shipment', 'source_id' => $shipment->id,
                     'source_version' => (int) $shipment->record_version + 1, 'actor_id' => $data['actor_id'],
@@ -1023,19 +1024,20 @@ final class OrderToCashService
             $location = DB::table('locations')->where('company_id', $data['company_id'])->where('plant_id', $data['plant_id'])
                 ->where('location_type', 'RETURN_QUARANTINE')->where('status', 'ACTIVE')->orderBy('code')->first();
             if (! $location) throw ValidationException::withMessages(['location' => ['The selected plant has no active return-quarantine location.']]);
+            $owner = $this->companyInventoryOwner($data, true);
             $lines = DB::table('customer_claim_lines')->where('customer_claim_id', $id)->orderBy('line_number')->lockForUpdate()->get();
             $now = CarbonImmutable::now(); $received = '0.000000';
             foreach ($lines as $index => $line) {
                 $position = DB::table('stock_positions')->where('company_id', $data['company_id'])->where('plant_id', $data['plant_id'])
-                    ->where('item_id', $line->item_id)->where('lot_id', $line->lot_id)->where('inventory_owner_id', $data['company_id'])
+                    ->where('item_id', $line->item_id)->where('lot_id', $line->lot_id)->where('inventory_owner_id', $owner->id)
                     ->where('location_id', $location->id)->where('quality_status', 'RETURN_QUARANTINE')->where('uom_code', $line->uom_code)
                     ->lockForUpdate()->first();
                 if (! $position) {
                     $positionId = (string) Str::uuid();
                     DB::table('stock_positions')->insert([
                         'id' => $positionId, 'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
-                        'item_id' => $line->item_id, 'lot_id' => $line->lot_id, 'owner_party_id' => null,
-                        'inventory_owner_id' => $data['company_id'], 'location_id' => $location->id,
+                        'item_id' => $line->item_id, 'lot_id' => $line->lot_id, 'owner_party_id' => $owner->party_id,
+                        'inventory_owner_id' => $owner->id, 'location_id' => $location->id,
                         'quality_status' => 'RETURN_QUARANTINE', 'quantity_base' => 0, 'reserved_quantity_base' => 0,
                         'uom_code' => $line->uom_code, 'record_version' => 1, 'created_at' => $now, 'updated_at' => $now,
                     ]);
@@ -1045,7 +1047,7 @@ final class OrderToCashService
                     'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'target_position_id' => $position->id, 'quantity_base' => $line->claimed_quantity,
                     'uom_code' => $line->uom_code, 'expected_item_id' => $line->item_id,
-                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $data['company_id'],
+                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $owner->id,
                     'expected_quality_status' => 'RETURN_QUARANTINE', 'movement_type' => 'CUSTOMER_RETURN_RECEIPT',
                     'source_type' => 'customer_claim', 'source_id' => $id, 'source_version' => (int) $claim->record_version + 1,
                     'actor_id' => $data['actor_id'], 'reason_code' => $claim->claim_type,
@@ -1550,6 +1552,23 @@ final class OrderToCashService
             throw ValidationException::withMessages(['customer_party_id' => ['The selected party is not an active customer.']]);
         }
         return $party;
+    }
+
+    private function companyInventoryOwner(array $scope, bool $lock = false): object
+    {
+        $query = DB::table('inventory_owners')->where('company_id', $scope['company_id'])
+            ->where('owner_type', 'COMPANY')->where('status', 'ACTIVE');
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $owner = $query->first();
+        if (! $owner) {
+            throw ValidationException::withMessages([
+                'inventory_owner_id' => ['Configure an active company inventory owner before processing company stock.'],
+            ]);
+        }
+
+        return $owner;
     }
 
     private function uniqueNumber(string $table, string $column, string $number, array $scope, ?string $extraColumn = null, ?string $extraValue = null): void

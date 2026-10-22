@@ -88,6 +88,88 @@ final class OrderToCashEndpointTest extends TestCase
         $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'DRAFT', 'record_version' => 1]);
     }
 
+    public function test_sales_allocation_uses_the_active_company_inventory_owner_identity(): void
+    {
+        $ownerId = $this->replaceCompanyOwnerWithIndependentIdentity();
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-INDEPENDENT-OWNER', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Company inventory owner identity regression.',
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '2', 'discount_percent' => '0']],
+        ])->assertCreated();
+        $orderId = (string) $order->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')->assertOk();
+
+        $allocation = $this->withHeaders($this->headers(2))->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
+            'allocation_number' => 'ALLOC-INDEPENDENT-OWNER',
+        ])->assertCreated()->assertJsonPath('data.allocated_quantity', '2.000000');
+
+        $this->assertDatabaseHas('stock_reservations', [
+            'id' => DB::table('sales_allocation_lines')->where('sales_allocation_id', $allocation->json('data.id'))
+                ->value('stock_reservation_id'),
+            'quantity_base' => 2,
+        ]);
+        $this->assertDatabaseHas('stock_positions', [
+            'inventory_owner_id' => $ownerId,
+            'owner_party_id' => null,
+            'reserved_quantity_base' => 2,
+        ]);
+
+        $allocationId = (string) $allocation->json('data.id');
+        $this->signIn(self::OPERATIONS_ID);
+        $this->withHeaders($this->headers(1))
+            ->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
+            ->assertOk()->assertJsonPath('data.status', 'PICKED');
+        $shipment = $this->command()->postJson('/api/v1/dispatch/shipments', [
+            'shipment_number' => 'SHP-INDEPENDENT-OWNER', 'sales_allocation_id' => $allocationId,
+            'carrier_name' => 'Q&T QA Logistics', 'vehicle_number' => 'QA01OWNER',
+            'driver_name' => 'QA Driver', 'notes' => 'Inventory-owner identity regression.',
+        ])->assertCreated();
+        $shipmentId = (string) $shipment->json('data.id');
+        $this->withHeaders($this->headers(1))
+            ->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/load')
+            ->assertOk()->assertJsonPath('data.status', 'LOADED');
+        $this->withHeaders($this->headers(2))
+            ->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/dispatch', [
+                'invoice_number' => 'INV-INDEPENDENT-OWNER',
+            ])->assertOk()->assertJsonPath('data.status', 'DISPATCHED');
+
+        $this->assertDatabaseHas('stock_movements', [
+            'movement_type' => 'SALES_DISPATCH',
+            'source_id' => $shipmentId,
+        ]);
+
+        $shipmentLineId = (string) DB::table('shipment_lines')->where('shipment_id', $shipmentId)->value('id');
+        $this->signIn(self::SALES_ID);
+        $claim = $this->command()->postJson('/api/v1/sales/customer-claims', [
+            'claim_number' => 'CLM-INDEPENDENT-OWNER', 'shipment_id' => $shipmentId,
+            'claim_type' => 'RETURN', 'requested_resolution' => 'RETURN_CREDIT',
+            'reason' => 'Inventory-owner identity regression return.',
+            'lines' => [['shipment_line_id' => $shipmentLineId, 'quantity' => '1']],
+        ])->assertCreated()->assertJsonPath('data.status', 'RETURN_REQUIRED');
+        $claimId = (string) $claim->json('data.id');
+        $this->signIn(self::OPERATIONS_ID);
+        $this->withHeaders($this->headers(1))
+            ->postJson('/api/v1/sales/customer-claims/'.$claimId.'/receive', [
+                'notes' => 'Returned pack received into quarantine.',
+            ])->assertOk()->assertJsonPath('data.status', 'RECEIVED');
+
+        $returnPositionId = DB::table('customer_claim_lines')->where('customer_claim_id', $claimId)
+            ->value('return_position_id');
+        $this->assertDatabaseHas('stock_positions', [
+            'id' => $returnPositionId,
+            'inventory_owner_id' => $ownerId,
+            'owner_party_id' => null,
+            'quality_status' => 'RETURN_QUARANTINE',
+            'quantity_base' => 1,
+        ]);
+        $this->assertDatabaseHas('stock_movements', [
+            'movement_type' => 'CUSTOMER_RETURN_RECEIPT',
+            'source_id' => $claimId,
+        ]);
+    }
+
     public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
     {
         $lead = $this->command()->postJson('/api/v1/sales/leads', [
@@ -419,6 +501,45 @@ final class OrderToCashEndpointTest extends TestCase
         ] + $timestamps);
 
         return [$scheduleId, $scheduleLineId];
+    }
+
+    private function replaceCompanyOwnerWithIndependentIdentity(): string
+    {
+        DB::table('stock_reservations')->delete();
+        DB::table('stock_positions')->delete();
+        DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'COMPANY')->delete();
+        $ownerId = (string) Str::uuid();
+        DB::table('inventory_owners')->insert([
+            'id' => $ownerId, 'company_id' => self::COMPANY_ID, 'party_id' => null,
+            'code' => 'OWN-INDEPENDENT', 'name' => 'Company stock owner with independent identity',
+            'owner_type' => 'COMPANY', 'status' => 'ACTIVE', 'record_version' => 1,
+            'status_reason' => 'Regression fixture.', 'status_changed_at' => now(),
+            'status_changed_by' => self::ADMIN_ID, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $lotId = (string) Str::uuid();
+        DB::table('lots')->insert([
+            'id' => $lotId, 'company_id' => self::COMPANY_ID, 'item_id' => self::ITEM_ID,
+            'supplier_party_id' => null, 'internal_lot_code' => 'LOT-INDEPENDENT-OWNER',
+            'supplier_lot_code' => null, 'origin_type' => 'PRODUCTION',
+            'manufacture_date' => now()->toDateString(), 'expiry_date' => now()->addMonths(3)->toDateString(),
+            'status' => 'ACTIVE', 'notes' => 'Regression fixture.', 'record_version' => 1,
+            'status_reason' => 'Regression fixture.', 'status_changed_at' => now(),
+            'status_changed_by' => self::ADMIN_ID, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $locationId = (string) DB::table('locations')->where('company_id', self::COMPANY_ID)
+            ->where('plant_id', self::PLANT_ID)->where('location_type', 'FINISHED_GOODS')
+            ->where('status', 'ACTIVE')->value('id');
+        DB::table('stock_positions')->insert([
+            'id' => (string) Str::uuid(), 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'item_id' => self::ITEM_ID, 'lot_id' => $lotId, 'owner_party_id' => null,
+            'inventory_owner_id' => $ownerId, 'location_id' => $locationId, 'quality_status' => 'RELEASED',
+            'quantity_base' => 10, 'reserved_quantity_base' => 0, 'uom_code' => 'PACK',
+            'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,
+            'status_changed_by' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $ownerId;
     }
 
     private function signIn(string $userId, string $plantId = self::PLANT_ID): void
