@@ -51,4 +51,27 @@ describe('governed bulk import controls', () => {
     expect(screen.queryByRole('button', { name: 'Commit drafts' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Rollback import' })).not.toBeInTheDocument();
   });
+
+  it('does not expose actions for a stale batch when revalidation fails', async () => {
+    const user = userEvent.setup();
+    render(<BulkImportCentre
+      allowedScreens={['MD-PARTY']}
+      allowedActions={['ACTION:MD-PARTY:CREATE']}
+    />);
+
+    await user.upload(
+      screen.getByLabelText('CSV import file'),
+      new File(['code,display_name\nIMPORT-PARTY-01,Imported Party\n'], 'parties.csv', { type: 'text/csv' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Preview & validate' }));
+    await user.click(await screen.findByRole('button', { name: 'Commit drafts' }));
+    await waitFor(() => expect(apiMocks.commitImport).toHaveBeenCalledWith('batch-1'));
+
+    apiMocks.previewImport.mockRejectedValueOnce(new Error('network unavailable'));
+    await user.click(screen.getByRole('button', { name: 'Preview & validate' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to validate the CSV file.');
+    expect(screen.queryByRole('button', { name: 'Commit drafts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rollback import' })).not.toBeInTheDocument();
+  });
 });
