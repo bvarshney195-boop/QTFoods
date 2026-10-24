@@ -253,6 +253,7 @@ final class InboundProcurementService
                 $lot = $this->resolvePurchaseLot($line, $receipt, $data);
                 $hold = $this->resolvePosition(
                     $data, (string) $line->item_id, (string) $lot->id, (string) $owner->id,
+                    $owner->party_id ? (string) $owner->party_id : null,
                     (string) $line->quality_hold_location_id, 'QUALITY_HOLD', (string) $line->uom_code,
                 );
                 $movement = $this->stock->receive([
@@ -386,7 +387,9 @@ final class InboundProcurementService
                 $rejectedMovementId = null;
                 if (bccomp($accepted, '0', 6) > 0) {
                     $target = $this->resolvePosition($data, (string) $line->item_id, (string) $line->lot_id,
-                        (string) $source->inventory_owner_id, (string) $receiptLine->released_location_id, 'RELEASED', (string) $line->uom_code);
+                        (string) $source->inventory_owner_id,
+                        $source->owner_party_id ? (string) $source->owner_party_id : null,
+                        (string) $receiptLine->released_location_id, 'RELEASED', (string) $line->uom_code);
                     $movement = $this->stock->move([
                         'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                         'source_position_id' => (string) $source->id, 'target_position_id' => (string) $target->id,
@@ -405,7 +408,9 @@ final class InboundProcurementService
                 }
                 if (bccomp($rejected, '0', 6) > 0) {
                     $target = $this->resolvePosition($data, (string) $line->item_id, (string) $line->lot_id,
-                        (string) $source->inventory_owner_id, (string) $receiptLine->quality_hold_location_id, 'REJECTED', (string) $line->uom_code);
+                        (string) $source->inventory_owner_id,
+                        $source->owner_party_id ? (string) $source->owner_party_id : null,
+                        (string) $receiptLine->quality_hold_location_id, 'REJECTED', (string) $line->uom_code);
                     $movement = $this->stock->move([
                         'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                         'source_position_id' => (string) $source->id, 'target_position_id' => (string) $target->id,
@@ -777,8 +782,16 @@ final class InboundProcurementService
         return DB::table('lots')->where('id', $id)->firstOrFail();
     }
 
-    private function resolvePosition(array $scope, string $itemId, string $lotId, string $ownerId, string $locationId, string $quality, string $uom): object
-    {
+    private function resolvePosition(
+        array $scope,
+        string $itemId,
+        string $lotId,
+        string $ownerId,
+        ?string $ownerPartyId,
+        string $locationId,
+        string $quality,
+        string $uom,
+    ): object {
         $position = DB::table('stock_positions')->where([
             'company_id' => $scope['company_id'], 'plant_id' => $scope['plant_id'],
             'item_id' => $itemId, 'lot_id' => $lotId, 'inventory_owner_id' => $ownerId,
@@ -790,7 +803,7 @@ final class InboundProcurementService
         $id = (string) Str::uuid();
         DB::table('stock_positions')->insert([
             'id' => $id, 'company_id' => $scope['company_id'], 'plant_id' => $scope['plant_id'],
-            'item_id' => $itemId, 'lot_id' => $lotId, 'owner_party_id' => $ownerId === $scope['company_id'] ? null : $ownerId,
+            'item_id' => $itemId, 'lot_id' => $lotId, 'owner_party_id' => $ownerPartyId,
             'inventory_owner_id' => $ownerId, 'location_id' => $locationId, 'quality_status' => $quality,
             'quantity_base' => 0, 'reserved_quantity_base' => 0, 'uom_code' => $uom,
             'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,

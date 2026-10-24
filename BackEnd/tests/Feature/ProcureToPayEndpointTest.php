@@ -90,6 +90,102 @@ final class ProcureToPayEndpointTest extends TestCase
             ->whereIn('lot_id', DB::table('receipt_lines')->where('purchase_order_line_id', $poLineId)->pluck('lot_id'))->sum('quantity_base')));
     }
 
+    public function test_grn_posting_uses_the_company_owners_party_identity_and_is_idempotent(): void
+    {
+        DB::table('inventory_owners')
+            ->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'COMPANY')
+            ->update(['status' => 'INACTIVE', 'updated_at' => now()]);
+        $ownerId = (string) Str::uuid();
+        DB::table('inventory_owners')->insert([
+            'id' => $ownerId,
+            'company_id' => self::COMPANY_ID,
+            'party_id' => null,
+            'code' => 'OWN-INDEPENDENT-ID',
+            'name' => 'Company-owned stock with an independent identity',
+            'owner_type' => 'COMPANY',
+            'status' => 'ACTIVE',
+            'record_version' => 1,
+            'status_reason' => 'GRN posting regression fixture.',
+            'status_changed_at' => now(),
+            'status_changed_by' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        [$poId, $poLineId] = $this->createIssuedOrder('OWNER-ID', self::SUPPLIER_ID, '100');
+        $gate = $this->command()->postJson('/api/v1/procurement/gate-entries', [
+            'gate_entry_number' => 'GATE-OWNER-ID', 'purchase_order_id' => $poId, 'vehicle_number' => 'MH12QT1000',
+            'transporter_name' => 'Controlled Logistics', 'supplier_document_number' => 'CHALLAN-OWNER-ID',
+            'arrived_at' => now()->toISOString(), 'notes' => null,
+        ])->assertCreated();
+        $gateId = (string) $gate->json('data.id');
+        $receipt = $this->command()->postJson('/api/v1/procurement/receipts', [
+            'receipt_number' => 'GRN-OWNER-ID', 'gate_entry_id' => $gateId, 'receipt_date' => now()->toDateString(),
+            'supplier_document_number' => 'CHALLAN-OWNER-ID', 'notes' => null,
+            'lines' => [[
+                'purchase_order_line_id' => $poLineId, 'received_quantity' => '100',
+                'internal_lot_code' => 'LOT-OWNER-ID', 'supplier_lot_code' => 'SUP-LOT-OWNER-ID',
+                'manufacture_date' => now()->subDay()->toDateString(), 'expiry_date' => now()->addMonths(3)->toDateString(),
+                'quality_hold_location_id' => self::QUALITY_HOLD_LOCATION,
+                'released_location_id' => self::RAW_STORE_LOCATION, 'notes' => null,
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $receiptId = (string) $receipt->json('data.id');
+        $receiptLineId = (string) DB::table('receipt_lines')->where('receipt_id', $receiptId)->value('id');
+        $postKey = (string) Str::uuid();
+        $postHeaders = ['Idempotency-Key' => $postKey, 'If-Match' => '1'];
+
+        $posted = $this->withHeaders($postHeaders)->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertOk()->assertJsonPath('data.status', 'QC_PENDING')
+            ->assertJsonPath('data.record_version', 2)
+            ->assertJsonPath('data.quality_task_number', 'QC-GRN-OWNER-ID');
+        $this->withHeaders($postHeaders)->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertOk()->assertExactJson($posted->json());
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertUnprocessable()
+            ->assertJsonPath('error.fields.status.0', 'Only a draft GRN can be posted.');
+
+        $lotId = (string) DB::table('lots')->where('company_id', self::COMPANY_ID)
+            ->where('internal_lot_code', 'LOT-OWNER-ID')->value('id');
+        $position = DB::table('stock_positions')->where([
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'item_id' => self::RAW_ITEM_ID,
+            'lot_id' => $lotId,
+            'inventory_owner_id' => $ownerId,
+            'location_id' => self::QUALITY_HOLD_LOCATION,
+            'quality_status' => 'QUALITY_HOLD',
+        ])->firstOrFail();
+        $received = DB::table('receipt_lines as line')
+            ->join('receipts as receipt', 'receipt.id', '=', 'line.receipt_id')
+            ->where('line.purchase_order_line_id', $poLineId)
+            ->whereIn('receipt.status', ['QC_PENDING', 'COMPLETED'])
+            ->sum('line.received_quantity');
+        $ordered = DB::table('purchase_order_lines')->where('id', $poLineId)->value('ordered_quantity');
+
+        $this->assertNull($position->owner_party_id);
+        $this->assertSame('100.000000', $this->decimal($position->quantity_base));
+        $this->assertSame('100.000000', $this->decimal($received));
+        $this->assertSame('0.000000', bcsub($this->decimal($ordered), $this->decimal($received), 6));
+        $receiptMovements = DB::table('stock_movements')->where('movement_type', 'PURCHASE_RECEIPT')
+            ->where('source_type', 'goods_receipt_line')->where('source_id', $receiptLineId);
+        $this->assertSame(1, $receiptMovements->count());
+        $this->assertSame('100.000000', $this->decimal($receiptMovements->value('quantity_base')));
+        $this->assertSame(1, DB::table('lots')->where('company_id', self::COMPANY_ID)
+            ->where('internal_lot_code', 'LOT-OWNER-ID')->count());
+        $this->assertSame(1, DB::table('quality_tasks')->where('receipt_id', $receiptId)->count());
+        $this->assertSame(1, DB::table('incoming_quality_lines')->where('receipt_id', $receiptId)->count());
+        $this->assertDatabaseHas('quality_tasks', [
+            'receipt_id' => $receiptId, 'task_number' => 'QC-GRN-OWNER-ID', 'status' => 'PENDING',
+        ]);
+        $this->assertDatabaseHas('incoming_quality_lines', [
+            'receipt_id' => $receiptId, 'inspected_quantity' => 100, 'result' => 'PENDING',
+        ]);
+        $this->assertDatabaseHas('receipts', ['id' => $receiptId, 'status' => 'QC_PENDING', 'record_version' => 2]);
+        $this->assertDatabaseHas('gate_entries', ['id' => $gateId, 'status' => 'CLEARED']);
+    }
+
     public function test_three_way_match_tax_payment_proposal_payment_and_reconciliation_are_governed(): void
     {
         [$poId, $poLineId] = $this->createIssuedOrder('PAYABLE-A');
@@ -222,13 +318,17 @@ final class ProcureToPayEndpointTest extends TestCase
         $this->getJson('/api/v1/procurement/receipts/'.DB::table('receipts')->whereNotNull('receipt_number')->value('id'))->assertNotFound();
     }
 
-    private function createIssuedOrder(string $suffix, string $supplierId = self::SUPPLIER_ID): array
+    private function createIssuedOrder(
+        string $suffix,
+        string $supplierId = self::SUPPLIER_ID,
+        string $quantity = '10',
+    ): array
     {
         $requisitionId = (string) $this->command()->postJson('/api/v1/procurement/requisitions', [
             'requisition_number' => 'REQ-'.$suffix, 'department' => 'Manufacturing',
             'purpose' => 'Receive and settle controlled raw material.', 'requested_date' => now()->toDateString(),
             'required_by_date' => now()->addDays(30)->toDateString(), 'currency' => 'INR',
-            'lines' => [['item_id' => self::RAW_ITEM_ID, 'quantity' => '10', 'estimated_unit_cost' => '50', 'notes' => null]],
+            'lines' => [['item_id' => self::RAW_ITEM_ID, 'quantity' => $quantity, 'estimated_unit_cost' => '50', 'notes' => null]],
         ])->assertCreated()->json('data.id');
         $approvalId = (string) $this->withHeaders($this->headers(1))->postJson('/api/v1/procurement/requisitions/'.$requisitionId.'/submit')
             ->assertOk()->json('data.approval_request_id');
