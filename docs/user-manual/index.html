@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Q &amp; T Foods ERP — Roles, Permissions &amp; User Manual</title>
+  <link rel="stylesheet" href="manual.css">
+</head>
+<body>
+  <main>
+    <section class="sheet cover" id="cover">
+      <div class="cover-copy">
+        <div class="brand-lockup">
+          <div class="brand-mark">Q&amp;T</div>
+          <div><strong>Q &amp; T FOODS LTD</strong><small>Business workspace</small></div>
+        </div>
+        <p class="eyebrow">Training &amp; adoption guide</p>
+        <h1>ERP Roles, Permissions &amp; User Manual</h1>
+        <p class="lead">A practical, plain-language guide for every user—with detailed Operations and Finance workflows, hand-offs, and real screen examples.</p>
+        <div class="cover-meta">
+          <span>5 standard roles</span>
+          <span>69 business screens</span>
+          <span>Role-based access</span>
+          <span>Operations + Finance focus</span>
+        </div>
+        <div class="cover-footer">UAT / training edition · 15 September 2026 · Version 1.0</div>
+      </div>
+      <div class="cover-visual" aria-hidden="true">
+        <div class="cover-grid">
+          <div class="cover-card"><b>Operations</b><span>Buy, receive, store, plan, make, check, pack and dispatch.</span></div>
+          <div class="cover-card"><b>Finance</b><span>Approve, match, pay, post, reconcile, report and control.</span></div>
+          <div class="cover-card"><b>Sales &amp; partners</b><span>Sell, deliver, resolve claims and exchange entitled records.</span></div>
+          <div class="cover-card"><b>Administration</b><span>Manage users, roles, workplaces, controls and audit evidence.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sheet" id="welcome">
+      <div class="page-heading">
+        <div><div class="section-number">Start here</div><h1>Welcome to the ERP</h1></div>
+        <p>This manual explains what each role can see, what each role can do, and where work passes from one team to another.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <p class="lead-copy">The ERP is designed around job responsibility. Your menu is intentionally different from another user’s menu. Seeing fewer screens is a security feature—not missing functionality.</p>
+          <div class="callout security"><div class="icon">✓</div><div><b>Simple rule</b><br>Your access is the combination of your active role, selected company and plant, action permissions, and the current status of the record.</div></div>
+          <h2>How to use this guide</h2>
+          <ul class="checklist">
+            <li>New users: read pages 3–5, then go to your role section.</li>
+            <li>Operations: use sections 4–6 for daily work and Finance hand-offs.</li>
+            <li>Finance: use sections 7–9 for approvals, posting, reconciliation and review.</li>
+            <li>Administrators: use sections 12–14 before creating users or custom roles.</li>
+            <li>Auditors and managers: use the complete access and action appendices.</li>
+          </ul>
+        </div>
+        <div class="card soft">
+          <h2>Contents</h2>
+          <div class="toc">
+            <a href="#first-day"><strong>01</strong><span>First-day basics<small>Sign in, choose a workplace, navigate and secure the account</small></span></a>
+            <a href="#access-model"><strong>02</strong><span>How access works<small>Roles, screens, actions, scope and workflow controls</small></span></a>
+            <a href="#role-overview"><strong>03</strong><span>Role overview<small>Compare all five standard roles</small></span></a>
+            <a href="#operations"><strong>04</strong><span>Operations Manager<small>Procurement, stock, production, quality and logistics</small></span></a>
+            <a href="#finance"><strong>05</strong><span>Finance Manager<small>Approvals, payables, accounting and controls</small></span></a>
+            <a href="#handoffs"><strong>06</strong><span>Operations ↔ Finance<small>Shared workflows and separation of duties</small></span></a>
+            <a href="#sales-partner"><strong>07</strong><span>Sales &amp; Partner<small>Commercial work and external tenant access</small></span></a>
+            <a href="#administration"><strong>08</strong><span>ERP Administrator<small>Users, roles, permissions and control setup</small></span></a>
+            <a href="#access-matrix"><strong>09</strong><span>Screen access matrix<small>All 69 business screens by role</small></span></a>
+            <a href="#action-appendix"><strong>10</strong><span>Action permissions<small>Friendly action catalogue by role</small></span></a>
+            <a href="#help"><strong>11</strong><span>Help &amp; adoption<small>Troubleshooting, glossary and first-week checklist</small></span></a>
+          </div>
+        </div>
+      </div>
+      <div class="callout warning"><div class="icon">!</div><div><b>Training screenshots</b><br>The pictures were captured from the local seeded training environment. Counts and records will differ in UAT or production, but access behavior and screen layout are the same.</div></div>
+    </section>
+
+    <section class="sheet" id="first-day">
+      <div class="page-heading">
+        <div><div class="section-number">01 · First-day basics</div><h1>Sign in and choose where you work</h1></div>
+        <p>Every protected task begins with a named account and an authorised company/plant selection.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot">
+          <img src="screenshots/sign-in.png" alt="ERP sign-in screen">
+          <figcaption class="screen-caption"><b>1 · Sign in</b><span>Use your own email and password. Complete the verification or two-step challenge when requested.</span></figcaption>
+        </figure>
+        <figure class="screen-shot">
+          <img src="screenshots/choose-workplace.png" alt="Company and plant selection screen">
+          <figcaption class="screen-caption"><b>2 · Choose workplace</b><span>Select the company and plant for today’s work. Only active assignments appear.</span></figcaption>
+        </figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Why the workplace matters</b><br>Stock, transactions, approvals and reports are filtered to the selected company and plant.</div>
+        <div><b>Changing workplace</b><br>Select the company/plant control in the top bar. Finish or save any draft before switching.</div>
+      </div>
+      <div class="callout security"><div class="icon">✓</div><div><b>Account safety</b><br>Never share an account. Open <em>My account</em> to set up two-step verification, review recovery codes and revoke an unfamiliar device session.</div></div>
+    </section>
+
+    <section class="sheet" id="access-model">
+      <div class="page-heading">
+        <div><div class="section-number">02 · Access model</div><h1>Why two people see different things</h1></div>
+        <p>The system applies several controls together. A visible button is not the only security boundary; the API repeats every check.</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><small>1 · Identity</small><b>Named account</b><span>The user must be active, verified where required, and signed in.</span></div>
+        <div class="flow-step"><small>2 · Assignment</small><b>Company + plant</b><span>An active, in-date role assignment is required for the selected workplace.</span></div>
+        <div class="flow-step"><small>3 · Screen</small><b>Can I open it?</b><span>Screen access decides whether the item appears in the menu and whether its API can be read.</span></div>
+        <div class="flow-step"><small>4 · Action</small><b>Can I change it?</b><span>Actions such as Create, Approve, Post, Pay or Close require their own permission.</span></div>
+        <div class="flow-step"><small>5 · Workflow</small><b>Is it valid now?</b><span>Status, value bands, maker-checker rules, version and data checks can still block the action.</span></div>
+      </div>
+      <div class="grid-3 mt-3">
+        <div class="card"><h3>View does not mean edit</h3><p>A Finance Manager can view Production Costs but cannot calculate them. An Operations Manager can view Maintenance and create work; Finance can complete the accounting hand-off.</p></div>
+        <div class="card"><h3>Multiple roles combine</h3><p>If a user has two valid assignments in the same workplace, their effective permissions are combined. Use this sparingly and review the resulting segregation of duties.</p></div>
+        <div class="card"><h3>Partner access is narrower</h3><p>A Partner User needs both the Partner role and explicit tenant entitlements. They never inherit internal approvals.</p></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>When access is working correctly</h3><ul class="checklist"><li>The sidebar contains only assigned business screens.</li><li>Unauthorised direct links return the user to safe work.</li><li>Protected APIs return “forbidden” even if someone constructs a request manually.</li><li>Buttons appear only for valid permissions and record states.</li></ul></div>
+        <div class="card gold"><h3>When to contact an administrator</h3><ul><li>Your company or plant is missing.</li><li>Your role has expired or is inactive.</li><li>A required screen is absent for an approved job duty.</li><li>A colleague left and their assignments or sessions must be revoked.</li></ul></div>
+      </div>
+    </section>
+
+    <section class="sheet" id="role-overview">
+      <div class="page-heading">
+        <div><div class="section-number">03 · Role overview</div><h1>Standard roles at a glance</h1></div>
+        <p>Counts below are the current seeded baseline. Custom roles may contain a smaller, approved combination.</p>
+      </div>
+      <div class="grid-5">
+        <div class="card role-card sales" data-role="Sales Manager"><div class="metric">13</div><div class="metric-label">screens · 38 actions</div><p>Owns enquiries, pricing, sales orders, dispatch, claims and customer collection work.</p></div>
+        <div class="card role-card operations" data-role="Operations Manager"><div class="metric">42</div><div class="metric-label">screens · 142 actions</div><p>Owns procurement execution, inventory, planning, production, quality, packing and logistics.</p></div>
+        <div class="card role-card finance" data-role="Finance Manager"><div class="metric">24</div><div class="metric-label">screens · 75 actions</div><p>Owns approval, payables, receivables, accounting, payroll, reporting and finance controls.</p></div>
+        <div class="card role-card admin" data-role="ERP Administrator"><div class="metric">69</div><div class="metric-label">screens · 272 actions</div><p>Configures the organisation, users, roles, policies and integrations; supports all workflows.</p></div>
+        <div class="card role-card partner" data-role="Partner User"><div class="metric">1</div><div class="metric-label">screen · 4 actions</div><p>Reads only entitled commercial records and exchanges documents or claims in one party tenant.</p></div>
+      </div>
+      <div class="spacer-4"></div>
+      <table>
+        <thead><tr><th>Role</th><th>Primary responsibility</th><th>Important boundaries</th><th>Typical hand-off</th></tr></thead>
+        <tbody>
+          <tr><td><b>Sales Manager</b></td><td>Customer opportunity through delivery, claims and collections.</td><td>No administration, procurement, production or general-ledger access.</td><td>Confirmed demand to Operations; credit/financial exceptions to Finance.</td></tr>
+          <tr><td><b>Operations Manager</b></td><td>Materials and physical flow from supplier through factory and dispatch.</td><td>No user/role administration, sales-order creation, payables payment or general-ledger posting.</td><td>Approved purchasing evidence and completed physical movements to Finance.</td></tr>
+          <tr><td><b>Finance Manager</b></td><td>Commercial approval and financial recognition, payment, reconciliation and reporting.</td><td>No user/role administration, production execution or sales-order creation.</td><td>Approval or posting result back to Operations and Sales.</td></tr>
+          <tr><td><b>ERP Administrator</b></td><td>Secure platform and business-control configuration.</td><td>Permission does not bypass maker-checker, workflow status, scope or data validation.</td><td>Enable users and controls; investigate access or integration issues.</td></tr>
+          <tr><td><b>Partner User</b></td><td>Self-service access for one explicitly entitled customer/partner tenant.</td><td>No internal menu or approval; cannot see another party’s records.</td><td>Claims/documents to the internal owner; receipt acknowledgement only.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warning"><div class="icon">!</div><div><b>Least privilege</b><br>Do not give ERP Administrator merely to solve a missing menu item. Correct the workplace assignment or create a focused custom role.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual role comparison</div><h1>Operations and Finance start differently</h1></div>
+        <p>The same “My work” design is used, while each sidebar contains only the screens assigned to that role.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot full"><img src="screenshots/operations-home.png" alt="Operations Manager home and role-specific sidebar"><figcaption class="screen-caption"><b>Operations Manager · 42 screens</b><span>Purchasing, inventory, production, quality, delivery hand-offs, maintenance and planning dominate the menu.</span></figcaption></figure>
+        <figure class="screen-shot full"><img src="screenshots/finance-home.png" alt="Finance Manager home and role-specific sidebar"><figcaption class="screen-caption"><b>Finance Manager · 24 screens</b><span>Approvals, accounts, reports, finance/people and review tools dominate the menu.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Operations does not see</b><br>Roles &amp; access, user administration, Sales Orders, General Ledger or supplier payment actions.</div>
+        <div><b>Finance does not see</b><br>Roles &amp; access, user administration, Sales Orders, stock operations or production execution.</div>
+      </div>
+    </section>
+
+    <section class="sheet" id="operations">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>Your role: control physical operations</h1></div>
+        <p>Operations has broad factory and supply-chain access, but it does not include finance posting, sales-order ownership or security administration.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>What you own</h2>
+          <ul class="checklist">
+            <li>Supplier sourcing, orders, arrivals, receipt and rejected returns.</li>
+            <li>Stock ownership, lots, reservations, issues, transfers, counts and disposal.</li>
+            <li>Demand, material requirements, capacity schedules and production orders.</li>
+            <li>Production stages, yield/loss/rework, lab checks and food-safety controls.</li>
+            <li>Artwork, packing, finished goods, traceability, recalls and batch cost calculation.</li>
+            <li>Picking, loading, delivery confirmation, physical returns and maintenance work.</li>
+          </ul>
+          <div class="callout security"><div class="icon">✓</div><div><b>Your strongest control</b><br>Record the physical event when it happens. Accurate lot, quantity, location and status data is what Finance later relies on.</div></div>
+        </div>
+        <div class="card soft">
+          <h2>Your 42 screens</h2>
+          <h4>Home</h4><p class="small">My work · Help &amp; support</p>
+          <h4>Purchasing &amp; inventory</h4><p class="small">Customers &amp; suppliers · Brands &amp; agreements · Items &amp; units · Products &amp; packs · Purchase requisitions · Supplier quotations · Purchase orders · Supplier arrivals · Goods receipts · Incoming quality checks · Supplier returns · Stock overview · Stock issues &amp; returns · Stock transfers · Stock counts · Expiry &amp; disposal</p>
+          <h4>Production &amp; quality</h4><p class="small">Recipes &amp; materials · Production steps · Quality standards · Demand planning · Material planning · Production schedule · Production orders · Production stages · Yield, loss &amp; rework · Lab testing · Food safety · Labels &amp; coding · Packing · Finished goods · Traceability &amp; recalls · Production costs</p>
+          <h4>Delivery and shared work</h4><p class="small">Order picking · Loading &amp; dispatch · Delivery confirmation · Returns &amp; claims · Unsold returns · Equipment maintenance · Multi-plant operations · Planning recommendations</p>
+        </div>
+      </div>
+      <div class="card red mt-3"><h3>What you do not receive</h3><p class="mb-0">User/role administration, approval-policy setup, customer sales-order creation, supplier payment, general-ledger posting, payroll posting, finance imports or financial-report execution. Send those tasks to the authorised owner.</p></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>A dependable daily routine</h1></div>
+        <p>Use “My work” as the starting point; use registers to investigate and complete the underlying record.</p>
+      </div>
+      <div class="grid-2">
+        <div class="stack">
+          <div class="card"><div class="number">1</div><h3>Confirm the workplace</h3><p>Check the company, plant and “Operations Manager” label in the top bar before entering any quantity or making a status change.</p></div>
+          <div class="card"><div class="number">2</div><h3>Review My work</h3><p>Check open, assigned, pending and overdue items. Claim work when ownership is required; open the source record before deciding.</p></div>
+          <div class="card"><div class="number">3</div><h3>Clear physical exceptions first</h3><p>Prioritise held stock, incoming-quality decisions, shortages, production holds, overdue stages, loading problems and safety alerts.</p></div>
+        </div>
+        <div class="stack">
+          <div class="card"><div class="number">4</div><h3>Process planned work</h3><p>Continue approved purchasing, stock movements, released schedules, production, quality and dispatch in their expected sequence.</p></div>
+          <div class="card"><div class="number">5</div><h3>Complete evidence</h3><p>Use meaningful reasons, references and attachments. Never use a status change merely to remove an item from the queue.</p></div>
+          <div class="card"><div class="number">6</div><h3>Hand off and reconcile</h3><p>Confirm that posted quantities and completed records are visible to Finance. Escalate discrepancies instead of creating compensating data.</p></div>
+        </div>
+      </div>
+      <div class="callout warning"><div class="icon">!</div><div><b>Before selecting Post, Release, Complete or Dispatch</b><br>Recheck the selected plant, lot, owner, location, quantity, unit, effective recipe/route, reason and supporting reference. These actions create accountable history and may affect stock or downstream finance.</div></div>
+      <div class="flow">
+        <div class="flow-step"><small>Morning</small><b>Queue + exceptions</b><span>Overdue, quality hold, shortage and failed movement.</span></div>
+        <div class="flow-step"><small>During shift</small><b>Record at source</b><span>Receipt, issue, stage, test, pack and dispatch promptly.</span></div>
+        <div class="flow-step"><small>Before close</small><b>Reconcile</b><span>Open movements, partial receipts, active stages and hand-offs.</span></div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>Purchase-to-receipt workflow</h1></div>
+        <p>Operations creates and executes the request; Finance independently approves the requisition and later owns invoice/payment controls.</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><small>Operations</small><b>1 · Purchase requisition</b><span>Create item lines, purpose, need-by date and estimate; submit for approval.</span></div>
+        <div class="flow-step"><small>Finance</small><b>2 · Independent approval</b><span>Review value, purpose, policy and authority; approve or return with a reason.</span></div>
+        <div class="flow-step"><small>Operations</small><b>3 · Supplier quotation</b><span>Issue request, capture supplier responses and award with evidence.</span></div>
+        <div class="flow-step"><small>Operations</small><b>4 · Purchase order</b><span>Create from the award, amend if controlled, then issue.</span></div>
+        <div class="flow-step"><small>Operations</small><b>5 · Receive + inspect</b><span>Record arrival, partial receipt and incoming quality decision.</span></div>
+        <div class="flow-step"><small>Finance</small><b>6 · Match + pay</b><span>Use accepted quantities for three-way match, approval and settlement.</span></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Operations checklist</h3><ul class="checklist"><li>Use the correct supplier, item, quantity and unit.</li><li>Do not source an unapproved requisition.</li><li>Capture all quote terms before award.</li><li>Receive only against an issued purchase order.</li><li>Record lot and held location accurately.</li><li>Return only rejected, available stock to the supplier.</li></ul></div>
+        <div class="card gold"><h3>Stop and investigate when</h3><ul><li>Estimate, quote and order do not agree.</li><li>Received quantity exceeds remaining order quantity.</li><li>The lot, owner or unit is unclear.</li><li>Accepted plus rejected does not equal inspected quantity.</li><li>A version conflict says someone changed the record.</li><li>Finance reports a match exception.</li></ul></div>
+      </div>
+      <table class="mt-3 compact-table">
+        <thead><tr><th>Screen</th><th>Operations actions</th><th>Result / next owner</th></tr></thead>
+        <tbody>
+          <tr><td>Purchase requisitions</td><td>Create, edit, submit, cancel</td><td>Finance approval queue</td></tr>
+          <tr><td>Supplier quotations</td><td>Create, edit, issue, record quotes, award, cancel</td><td>Awarded source for purchase order</td></tr>
+          <tr><td>Purchase orders</td><td>Create, amend, issue, cancel</td><td>Issued commitment for arrival/receipt</td></tr>
+          <tr><td>Supplier arrivals / Goods receipts</td><td>Create, update, post or cancel</td><td>Received lot in Quality Hold</td></tr>
+          <tr><td>Incoming quality / Supplier returns</td><td>Complete inspection; create/update/post/cancel rejected return</td><td>Released stock or controlled supplier return; accepted receipt available to Finance</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual walkthrough</div><h1>Same requisition, different responsibility</h1></div>
+        <p>The interface exposes actions by role. The same screen can therefore support a controlled hand-off.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-purchase-requisitions.png" alt="Operations view of purchase requisitions"><figcaption class="screen-caption"><b>Operations Manager</b><span>“+ New” is available. Operations prepares, edits and submits the request but cannot approve it.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-purchase-approval.png" alt="Finance view of purchase requisitions"><figcaption class="screen-caption"><b>Finance Manager</b><span>No create button. Finance receives only requests matching its direct or delegated approval authority.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Maker</b><br>Operations explains the business need and supplies accurate lines and estimated value.</div>
+        <div><b>Checker</b><br>Finance examines policy, amount, supporting evidence and maker-checker separation before deciding.</div>
+      </div>
+      <div class="callout"><div class="icon">i</div><div><b>A permission is not a promise that a button will always appear.</b><br>The request must be in the correct status, within authority, unchanged, and created by another person where maker-checker applies.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>Inventory and inbound control</h1></div>
+        <p>Inventory is a ledger of accountable movements—not a number to overwrite. Always use the operation that describes what physically happened.</p>
+      </div>
+      <div class="grid-3">
+        <div class="card"><h3>Stock overview</h3><p>Review physical, reserved, blocked and available quantities by item, owner, lot, location, quality and expiry.</p><p class="small"><b>Actions:</b> manage owners/lots; reserve and release.</p></div>
+        <div class="card"><h3>Issues &amp; returns</h3><p>Use for authorised consumption or return of stock when the movement is not already created by a dedicated workflow.</p><p class="small"><b>Actions:</b> create, edit, post, cancel.</p></div>
+        <div class="card"><h3>Stock transfers</h3><p>Move stock between controlled plant locations while preserving owner, lot, quality and movement evidence.</p><p class="small"><b>Actions:</b> create, edit, post, cancel.</p></div>
+        <div class="card"><h3>Stock counts</h3><p>Record the counted quantity and reason. Posting creates the controlled adjustment; it does not rewrite history.</p><p class="small"><b>Actions:</b> create, edit, post, cancel.</p></div>
+        <div class="card"><h3>Expiry &amp; disposal</h3><p>Identify expiring stock and dispose only through the governed record with reason and outcome location.</p><p class="small"><b>Actions:</b> create, edit, post, cancel.</p></div>
+        <div class="card"><h3>Incoming quality</h3><p>Split the inspected held quantity into accepted and rejected quantities. The total must reconcile exactly.</p><p class="small"><b>Action:</b> complete inspection.</p></div>
+      </div>
+      <div class="callout danger"><div class="icon">!</div><div><b>Never correct stock by guessing.</b><br>If the wrong item, unit, lot, owner, location or quality status was posted, stop and follow the approved correction/reversal process. Preserve the original audit trail.</div></div>
+      <div class="grid-2">
+        <div><h3>Before posting a movement</h3><ul class="checklist"><li>Correct workplace and location</li><li>Correct item/SKU and unit</li><li>Correct owner and lot</li><li>Enough available quantity</li><li>Reason and source reference entered</li></ul></div>
+        <div><h3>After posting</h3><ul class="checklist"><li>Confirm the movement number/status</li><li>Check resulting stock availability</li><li>Confirm linked source record</li><li>Resolve any work-queue exception</li><li>Notify the next owner when required</li></ul></div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>Plan and execute production</h1></div>
+        <p>Planning creates controlled snapshots; execution consumes the released plan and records actual material, time, output and quality.</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><small>Plan</small><b>Demand planning</b><span>Create time-phased manufactured-product demand and release it.</span></div>
+        <div class="flow-step"><small>Materials</small><b>Material planning</b><span>Run recipe explosion and stock netting; resolve shortages.</span></div>
+        <div class="flow-step"><small>Capacity</small><b>Production schedule</b><span>Schedule routes against work-centre capacity; reserve materials.</span></div>
+        <div class="flow-step"><small>Batch</small><b>Production order</b><span>Create, release and issue the exact reserved material.</span></div>
+        <div class="flow-step"><small>Actuals</small><b>Stages + output</b><span>Start/complete in sequence; record good yield, loss and rework.</span></div>
+        <div class="flow-step"><small>Release</small><b>Quality + packing</b><span>Complete tests and holds before packing released output.</span></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Release gates</h3><ul class="checklist"><li>An effective recipe and active production route exist.</li><li>Material shortages and capacity overloads are resolved.</li><li>Reserved material is available by lot and expiry.</li><li>Stages are completed in route order.</li><li>Good + loss + unresolved rework reconciles to actual output.</li><li>Required lab results and food-safety holds are clear.</li></ul></div>
+        <div class="card gold"><h3>What the system preserves</h3><ul><li>Recipe, material and route snapshot used by the order.</li><li>Exact reservations and stock issues.</li><li>Stage timestamps and actual duration.</li><li>Yield, loss, rework and resolution history.</li><li>Specification results, deviations and holds.</li><li>Finished-lot genealogy, coding and cost evidence.</li></ul></div>
+      </div>
+      <div class="callout"><div class="icon">i</div><div><b>Cancel carefully.</b><br>Cancelling a released schedule or order can return reservations, but only while downstream execution allows it. Read the displayed reason when cancellation is blocked.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual walkthrough</div><h1>From released schedule to production order</h1></div>
+        <p>Both screens belong to Operations, but they represent different control points: commitment of capacity/material and accountable batch execution.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-production-schedule.png" alt="Operations production schedule screen"><figcaption class="screen-caption"><b>Production schedule</b><span>Create and release capacity-feasible schedule lines. Release reserves the required materials.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/operations-production-orders.png" alt="Operations production orders screen"><figcaption class="screen-caption"><b>Production orders</b><span>Convert released schedule lines into batches, issue reserved material and complete accountable output.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Schedule answers “when and with what?”</b><br>It uses route capacity and FEFO material availability before release.</div>
+        <div><b>Order answers “what actually happened?”</b><br>It records batch material, stages, quality, yield and completion evidence.</div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">04 · Operations Manager</div><h1>Quality, packing, traceability and cost</h1></div>
+        <p>These controls make every finished lot explainable from incoming material through release, customer exposure and actual cost.</p>
+      </div>
+      <table>
+        <thead><tr><th>Area</th><th>What Operations does</th><th>Key rule</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><b>Quality standards</b></td><td>Create, edit and lifecycle-manage typed specifications.</td><td>Use effective standards with valid limits and test methods.</td><td>Controlled acceptance criteria.</td></tr>
+          <tr><td><b>Lab testing</b></td><td>Create samples and complete parameter results.</td><td>Failed values can create a deviation automatically.</td><td>Pass/fail evidence linked to the batch.</td></tr>
+          <tr><td><b>Food safety</b></td><td>Create/release holds, resolve deviations and release eligible batches.</td><td>No release while blocking quality evidence remains.</td><td>Explicit disposition and release history.</td></tr>
+          <tr><td><b>Labels &amp; coding</b></td><td>Create/update revisions, approve effective artwork, retire superseded versions.</td><td>Packing must use an approved, effective revision.</td><td>Traceable product coding.</td></tr>
+          <tr><td><b>Packing</b></td><td>Create, complete or cancel packing runs.</td><td>Only quality-released output can become finished stock.</td><td>Finished lot and stock receipt.</td></tr>
+          <tr><td><b>Traceability &amp; recalls</b></td><td>Create and close recall cases; explore genealogy both directions.</td><td>Open recalls block connected on-hand stock.</td><td>Customer exposure and containment evidence.</td></tr>
+          <tr><td><b>Production costs</b></td><td>Calculate immutable material/conversion/yield and variance snapshots.</td><td>Calculate only from complete accountable actuals.</td><td>Batch cost available to Finance and profitability.</td></tr>
+        </tbody>
+      </table>
+      <div class="grid-3 mt-3">
+        <div class="card"><h3>Before batch release</h3><p>Check completed stages, reconciled output, required tests, deviations, food-safety holds, and approval evidence.</p></div>
+        <div class="card"><h3>Before packing</h3><p>Check released batch quantity, product/SKU, approved artwork revision, barcode and rendered lot/date code.</p></div>
+        <div class="card"><h3>Before cost calculation</h3><p>Check material issues, stage actuals, good quantity, losses, rework resolution and configured cost inputs.</p></div>
+      </div>
+      <div class="callout security"><div class="icon">✓</div><div><b>Finance can view Production Costs but cannot calculate them.</b><br>This preserves Operations ownership of production actuals while allowing independent financial review.</div></div>
+    </section>
+
+    <section class="sheet" id="finance">
+      <div class="page-heading">
+        <div><div class="section-number">05 · Finance Manager</div><h1>Your role: approve and account</h1></div>
+        <p>Finance sees 24 focused screens. It can review selected operational evidence, but cannot execute production or administer system access.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>What you own</h2>
+          <ul class="checklist">
+            <li>Purchase-requisition approval within direct/delegated authority.</li>
+            <li>Customer credit controls and receivable collection allocation.</li>
+            <li>Supplier-invoice matching, invoice/proposal approval, payment and bank reconciliation.</li>
+            <li>Expenses, journals, periods, overhead allocation, assets and payroll posting.</li>
+            <li>Financial scenarios, adjustments, historical imports, archive, openings and diagnostics.</li>
+            <li>Controlled reporting, multi-company consolidation and planning-review decisions.</li>
+          </ul>
+          <div class="callout security"><div class="icon">✓</div><div><b>Your strongest control</b><br>Do not treat operational completion as financial proof by itself. Match the source, quantities, price, tax, approval and accounting period.</div></div>
+        </div>
+        <div class="card soft">
+          <h2>Your 24 screens</h2>
+          <h4>Home &amp; review</h4><p class="small">My work · Help &amp; support · Reports · Purchase requisitions · Production costs</p>
+          <h4>Commercial &amp; returns</h4><p class="small">Pricing &amp; customer credit · Unsold returns · Customer accounts · Profitability</p>
+          <h4>Finance &amp; people</h4><p class="small">Supplier invoices &amp; payments · Expenses · General ledger · Overhead costs · Fixed assets · Employees &amp; payroll · Equipment maintenance</p>
+          <h4>Scale &amp; finance tools</h4><p class="small">Multi-plant operations · Planning recommendations · Financial scenarios · Finance adjustments · Historical data import · Bill archive · Opening balances · Finance review tools</p>
+        </div>
+      </div>
+      <div class="card red mt-3"><h3>What you do not receive</h3><p class="mb-0">User/role administration, purchasing execution after requisition approval, physical inventory posting, production execution, quality release, packing, dispatch or sales-order creation. Review their evidence; do not perform their jobs through Finance access.</p></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">05 · Finance Manager</div><h1>A dependable daily routine</h1></div>
+        <p>Start with approvals and exceptions, then move through matching, posting, reconciliation and review.</p>
+      </div>
+      <div class="grid-3">
+        <div class="card"><div class="number">1</div><h3>Confirm scope</h3><p>Verify company, plant and Finance Manager in the top bar. A report or journal in the wrong scope is not a harmless mistake.</p></div>
+        <div class="card"><div class="number">2</div><h3>Review My work</h3><p>Open approval and exception items from their source. Claim only when ownership is required and leave a decision reason.</p></div>
+        <div class="card"><div class="number">3</div><h3>Resolve matches</h3><p>Compare invoice lines to purchase order, QC-accepted receipt quantity, price and tax before approving.</p></div>
+        <div class="card"><div class="number">4</div><h3>Post controlled entries</h3><p>Confirm maker-checker separation, balanced lines, open period, correct accounts and immutable source evidence.</p></div>
+        <div class="card"><div class="number">5</div><h3>Reconcile</h3><p>Allocate receipts/payments exactly, use unique bank references, and investigate unallocated or unmatched amounts.</p></div>
+        <div class="card"><div class="number">6</div><h3>Review and report</h3><p>Run controlled reports with an explicit cutoff. Use the stored snapshot/export rather than rebuilding totals manually.</p></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Approval questions</h3><ul class="checklist"><li>Is the request from another user?</li><li>Is it within direct or delegated authority?</li><li>Is the purpose complete and supported?</li><li>Do value, supplier/customer and terms make sense?</li><li>Is the source version unchanged?</li><li>Is a rejection reason specific enough to correct?</li></ul></div>
+        <div class="card gold"><h3>End-of-day questions</h3><ul><li>Any approved but unposted items?</li><li>Any payment or receipt not reconciled?</li><li>Any journal draft or imbalance?</li><li>Any nearing period-close dependency?</li><li>Any failed export or unacknowledged file?</li><li>Any overdue Finance work item?</li></ul></div>
+      </div>
+      <div class="callout danger"><div class="icon">!</div><div><b>Never approve because the requester is waiting.</b><br>If evidence is incomplete, reject or return it with a useful reason. Approval is an accountable control, not a queue-clearing action.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">05 · Finance Manager</div><h1>Supplier invoices, proposals and payment</h1></div>
+        <p>The payable workflow links financial settlement to an issued order and QC-accepted receipt evidence.</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><small>Source</small><b>Issued purchase order</b><span>Supplier, price and terms originate from controlled sourcing.</span></div>
+        <div class="flow-step"><small>Physical proof</small><b>Accepted goods receipt</b><span>Only quantities accepted by incoming quality are available to invoice.</span></div>
+        <div class="flow-step"><small>Finance maker</small><b>Create + match invoice</b><span>Record invoice/tax lines and resolve quantity or price exceptions.</span></div>
+        <div class="flow-step"><small>Finance checker</small><b>Approve invoice</b><span>A different authorised user reviews source and match evidence.</span></div>
+        <div class="flow-step"><small>Treasury control</small><b>Proposal + payment</b><span>Build one-supplier proposal, approve independently, then pay.</span></div>
+        <div class="flow-step"><small>Close</small><b>Bank reconciliation</b><span>Use a unique statement reference and reconcile allocations.</span></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card"><h3>Invoice actions</h3><p>Create · Update · Match · Approve · Cancel</p><p class="small muted">The same user must not make and approve the controlled item where maker-checker applies.</p></div>
+        <div class="card"><h3>Proposal/payment actions</h3><p>Create proposal · Update · Approve · Cancel · Pay · Reconcile</p><p class="small muted">One proposal is limited to one supplier; payment cannot exceed approved outstanding value.</p></div>
+        <div class="card"><h3>Bank &amp; statutory actions</h3><p>Manage masked bank setup · Generate controlled export · Record acknowledgement</p><p class="small muted">Exports are deterministic, checksummed and single-use against their selected sources.</p></div>
+        <div class="card gold"><h3>Typical match exception</h3><p>Invoice quantity exceeds QC-accepted, uninvoiced quantity; invoice price differs from the purchase order; source/term is missing; or tax data is invalid.</p></div>
+      </div>
+      <div class="callout"><div class="icon">i</div><div><b>Do not “fix” a match by changing the evidence to fit the invoice.</b><br>Correct the supplier invoice when it is wrong. If the order or physical receipt is wrong, return the issue to its source owner and preserve the history.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual walkthrough</div><h1>Payables and the general ledger</h1></div>
+        <p>Payables governs supplier settlement; the ledger governs balanced accounting entries and periods.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/finance-payables.png" alt="Finance supplier invoices and payments screen"><figcaption class="screen-caption"><b>Supplier invoices &amp; payments</b><span>Create and match invoices, control payment proposals, settle and reconcile.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-general-ledger.png" alt="Finance general ledger screen"><figcaption class="screen-caption"><b>General ledger</b><span>Create balanced journals, post, reverse and close periods under the applicable controls.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Payables starts from a supplier obligation.</b><br>Use the purchase order, accepted receipt, tax and bank evidence.</div>
+        <div><b>The ledger records the accounting consequence.</b><br>Use balanced accounts, an open period, reasoned references and reversal—not deletion.</div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">05 · Finance Manager</div><h1>Accounting and finance controls</h1></div>
+        <p>Choose the screen that describes the business event. Each workspace has its own posting and evidence rules.</p>
+      </div>
+      <table class="compact-table">
+        <thead><tr><th>Workspace</th><th>Finance can</th><th>Control to remember</th></tr></thead>
+        <tbody>
+          <tr><td><b>Pricing &amp; customer credit</b></td><td>Set controlled credit decision/terms.</td><td>Sales owns price-list lifecycle; Finance owns customer credit.</td></tr>
+          <tr><td><b>Customer accounts</b></td><td>Record and allocate collections.</td><td>Do not over-allocate; preserve transaction history.</td></tr>
+          <tr><td><b>Expenses</b></td><td>Create, edit, submit, approve, post, cancel.</td><td>Maker-checker and valid tax/account/period.</td></tr>
+          <tr><td><b>General ledger</b></td><td>Create/post/reverse journals; close periods.</td><td>Balanced debits/credits; reverse instead of deleting.</td></tr>
+          <tr><td><b>Overhead costs</b></td><td>Create/update pools and allocate.</td><td>Use approved basis and balanced target journal.</td></tr>
+          <tr><td><b>Fixed assets</b></td><td>Create/update, activate, depreciate, dispose.</td><td>Correct dates, useful life, accounts and net book value.</td></tr>
+          <tr><td><b>Employees &amp; payroll</b></td><td>Create/update accounting profiles; create, approve and post payroll.</td><td>Immutable run snapshot and independent approval.</td></tr>
+          <tr><td><b>Financial scenarios</b></td><td>Create and run simulations.</td><td>Simulation is ledger-isolated and never posts live entries.</td></tr>
+          <tr><td><b>Finance adjustments</b></td><td>Create, submit, approve, post, cancel.</td><td>Balanced maker-checker adjustment with a reason.</td></tr>
+          <tr><td><b>Historical data import</b></td><td>Create, map/validate and post batches.</td><td>Resolve every mapping and validation exception first.</td></tr>
+          <tr><td><b>Bill archive</b></td><td>Upload and download retained documents.</td><td>Private access, supported type/size, checksum and retention.</td></tr>
+          <tr><td><b>Opening balances</b></td><td>Create, reconcile and post.</td><td>Lines and control total must reconcile exactly.</td></tr>
+          <tr><td><b>Finance review tools</b></td><td>Create snapshot, diagnose and close a review.</td><td>Diagnostics preserve a snapshot; they do not rewrite ledger history.</td></tr>
+          <tr><td><b>Reports</b></td><td>Run and export controlled snapshots.</td><td>Choose the cutoff and retain checksum/freshness evidence.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="sheet" id="handoffs">
+      <div class="page-heading">
+        <div><div class="section-number">06 · Operations ↔ Finance</div><h1>Who does what in shared workflows</h1></div>
+        <p>Shared visibility supports review; it does not erase ownership. The letter in each cell describes the expected responsibility.</p>
+      </div>
+      <div class="raci-key"><span><b>D</b> Does the work</span><span><b>A</b> Approves/checks</span><span><b>R</b> Reviews/uses evidence</span><span><b>—</b> No standard role action</span></div>
+      <table class="raci">
+        <thead><tr><th>Process / control point</th><th>Operations</th><th>Finance</th><th>Required hand-off evidence</th></tr></thead>
+        <tbody>
+          <tr><td>Purchase requisition preparation</td><td><b>D</b></td><td>R</td><td>Purpose, lines, need-by date, estimate and source context.</td></tr>
+          <tr><td>Purchase requisition decision</td><td>—</td><td><b>A</b></td><td>Authority/policy snapshot and reasoned decision.</td></tr>
+          <tr><td>RFQ, award and purchase order</td><td><b>D</b></td><td>R through source evidence</td><td>Supplier quotes, ranking, award reason, order/revisions.</td></tr>
+          <tr><td>Arrival, receipt and incoming quality</td><td><b>D</b></td><td>R</td><td>Issued order, lot, received and accepted/rejected quantities.</td></tr>
+          <tr><td>Supplier invoice, proposal and payment</td><td>R / correct source</td><td><b>D + A</b> by separate users</td><td>Three-way match, tax, approval, bank reference and allocation.</td></tr>
+          <tr><td>Production actuals and batch cost</td><td><b>D</b></td><td>R</td><td>Material issues, time, yield/loss and immutable cost snapshot.</td></tr>
+          <tr><td>Unsold return—physical receipt/disposition</td><td><b>D</b></td><td>R</td><td>Customer/shipment/invoice, returned quantity, quality outcome.</td></tr>
+          <tr><td>Unsold return—approval/loss/financial resolution</td><td>R</td><td><b>A / D</b></td><td>Policy decision, loss value, tax and receivable/refund/replacement evidence.</td></tr>
+          <tr><td>Equipment maintenance</td><td><b>D</b> create/release</td><td><b>D</b> complete cost</td><td>Asset, work performed, labour/material/external cost and expense account.</td></tr>
+          <tr><td>Inter-plant movement</td><td><b>D</b> transfer</td><td><b>D</b> consolidate</td><td>Route/mapping, dispatch/receipt, exchange rate and elimination evidence.</td></tr>
+          <tr><td>Planning recommendation</td><td><b>D</b> prepare</td><td><b>A</b> review</td><td>Immutable input checksum, limitations, recommendation and outcome.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout security"><div class="icon">✓</div><div><b>Maker-checker is a people control.</b><br>Giving one person both roles does not guarantee they may approve their own record; workflow rules still compare the actor who made the record with the actor making the decision.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual hand-off</div><h1>Unsold return: physical outcome and finance outcome</h1></div>
+        <p>Both roles open the same case, but their available commands represent different stages of the lifecycle.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-unsold-returns.png" alt="Operations view of unsold returns"><figcaption class="screen-caption"><b>Operations Manager</b><span>Receive returned stock, record quality disposition and attach evidence. Operations cannot approve the financial outcome.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-unsold-returns.png" alt="Finance view of unsold returns"><figcaption class="screen-caption"><b>Finance Manager</b><span>Approve within authority, post recognised loss and complete credit/refund/replacement accounting.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Physical truth</b><br>Returned quantity and condition must reconcile to the shipment and inventory outcome.</div>
+        <div><b>Financial truth</b><br>Invoice, net credit, tax and receivable/refund/replacement must reconcile exactly once.</div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual hand-off</div><h1>Maintenance: work ownership and cost completion</h1></div>
+        <p>Shared screen, deliberately different action set.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-maintenance.png" alt="Operations maintenance accounting screen"><figcaption class="screen-caption"><b>Operations Manager</b><span>Can create, update, release, complete or cancel maintenance work. The “+ New” button is visible.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-maintenance.png" alt="Finance maintenance accounting screen"><figcaption class="screen-caption"><b>Finance Manager</b><span>Can review the same work and complete the cost-accounting hand-off; cannot create a new work order.</span></figcaption></figure>
+      </div>
+      <div class="callout warning"><div class="icon">!</div><div><b>Agree the operating procedure.</b><br>The standard permission model allows Operations to complete maintenance as well as Finance. If the organisation requires Finance-only final completion, create a narrower custom Operations role after business-owner approval.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual hand-off</div><h1>Multi-plant: move goods, then consolidate</h1></div>
+        <p>Operations controls physical transfer; Finance controls consolidated financial reporting.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-multi-plant.png" alt="Operations multi-plant screen"><figcaption class="screen-caption"><b>Operations Manager</b><span>Create/update/submit, dispatch, receive or cancel transfers on approved routes.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-multi-plant.png" alt="Finance multi-plant screen"><figcaption class="screen-caption"><b>Finance Manager</b><span>Run consolidation and independently finalise the balanced snapshot.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Operations evidence</b><br>Source/destination, route, item/UOM mapping, dispatch and receipt.</div>
+        <div><b>Finance evidence</b><br>Entity group, exchange rate, elimination lines and balanced totals.</div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual hand-off</div><h1>Planning recommendations: prepare, then review</h1></div>
+        <p>The recommendation engine supports a decision; it never posts stock, purchasing, production or finance transactions.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/operations-planning-recommendations.png" alt="Operations planning recommendations screen"><figcaption class="screen-caption"><b>Operations Manager</b><span>Create/revise the snapshot, generate recommendations, submit, record outcomes and complete/cancel.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/finance-planning-recommendations.png" alt="Finance planning recommendations screen"><figcaption class="screen-caption"><b>Finance Manager</b><span>Independently approve or reject the unchanged source and stated limitations.</span></figcaption></figure>
+      </div>
+      <div class="callout"><div class="icon">i</div><div><b>Human decision remains mandatory.</b><br>Read the source cutoff, checksum, exclusions and limitations. If the source changed after submission, revise and resubmit instead of approving stale advice.</div></div>
+    </section>
+
+    <section class="sheet" id="sales-partner">
+      <div class="page-heading">
+        <div><div class="section-number">07 · Sales &amp; Partner</div><h1>Commercial roles</h1></div>
+        <p>Sales operates the internal customer workflow; Partner User sees only explicitly entitled records inside one external tenant.</p>
+      </div>
+      <div class="grid-2">
+        <div class="card role-card sales" data-role="Sales Manager">
+          <h2>Sales Manager</h2>
+          <p><b>13 screens · 38 actions</b></p>
+          <ul class="checklist"><li>Qualify and convert enquiries.</li><li>Manage price lists; Finance owns credit decisions.</li><li>Create, confirm, amend or cancel sales orders.</li><li>Manage contract work, picking, loading, dispatch and delivery.</li><li>Create/resolve claims and create unsold returns.</li><li>Allocate customer collections and view profitability.</li></ul>
+          <p class="small"><b>Does not see:</b> administration, purchasing, production, payables or ledger screens.</p>
+        </div>
+        <div class="card role-card partner" data-role="Partner User">
+          <h2>Partner User</h2>
+          <p><b>1 screen · 4 actions</b></p>
+          <ul class="checklist"><li>Read entitled orders, shipments, invoices and claims.</li><li>Create a claim against an entitled shipment.</li><li>Upload and download entitled documents.</li><li>Acknowledge document receipt.</li></ul>
+          <p class="small"><b>Does not receive:</b> any internal screen, another customer’s record, implicit document access or internal approval authority.</p>
+        </div>
+      </div>
+      <div class="flow mt-3">
+        <div class="flow-step"><small>Sales</small><b>Confirm order</b><span>Server applies price, discount, tax and credit controls.</span></div>
+        <div class="flow-step"><small>Operations/Sales</small><b>Pick + dispatch</b><span>Allocate FEFO lots, issue stock and create receivable evidence.</span></div>
+        <div class="flow-step"><small>Partner</small><b>View entitlement</b><span>See only party-bound order, shipment, invoice or document.</span></div>
+        <div class="flow-step"><small>Partner/Sales</small><b>Claim + resolution</b><span>Claim exact shipped quantity; internal owner controls outcome.</span></div>
+      </div>
+      <div class="callout security"><div class="icon">✓</div><div><b>A partner acknowledgement means “received,” not “approved.”</b><br>It never approves an invoice, credit, return or any internal workflow.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual comparison</div><h1>Internal sales vs external partner</h1></div>
+        <p>The Partner User receives a deliberately minimal navigation and record-entitlement boundary.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/sales-orders.png" alt="Sales Manager sales order screen"><figcaption class="screen-caption"><b>Sales Manager</b><span>Internal role can create and control customer orders and continue through fulfilment/claims.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/partner-portal.png" alt="Partner User portal"><figcaption class="screen-caption"><b>Partner User</b><span>One portal screen; data is limited to the assigned external tenant and explicit entitlements.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>Internal authority</b><br>Screen and action permissions plus company/plant scope.</div>
+        <div><b>External authority</b><br>Partner role plus party tenant plus explicit record/document entitlements.</div>
+      </div>
+    </section>
+
+    <section class="sheet" id="administration">
+      <div class="page-heading">
+        <div><div class="section-number">08 · ERP Administrator</div><h1>Administer access without weakening controls</h1></div>
+        <p>Administrator is a configuration and support role. It has broad internal screen/action authority, but workflow and data rules still apply.</p>
+      </div>
+      <div class="grid-3">
+        <div class="card"><h3>Organisation</h3><p>Create/update companies, plants and plant location hierarchies.</p></div>
+        <div class="card"><h3>Identity</h3><p>Invite/create users, update status, manage role assignments, verification and device sessions.</p></div>
+        <div class="card"><h3>Authority</h3><p>Create custom roles/permissions and atomically assign a permission set.</p></div>
+        <div class="card"><h3>Approval control</h3><p>Version plant policies, value bands, delegation and escalation.</p></div>
+        <div class="card"><h3>Evidence &amp; integration</h3><p>Search audit evidence; process, retry or quarantine integration work.</p></div>
+        <div class="card"><h3>Business support</h3><p>See all business workspaces, manage help cases and configure partner access.</p></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Protected system definitions</h3><p>The five seeded roles and system permissions are immutable in the editor. Their names, status and permission composition cannot be casually rewritten. Create a company-scoped custom role for local differences.</p></div>
+        <div class="card gold"><h3>Admin is still constrained</h3><p>Maker-checker, approval authority, record status, selected context, optimistic version, required evidence and accounting/stock rules continue to run.</p></div>
+      </div>
+      <div class="callout danger"><div class="icon">!</div><div><b>Never use ERP Administrator as the default role.</b><br>Grant it only to named platform/business-control administrators, review it regularly, require two-step verification and keep normal operational work under normal roles.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Visual walkthrough</div><h1>Users and roles are separate controls</h1></div>
+        <p>Create the authority definition in Roles &amp; access; assign it to a named user and workplace in Users.</p>
+      </div>
+      <div class="screen-pair">
+        <figure class="screen-shot"><img src="screenshots/admin-users.png" alt="ERP Users and Assignments screen"><figcaption class="screen-caption"><b>Users</b><span>Invite/direct-create accounts, update status and manage effective-dated plant role assignments.</span></figcaption></figure>
+        <figure class="screen-shot"><img src="screenshots/admin-roles-access.png" alt="ERP Roles and Permissions screen"><figcaption class="screen-caption"><b>Roles &amp; access</b><span>Create a company-scoped custom role and select its permitted screens/actions.</span></figcaption></figure>
+      </div>
+      <div class="comparison-strip">
+        <div><b>User answers “who?”</b><br>One person, one named identity, verified contact and revocable sessions.</div>
+        <div><b>Role answers “what job?”</b><br>A reusable, approved bundle of view and action permissions.</div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">08 · ERP Administrator</div><h1>Create or invite a user</h1></div>
+        <p>Invitation is the preferred route because the person sets their own secret. Direct account creation is intended for controlled local/UAT use.</p>
+      </div>
+      <div class="grid-2">
+        <div class="stack">
+          <div class="card"><div class="number">1</div><h3>Choose the workplace</h3><p>Select the company and plant where the assignment must apply. User lists and new assignments are scoped here.</p></div>
+          <div class="card"><div class="number">2</div><h3>Open Users and select + New</h3><p>Choose <b>Invite user</b> for normal onboarding or <b>Direct account</b> only under the approved procedure.</p></div>
+          <div class="card"><div class="number">3</div><h3>Enter identity</h3><p>Use the person’s real name and unique work email. Never create a shared “finance” or “stores” identity.</p></div>
+          <div class="card"><div class="number">4</div><h3>Choose the least-privilege role</h3><p>Select the initial role and optional effective-from/to dates. Confirm the role matches the job, not seniority.</p></div>
+        </div>
+        <div class="stack">
+          <div class="card"><div class="number">5</div><h3>Send invitation / create</h3><p>The user and initial plant assignment are created together. Deliver invitation links only through the approved channel.</p></div>
+          <div class="card"><div class="number">6</div><h3>Verify access</h3><p>Ask the user to sign in, choose the intended workplace and confirm their menu. Do not ask them to share their password.</p></div>
+          <div class="card"><div class="number">7</div><h3>Add exceptional roles carefully</h3><p>Open the user and add an additional effective-dated role only with owner approval and segregation-of-duties review.</p></div>
+          <div class="card"><div class="number">8</div><h3>Maintain lifecycle</h3><p>Deactivate assignments/accounts when duties change; resend/revoke invitations, send verification and revoke device sessions as needed.</p></div>
+        </div>
+      </div>
+      <div class="callout warning"><div class="icon">!</div><div><b>Changes take effect through the active session context.</b><br>After an access change, have the user reselect the workplace or sign out and back in. Verify both the menu and one representative allowed/denied action.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">08 · ERP Administrator</div><h1>Create a custom role and assign permissions</h1></div>
+        <p>Use a custom role when a standard role is broader than the approved job. Do not edit a protected system role.</p>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><small>1</small><b>Define the job</b><span>List tasks, workplace scope, approver and separation constraints.</span></div>
+        <div class="flow-step"><small>2</small><b>Create role</b><span>Use a stable internal code, clear business name and useful description.</span></div>
+        <div class="flow-step"><small>3</small><b>Select screens</b><span>Add only screens needed to read the job’s records.</span></div>
+        <div class="flow-step"><small>4</small><b>Select actions</b><span>Add only create/change/approve/post actions explicitly required.</span></div>
+        <div class="flow-step"><small>5</small><b>Save atomically</b><span>The selected permission set replaces the previous set as one controlled change.</span></div>
+        <div class="flow-step"><small>6</small><b>Assign + test</b><span>Use a named test user; verify allowed and denied scenarios.</span></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Good custom role</h3><p><b>Name:</b> Warehouse Shift Lead</p><p><b>Purpose:</b> Receive, inspect, move and count stock at Training Plant; no purchasing award, production release or finance action.</p><p><b>Design:</b> Only required inventory/inbound screens and their exact commands.</p></div>
+        <div class="card red"><h3>Poor custom role</h3><p><b>Name:</b> Manager Access</p><p><b>Purpose:</b> “Needs everything just in case.”</p><p><b>Risk:</b> Excess privilege, unclear ownership and conflicting maker/checker abilities.</p></div>
+      </div>
+      <div class="callout"><div class="icon">i</div><div><b>Creating a permission record does not create product functionality.</b><br>Prefer existing system permissions. A new custom permission only has an effect when an implemented backend route or workflow explicitly checks that permission.</div></div>
+      <table class="compact-table mt-3">
+        <thead><tr><th>Review before activation</th><th>Question</th><th>Evidence</th></tr></thead>
+        <tbody><tr><td>Business ownership</td><td>Who approved the job definition?</td><td>Named owner and request/reference</td></tr><tr><td>Least privilege</td><td>Can any screen or action be removed?</td><td>Task-to-permission mapping</td></tr><tr><td>Segregation</td><td>Can the role make and approve/post the same item?</td><td>Tested maker/checker cases</td></tr><tr><td>Scope</td><td>Which company/plant and dates apply?</td><td>Assignment record</td></tr><tr><td>Validation</td><td>Were positive and negative tests run?</td><td>Test user/screenshots or sign-off</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">08 · ERP Administrator</div><h1>Permission guardrails</h1></div>
+        <p>Permissions are powerful, but they are only one layer of the control model.</p>
+      </div>
+      <div class="grid-3">
+        <div class="card"><h3>Screen permission</h3><p>Allows the menu item and protected read route. Friendly example: <em>View General ledger</em>.</p></div>
+        <div class="card"><h3>Action permission</h3><p>Allows a command family. Friendly example: <em>Post journal</em>. It does not bypass status or validation.</p></div>
+        <div class="card"><h3>Assignment</h3><p>Binds the role to a user, company and plant, optionally for a fixed date window.</p></div>
+        <div class="card"><h3>Approval authority</h3><p>Policy/value bands and delegation decide which submitted records a reviewer may decide.</p></div>
+        <div class="card"><h3>Record entitlement</h3><p>Partner users need explicit party-bound entitlement in addition to their role.</p></div>
+        <div class="card"><h3>Workflow rule</h3><p>Record status, maker identity, current version, quantity/balance and evidence remain server-authoritative.</p></div>
+      </div>
+      <div class="grid-2 mt-3">
+        <div class="card teal"><h3>Recommended access review</h3><ul class="checklist"><li>Monthly: active administrator and Finance assignments.</li><li>Quarterly: all roles, custom roles and partner entitlements.</li><li>Immediately: leaver, transfer, suspected compromise or emergency access.</li><li>Before go-live/change: maker-checker and negative access tests.</li></ul></div>
+        <div class="card gold"><h3>Prefer deactivation over deletion</h3><p>Deactivate an account, assignment, custom role or permission to stop future access while preserving historical attribution and audit evidence.</p><p class="small">Protected system definitions cannot be edited or deactivated in the normal editor.</p></div>
+      </div>
+      <div class="callout danger"><div class="icon">!</div><div><b>Never rely on a hidden button as security.</b><br>The backend must enforce the corresponding screen/action permission. This ERP does so for current routes; new features must follow the same pattern before release.</div></div>
+    </section>
+
+    <section class="sheet" id="access-matrix">
+      <div class="page-heading">
+        <div><div class="section-number">09 · Screen access matrix</div><h1>Home and administration</h1></div>
+        <p>A check means the standard seeded role can open the screen in an assigned workplace. Action rights are listed later.</p>
+      </div>
+      <div class="raci-key"><span class="yes">✓ Standard access</span><span class="no">— No standard access</span><span>Codes are included only as administrator/audit references.</span></div>
+      <table class="matrix" id="matrix-home"><thead><tr><th>Business screen</th><th>Sales</th><th>Operations</th><th>Finance</th><th>Admin</th><th>Partner</th></tr></thead><tbody></tbody></table>
+      <div class="callout security"><div class="icon">✓</div><div><b>Administration is intentionally separate.</b><br>Operations and Finance cannot open Users or Roles &amp; access and receive HTTP 403 from the corresponding API in the seeded model.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">09 · Screen access matrix</div><h1>Purchasing and inventory</h1></div>
+        <p>Finance shares Purchase Requisitions for approval. Operations executes the remaining supply and stock workflows.</p>
+      </div>
+      <table class="matrix compact-table" id="matrix-purchasing"><thead><tr><th>Business screen</th><th>Sales</th><th>Operations</th><th>Finance</th><th>Admin</th><th>Partner</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">09 · Screen access matrix</div><h1>Production and quality</h1></div>
+        <p>Operations owns master data, planning, execution and quality. Finance receives read access to Production Costs.</p>
+      </div>
+      <table class="matrix compact-table" id="matrix-production"><thead><tr><th>Business screen</th><th>Sales</th><th>Operations</th><th>Finance</th><th>Admin</th><th>Partner</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">09 · Screen access matrix</div><h1>Sales and delivery</h1></div>
+        <p>Sales owns the complete commercial chain; Operations and Finance join only at their physical or financial hand-off points.</p>
+      </div>
+      <table class="matrix" id="matrix-sales"><thead><tr><th>Business screen</th><th>Sales</th><th>Operations</th><th>Finance</th><th>Admin</th><th>Partner</th></tr></thead><tbody></tbody></table>
+      <div class="callout"><div class="icon">i</div><div><b>Shared screen does not mean identical action rights.</b><br>For example, Sales creates an Unsold Return, Operations receives/disposes it, and Finance approves/posts/completes its financial outcome.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">09 · Screen access matrix</div><h1>Finance, scale and finance tools</h1></div>
+        <p>Equipment Maintenance, Multi-plant Operations and Planning Recommendations are shared because they have explicit cross-role hand-offs.</p>
+      </div>
+      <table class="matrix compact-table" id="matrix-finance"><thead><tr><th>Business screen</th><th>Sales</th><th>Operations</th><th>Finance</th><th>Admin</th><th>Partner</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="sheet" id="action-appendix">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>Sales Manager and Partner User</h1></div>
+        <p>Actions are written as business verbs. Read access is covered by the screen matrix.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>Sales Manager · 38 actions</h2>
+          <table class="permission-table compact-table">
+            <thead><tr><th>Screen</th><th>Permitted actions</th><th>Boundary</th></tr></thead>
+            <tbody>
+              <tr><td>My work</td><td>Claim, complete</td><td>Only visible/eligible work.</td></tr>
+              <tr><td>Enquiries &amp; leads</td><td>Create, edit, qualify, convert, close</td><td>Conversion follows valid customer/product data.</td></tr>
+              <tr><td>Pricing &amp; customer credit</td><td>Create, edit, activate, retire price lists</td><td>Finance owns credit decisions.</td></tr>
+              <tr><td>Sales orders</td><td>Create, edit, confirm, amend, cancel</td><td>Server prices/taxes and applies credit/contract controls.</td></tr>
+              <tr><td>Contract work</td><td>Create, release, complete, cancel</td><td>Must use valid customer commitments.</td></tr>
+              <tr><td>Order picking</td><td>Allocate, pick, cancel</td><td>FEFO and available stock enforced.</td></tr>
+              <tr><td>Loading &amp; dispatch</td><td>Create, load, dispatch, cancel</td><td>Dispatch posts stock/receivable evidence.</td></tr>
+              <tr><td>Delivery confirmation</td><td>Complete</td><td>Record delivered/failed proof.</td></tr>
+              <tr><td>Returns &amp; claims</td><td>Create, receive, resolve</td><td>Limited to exact shipped quantities.</td></tr>
+              <tr><td>Unsold returns</td><td>Create, attach evidence</td><td>Operations/Finance own later stages.</td></tr>
+              <tr><td>Customer accounts</td><td>Collect</td><td>Allocation cannot exceed open balance.</td></tr>
+              <tr><td>Help &amp; support</td><td>Create, comment, reopen, close own case</td><td>Scoped to requester and authorised support.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h2>Partner User · 4 actions</h2>
+          <table class="permission-table compact-table">
+            <thead><tr><th>Screen</th><th>Permitted actions</th><th>Boundary</th></tr></thead>
+            <tbody>
+              <tr><td>Partner portal</td><td>Create claim</td><td>Only an entitled shipment and available quantity.</td></tr>
+              <tr><td>Partner portal</td><td>Upload document</td><td>Private, allowed file and exact tenant.</td></tr>
+              <tr><td>Partner portal</td><td>Download document</td><td>Only explicitly entitled available documents.</td></tr>
+              <tr><td>Partner portal</td><td>Acknowledge receipt</td><td>Informational only; never internal approval.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout security"><div class="icon">✓</div><div><b>Profitability is view-only for Sales.</b><br>The standard Sales role has the screen but no calculation/posting action there.</div></div>
+          <div class="callout warning"><div class="icon">!</div><div><b>Partner record visibility is not role-only.</b><br>Removing one entitlement must remove that record/document even while the Partner role stays active.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>Operations Manager — supply and stock</h1></div>
+        <p>Part 1 of the Operations action catalogue.</p>
+      </div>
+      <table class="permission-table compact-table">
+        <thead><tr><th>Screen / area</th><th>Permitted actions</th><th>Practical meaning</th></tr></thead>
+        <tbody>
+          <tr><td>My work</td><td>Claim, complete</td><td>Take ownership and finish eligible non-approval work.</td></tr>
+          <tr><td>Customers &amp; suppliers</td><td>Create, edit, lifecycle</td><td>Maintain identity, roles, addresses, tax and terms.</td></tr>
+          <tr><td>Brands &amp; agreements</td><td>Create, edit, lifecycle</td><td>Maintain effective party agreements.</td></tr>
+          <tr><td>Items &amp; units</td><td>Create, edit, lifecycle</td><td>Maintain catalogue item and controlled UOM conversion.</td></tr>
+          <tr><td>Products &amp; packs</td><td>Create, edit, lifecycle</td><td>Maintain stock-bearing products, packs and barcodes.</td></tr>
+          <tr><td>Purchase requisitions</td><td>Create, edit, submit, cancel</td><td>Prepare need; Finance decides approval.</td></tr>
+          <tr><td>Supplier quotations</td><td>Create, edit, issue, record quote, award, cancel</td><td>Run governed sourcing and evidence-backed award.</td></tr>
+          <tr><td>Purchase orders</td><td>Create, amend, issue, cancel</td><td>Control the supplier commitment and revisions.</td></tr>
+          <tr><td>Supplier arrivals</td><td>Create, edit, cancel</td><td>Record vehicle/arrival against issued order.</td></tr>
+          <tr><td>Goods receipts</td><td>Create, edit, post, cancel</td><td>Receive partial quantities into Quality Hold.</td></tr>
+          <tr><td>Incoming quality checks</td><td>Complete</td><td>Split held quantity into accepted/rejected.</td></tr>
+          <tr><td>Supplier returns</td><td>Create, edit, post, cancel</td><td>Return only QC-rejected, available stock.</td></tr>
+          <tr><td>Stock overview</td><td>Create/edit/lifecycle owner; create/edit/lifecycle lot; reserve, release</td><td>Control owners, lots and reservations.</td></tr>
+          <tr><td>Stock issues &amp; returns</td><td>Create, edit, post, cancel</td><td>Post controlled issue/return movement.</td></tr>
+          <tr><td>Stock transfers</td><td>Create, edit, post, cancel</td><td>Move stock between controlled locations.</td></tr>
+          <tr><td>Stock counts</td><td>Create, edit, post, cancel</td><td>Post a reasoned count adjustment.</td></tr>
+          <tr><td>Expiry &amp; disposal</td><td>Create, edit, post, cancel</td><td>Record governed expiry/disposal outcome.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>Operations Manager — make, deliver and improve</h1></div>
+        <p>Part 2 of the Operations action catalogue.</p>
+      </div>
+      <table class="permission-table compact-table">
+        <thead><tr><th>Screen / area</th><th>Permitted actions</th><th>Practical meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Recipes / steps / standards</td><td>Create, edit, lifecycle each definition</td><td>Maintain effective production and quality master data.</td></tr>
+          <tr><td>Demand planning</td><td>Create, edit, release, cancel</td><td>Commit demand into material planning.</td></tr>
+          <tr><td>Material planning</td><td>Run, cancel</td><td>Explode recipe and net available inventory.</td></tr>
+          <tr><td>Production schedule</td><td>Create, edit, release, cancel</td><td>Commit capacity and reserve FEFO material.</td></tr>
+          <tr><td>Production orders</td><td>Create, release, issue, complete, cancel</td><td>Control batch and exact material issue/output.</td></tr>
+          <tr><td>Production stages</td><td>Start, complete</td><td>Record route sequence and actual time.</td></tr>
+          <tr><td>Yield, loss &amp; rework</td><td>Record, resolve</td><td>Reconcile output and determine rework outcome.</td></tr>
+          <tr><td>Lab testing</td><td>Create, complete</td><td>Capture results against effective specification.</td></tr>
+          <tr><td>Food safety</td><td>Place hold, release hold, resolve deviation, release batch</td><td>Control corrective action and batch gate.</td></tr>
+          <tr><td>Labels &amp; coding</td><td>Create, edit, approve, retire</td><td>Govern effective artwork/coding revision.</td></tr>
+          <tr><td>Packing</td><td>Create, complete, cancel</td><td>Pack released output and receive finished stock.</td></tr>
+          <tr><td>Traceability &amp; recalls</td><td>Create, close</td><td>Contain connected stock and preserve closure evidence.</td></tr>
+          <tr><td>Production costs</td><td>Calculate</td><td>Freeze actual batch cost and variance snapshot.</td></tr>
+          <tr><td>Picking / loading / delivery</td><td>Allocate, pick, cancel; create, load, dispatch, cancel; complete POD</td><td>Execute physical fulfilment and proof of delivery.</td></tr>
+          <tr><td>Returns &amp; claims</td><td>Receive</td><td>Record physical returned goods; Sales resolves commercial outcome.</td></tr>
+          <tr><td>Unsold returns</td><td>Receive, dispose/accept outcome, attach evidence</td><td>Record physical/quality stage before Finance decision.</td></tr>
+          <tr><td>Equipment maintenance</td><td>Create, edit, release, complete, cancel</td><td>Plan work and capture accountable cost.</td></tr>
+          <tr><td>Multi-plant operations</td><td>Create, edit, submit, dispatch, receive, cancel transfer</td><td>Control physical inter-plant movement.</td></tr>
+          <tr><td>Planning recommendations</td><td>Create, revise, generate, submit, record outcome, complete, cancel</td><td>Prepare governed advice; Finance approves/rejects.</td></tr>
+          <tr><td>Help &amp; support</td><td>Create, comment, reopen, close own case</td><td>Use role-relevant help and requester-owned support.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout"><div class="icon">i</div><div><b>Finished Goods is view-only for the standard Operations role.</b><br>The finished-lot record is produced by controlled packing; Operations uses it for traceability rather than free-form editing.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>Finance Manager — approvals, payables and accounting</h1></div>
+        <p>Part 1 of the Finance action catalogue.</p>
+      </div>
+      <table class="permission-table compact-table">
+        <thead><tr><th>Screen / area</th><th>Permitted actions</th><th>Practical meaning</th></tr></thead>
+        <tbody>
+          <tr><td>My work</td><td>Claim, complete</td><td>Own and complete eligible Finance work.</td></tr>
+          <tr><td>Purchase requisitions</td><td>Approve/reject within workflow</td><td>Use direct/delegated authority and maker-checker.</td></tr>
+          <tr><td>Pricing &amp; customer credit</td><td>Credit decision</td><td>Control customer limit/hold/terms; Sales owns price-list lifecycle.</td></tr>
+          <tr><td>Customer accounts</td><td>Collect</td><td>Record and allocate customer receipt.</td></tr>
+          <tr><td>Supplier invoices</td><td>Create, edit, match, approve, cancel</td><td>Three-way match and independent approval.</td></tr>
+          <tr><td>Payment proposals</td><td>Create, edit, approve, cancel</td><td>One supplier, eligible approved balances, maker-checker.</td></tr>
+          <tr><td>Payments</td><td>Pay, reconcile</td><td>Allocate exactly and use a unique bank statement reference.</td></tr>
+          <tr><td>Bank/statutory</td><td>Manage bank, export, acknowledge</td><td>Masked bank data and checksummed single-use exports.</td></tr>
+          <tr><td>Expenses</td><td>Create, edit, submit, approve, post, cancel</td><td>Tax/account validation and maker-checker posting.</td></tr>
+          <tr><td>General ledger</td><td>Create journal, post, reverse, close period</td><td>Balanced lines, open period and immutable reversal trail.</td></tr>
+          <tr><td>Overhead costs</td><td>Create, edit, allocate</td><td>Controlled allocation basis and balanced journal.</td></tr>
+          <tr><td>Fixed assets</td><td>Create, edit, activate, depreciate, dispose</td><td>Lifecycle-safe carrying value and posting.</td></tr>
+          <tr><td>Employees &amp; payroll</td><td>Create/edit employee profile; create run, approve, post</td><td>Immutable run snapshot and independent approval.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warning"><div class="icon">!</div><div><b>Production Costs and Profitability are view-only.</b><br>Finance reviews the evidence but the standard role has no batch-cost calculation or profitability mutation action.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>Finance Manager — finance tools and shared review</h1></div>
+        <p>Part 2 of the Finance action catalogue.</p>
+      </div>
+      <table class="permission-table compact-table">
+        <thead><tr><th>Screen / area</th><th>Permitted actions</th><th>Practical meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Financial scenarios</td><td>Create, run</td><td>Model in a ledger-isolated workspace with zero live posting.</td></tr>
+          <tr><td>Finance adjustments</td><td>Create, submit, approve, post, cancel</td><td>Balanced maker-checker correction with reason.</td></tr>
+          <tr><td>Historical data import</td><td>Create, validate, post</td><td>Map and resolve staged legacy rows before posting.</td></tr>
+          <tr><td>Bill archive</td><td>Upload, download</td><td>Private document, integrity, retention and access checks.</td></tr>
+          <tr><td>Opening balances</td><td>Create, reconcile, post</td><td>Reconcile detailed lines to the control total.</td></tr>
+          <tr><td>Finance review tools</td><td>Create, diagnose, close</td><td>Preserve diagnostic snapshot without rewriting history.</td></tr>
+          <tr><td>Equipment maintenance</td><td>Complete</td><td>Complete captured cost to the configured expense account.</td></tr>
+          <tr><td>Unsold returns</td><td>Approve, post loss, complete finance action, attach evidence</td><td>Control approval and exactly one credit/refund/replacement outcome.</td></tr>
+          <tr><td>Multi-plant operations</td><td>Consolidate, finalise consolidation</td><td>Balanced exchange-rate/elimination snapshot and independent finalisation.</td></tr>
+          <tr><td>Planning recommendations</td><td>Approve, reject</td><td>Review unchanged input, rationale and limitations.</td></tr>
+          <tr><td>Reports</td><td>Run, export</td><td>Generate immutable cutoff-bound snapshot and deterministic export.</td></tr>
+          <tr><td>Help &amp; support</td><td>Create, comment, reopen, close own case</td><td>Requester-owned cases in the selected workplace.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout security"><div class="icon">✓</div><div><b>Finance approval is state-derived.</b><br>The system only offers a decision when the record is submitted, in scope, within authority, unchanged and made by an eligible different actor.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">10 · Action permissions</div><h1>ERP Administrator</h1></div>
+        <p>The standard Administrator has all 69 screen permissions and 272 assigned internal/administrative action permissions. Three external Partner-only commands stay with the Partner User.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>Includes all internal role actions</h2>
+          <p>Administrator receives every action listed for Sales, Operations and Finance, plus internal partner-administration and elevated control actions. External claim creation, document upload and receipt acknowledgement remain Partner User commands.</p>
+          <div class="card teal"><h3>Administration actions</h3><ul class="checklist"><li>Create/update companies and plants.</li><li>Create/update plant locations.</li><li>Create/update/invite users; assign roles; manage device sessions.</li><li>Create/update custom roles and permissions; replace role permission set.</li><li>Create/update approval rules, delegations and escalations.</li><li>Open protected audit evidence.</li><li>Process, retry and quarantine integration work.</li><li>Manage support cases.</li></ul></div>
+        </div>
+        <div>
+          <div class="card gold"><h3>Elevated business controls</h3><ul><li>Manage work-queue assignment/escalation.</li><li>High-value and escalated purchase/return approvals.</li><li>Create/manage consolidation groups and transfer routes.</li><li>Approve/accept multi-plant transfer stages.</li><li>Administer partner access grants and published documents.</li><li>Run both Operations and Finance sides of standard workflows where state rules permit.</li></ul></div>
+          <div class="callout danger"><div class="icon">!</div><div><b>All permissions does not mean all actions are valid.</b><br>An administrator cannot bypass selected scope, maker-checker identity, approval value, record state, optimistic version, stock availability, balance, closed period, evidence or tenant isolation.</div></div>
+        </div>
+      </div>
+      <table class="mt-3">
+        <thead><tr><th>Admin task</th><th>Use</th><th>Do not use</th></tr></thead>
+        <tbody><tr><td>User needs one missing work screen</td><td>Correct assignment or custom least-privilege role</td><td>Grant ERP Administrator</td></tr><tr><td>System role differs from local duty</td><td>Create approved custom role</td><td>Try to rewrite protected system definition</td></tr><tr><td>Record is blocked by workflow validation</td><td>Correct source/status/evidence</td><td>Add more permissions to bypass it</td></tr><tr><td>Person leaves or changes job</td><td>Deactivate assignment/account and revoke sessions</td><td>Delete historical identity or share the account</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="sheet" id="help">
+      <div class="page-heading">
+        <div><div class="section-number">11 · Help &amp; adoption</div><h1>Common issues and safe responses</h1></div>
+        <p>Start with the simplest scope and state checks before requesting more access.</p>
+      </div>
+      <table>
+        <thead><tr><th>What you see</th><th>Likely reason</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Expected menu item is missing</td><td>Wrong workplace, inactive/out-of-date assignment, or role lacks screen access.</td><td>Check top-bar workplace; reselect context/sign in; ask admin to review assignment—not to grant Admin.</td></tr>
+          <tr><td>Screen opens but action button is absent</td><td>View-only access, wrong workflow status, no action permission, or maker-checker restriction.</td><td>Read status and allowed next step; send to correct owner when appropriate.</td></tr>
+          <tr><td>“Forbidden”</td><td>Backend denied screen/action, scope or tenant.</td><td>Do not retry with another record ID. Confirm workplace and contact administrator with screen/time/request ID.</td></tr>
+          <tr><td>“Version conflict” / record changed</td><td>Another user updated the record after you opened it.</td><td>Refresh, review the new version, then repeat the decision if still correct.</td></tr>
+          <tr><td>Post/release/complete is blocked</td><td>Required source, balance, quantity, quality, period or evidence gate failed.</td><td>Read the validation details and correct the source; never create offsetting fiction.</td></tr>
+          <tr><td>Partner cannot see a record</td><td>Party tenant or explicit entitlement missing/expired.</td><td>Internal admin verifies the exact grant and entitlement; do not broaden to another party.</td></tr>
+          <tr><td>Invitation link fails</td><td>Expired, already used or revoked.</td><td>Administrator resends, which rotates the one-time token.</td></tr>
+          <tr><td>Suspicious account/device activity</td><td>Possible shared/compromised session.</td><td>Change password, enable two-step verification, revoke sessions and notify security owner.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout"><div class="icon">?</div><div><b>Use Help &amp; support.</b><br>Search role-relevant guidance first. When opening a case, include the workplace, friendly screen name, record number, action attempted, time, displayed error and safe supporting evidence. Never include a password or recovery code.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">11 · Help &amp; adoption</div><h1>Your first week</h1></div>
+        <p>A short adoption plan for new users and their manager.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>New-user checklist</h2>
+          <ul class="checklist">
+            <li>Sign in with your named account and choose the correct workplace.</li>
+            <li>Confirm your role label and expected sidebar sections.</li>
+            <li>Open My work and practise search/filter/drill-through.</li>
+            <li>Open one register relevant to your job and identify status/version.</li>
+            <li>Practise one draft action in training; review validation before saving.</li>
+            <li>Observe one approval or cross-team hand-off.</li>
+            <li>Learn the correction/cancellation path for your highest-risk action.</li>
+            <li>Enable two-step verification and store recovery codes safely.</li>
+            <li>Open Help &amp; support and know how to submit a useful case.</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Manager sign-off</h2>
+          <table class="compact-table">
+            <thead><tr><th>Check</th><th>Evidence</th><th>Done</th></tr></thead>
+            <tbody><tr><td>Identity/workplace correct</td><td>Named account and assigned plant</td><td>☐</td></tr><tr><td>Role is least privilege</td><td>Menu and access matrix reviewed</td><td>☐</td></tr><tr><td>Positive task works</td><td>Representative training record</td><td>☐</td></tr><tr><td>Negative access works</td><td>Unrelated screen/action denied</td><td>☐</td></tr><tr><td>Maker-checker understood</td><td>Observed hand-off</td><td>☐</td></tr><tr><td>Correction path understood</td><td>Cancellation/reversal exercise</td><td>☐</td></tr><tr><td>Security complete</td><td>2-step and recovery procedure</td><td>☐</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="spacer-4"></div>
+      <h2>Plain-language glossary</h2>
+      <dl class="glossary">
+        <div><dt>Action permission</dt><dd>Allows a specific command such as Create, Approve, Post, Pay or Close.</dd></div>
+        <div><dt>Assignment</dt><dd>Connects a user and role to one company/plant, optionally for a date range.</dd></div>
+        <div><dt>Context / workplace</dt><dd>The company and plant currently selected in the top bar.</dd></div>
+        <div><dt>FEFO</dt><dd>First-expire, first-out lot selection used to protect shelf life.</dd></div>
+        <div><dt>Maker-checker</dt><dd>One person prepares; another authorised person approves or posts.</dd></div>
+        <div><dt>Permission</dt><dd>A named authority used by the backend to allow a screen or action.</dd></div>
+        <div><dt>Role</dt><dd>A reusable bundle of permissions representing a job responsibility.</dd></div>
+        <div><dt>Screen permission</dt><dd>Allows a business screen to appear and its protected information to be read.</dd></div>
+        <div><dt>Version conflict</dt><dd>The record changed after you opened it; refresh before deciding.</dd></div>
+      </dl>
+      <div class="callout security"><div class="icon">✓</div><div><b>Best adoption habit</b><br>Ask “What happened in the business?” before choosing a system action. The correct ERP command should describe the real event and preserve its evidence.</div></div>
+    </section>
+
+    <section class="sheet">
+      <div class="page-heading">
+        <div><div class="section-number">Reference</div><h1>Training environment and document control</h1></div>
+        <p>Use these credentials only on the local development/UAT environment supplied with this project.</p>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h2>Local training accounts</h2>
+          <table>
+            <thead><tr><th>Role</th><th>Email</th></tr></thead>
+            <tbody><tr><td>Sales Manager</td><td class="mono">demo.user@qtfoods.local</td></tr><tr><td>Operations Manager</td><td class="mono">operations.user@qtfoods.local</td></tr><tr><td>Finance Manager</td><td class="mono">finance.user@qtfoods.local</td></tr><tr><td>ERP Administrator</td><td class="mono">admin.user@qtfoods.local</td></tr><tr><td>Partner User</td><td class="mono">partner.user@qtfoods.local</td></tr></tbody>
+          </table>
+          <div class="callout warning"><div class="icon">!</div><div><b>Local password: <span class="mono">prototype</span></b><br>These seeded credentials are development data. Never enable or reuse them in production.</div></div>
+        </div>
+        <div>
+          <h2>Document control</h2>
+          <table><tbody><tr><td><b>Document</b></td><td>ERP Roles, Permissions &amp; User Manual</td></tr><tr><td><b>Edition</b></td><td>UAT / training</td></tr><tr><td><b>Version</b></td><td>1.0</td></tr><tr><td><b>Snapshot date</b></td><td>15 September 2026</td></tr><tr><td><b>Permission source</b></td><td>Current seeded role/screen/action definitions</td></tr><tr><td><b>Screen source</b></td><td>Live local ERP at time of capture</td></tr><tr><td><b>Owner</b></td><td>To be assigned by Q &amp; T Foods</td></tr><tr><td><b>Review trigger</b></td><td>Role, permission, screen or workflow change</td></tr></tbody></table>
+          <div class="card teal mt-3"><h3>Keep this manual aligned</h3><p>When a role or workflow changes, update the source permission matrix, recapture affected screens, regenerate the PDF and record business-owner approval.</p></div>
+        </div>
+      </div>
+      <div class="page-note">End of manual · Q &amp; T Foods ERP</div>
+    </section>
+  </main>
+
+  <script>
+    const roleOrder = ['sales', 'operations', 'finance', 'admin', 'partner'];
+    const groups = {
+      home: [
+        ['WRK-HOME', 'My work', ['sales','operations','finance','admin']],
+        ['ADM-ORG', 'Companies & plants', ['admin']],
+        ['ADM-LOC', 'Locations', ['admin']],
+        ['ADM-USER', 'Users', ['admin']],
+        ['ADM-ROLE', 'Roles & access', ['admin']],
+        ['ADM-RULE', 'Approval settings', ['admin']],
+        ['ADM-AUD', 'Activity history', ['admin']],
+        ['ADM-INT', 'Integration monitor', ['admin']],
+        ['ADM-HELP', 'Help & support', ['sales','operations','finance','admin']],
+        ['BI-REP', 'Reports', ['finance','admin']],
+      ],
+      purchasing: [
+        ['MD-PARTY', 'Customers & suppliers', ['operations','admin']],
+        ['MD-BRAND', 'Brands & agreements', ['operations','admin']],
+        ['MD-ITEM', 'Items & units', ['operations','admin']],
+        ['MD-SKU', 'Products & packs', ['operations','admin']],
+        ['PUR-REQ', 'Purchase requisitions', ['operations','finance','admin']],
+        ['PUR-RFQ', 'Supplier quotations', ['operations','admin']],
+        ['PUR-PO', 'Purchase orders', ['operations','admin']],
+        ['INB-GATE', 'Supplier arrivals', ['operations','admin']],
+        ['INB-GRN', 'Goods receipts', ['operations','admin']],
+        ['QC-IN', 'Incoming quality checks', ['operations','admin']],
+        ['INB-RETURN', 'Supplier returns', ['operations','admin']],
+        ['INV-STK', 'Stock overview', ['operations','admin']],
+        ['INV-ISS', 'Stock issues & returns', ['operations','admin']],
+        ['INV-TRF', 'Stock transfers', ['operations','admin']],
+        ['INV-COUNT', 'Stock counts', ['operations','admin']],
+        ['INV-EXP', 'Expiry & disposal', ['operations','admin']],
+      ],
+      production: [
+        ['MD-REC', 'Recipes & materials', ['operations','admin']],
+        ['MD-ROUTE', 'Production steps', ['operations','admin']],
+        ['MD-SPEC', 'Quality standards', ['operations','admin']],
+        ['PLAN-DEM', 'Demand planning', ['operations','admin']],
+        ['PLAN-MRP', 'Material planning', ['operations','admin']],
+        ['PLAN-SCH', 'Production schedule', ['operations','admin']],
+        ['PRO-ORDER', 'Production orders', ['operations','admin']],
+        ['PRO-STAGE', 'Production stages', ['operations','admin']],
+        ['PRO-LOSS', 'Yield, loss & rework', ['operations','admin']],
+        ['QC-LAB', 'Lab testing', ['operations','admin']],
+        ['QC-SAFE', 'Food safety', ['operations','admin']],
+        ['PACK-ART', 'Labels & coding', ['operations','admin']],
+        ['PACK-RUN', 'Packing', ['operations','admin']],
+        ['FG-LOT', 'Finished goods', ['operations','admin']],
+        ['TRACE-CASE', 'Traceability & recalls', ['operations','admin']],
+        ['COST-BATCH', 'Production costs', ['operations','finance','admin']],
+      ],
+      sales: [
+        ['CRM-LEAD', 'Enquiries & leads', ['sales','admin']],
+        ['CRM-PRICE', 'Pricing & customer credit', ['sales','finance','admin']],
+        ['CRM-ORDER', 'Sales orders', ['sales','admin']],
+        ['CON-WORK', 'Contract work', ['sales','admin']],
+        ['DSP-PICK', 'Order picking', ['sales','operations','admin']],
+        ['DSP-LOAD', 'Loading & dispatch', ['sales','operations','admin']],
+        ['DSP-POD', 'Delivery confirmation', ['sales','operations','admin']],
+        ['RET-CASE', 'Returns & claims', ['sales','operations','admin']],
+        ['RET-UNSOLD', 'Unsold returns', ['sales','operations','finance','admin']],
+        ['FIN-AR', 'Customer accounts', ['sales','finance','admin']],
+        ['BI-PROFIT', 'Profitability', ['sales','finance','admin']],
+      ],
+      finance: [
+        ['FIN-AP', 'Supplier invoices & payments', ['finance','admin']],
+        ['FIN-EXP', 'Expenses', ['finance','admin']],
+        ['FIN-GL', 'General ledger', ['finance','admin']],
+        ['COST-OH', 'Overhead costs', ['finance','admin']],
+        ['ASSET-REG', 'Fixed assets', ['finance','admin']],
+        ['HR-PAY', 'Employees & payroll', ['finance','admin']],
+        ['ENG-MNT', 'Equipment maintenance', ['operations','finance','admin']],
+        ['SCALE-PLANT', 'Multi-plant operations', ['operations','finance','admin']],
+        ['PORTAL-EXT', 'Partner portal', ['admin','partner']],
+        ['OPT-PLAN', 'Planning recommendations', ['operations','finance','admin']],
+        ['FIN-SIM', 'Financial scenarios', ['finance','admin']],
+        ['FIN-ADJ', 'Finance adjustments', ['finance','admin']],
+        ['FIN-LEGACY', 'Historical data import', ['finance','admin']],
+        ['FIN-ARCH', 'Bill archive', ['finance','admin']],
+        ['FIN-OPEN', 'Opening balances', ['finance','admin']],
+        ['FIN-SUP', 'Finance review tools', ['finance','admin']],
+      ],
+    };
+
+    function renderMatrix(id, rows) {
+      const body = document.querySelector(`#${id} tbody`);
+      for (const [code, name, allowed] of rows) {
+        const tr = document.createElement('tr');
+        const screen = document.createElement('td');
+        screen.innerHTML = `<b>${name}</b><br><small class="mono muted">${code}</small>`;
+        tr.appendChild(screen);
+        for (const role of roleOrder) {
+          const td = document.createElement('td');
+          td.className = allowed.includes(role) ? 'yes' : 'no';
+          td.textContent = allowed.includes(role) ? '✓' : '—';
+          tr.appendChild(td);
+        }
+        body.appendChild(tr);
+      }
+    }
+
+    renderMatrix('matrix-home', groups.home);
+    renderMatrix('matrix-purchasing', groups.purchasing);
+    renderMatrix('matrix-production', groups.production);
+    renderMatrix('matrix-sales', groups.sales);
+    renderMatrix('matrix-finance', groups.finance);
+
+    const allRows = Object.values(groups).flat();
+    const expected = { sales: 13, operations: 42, finance: 24, admin: 69, partner: 1 };
+    for (const [role, count] of Object.entries(expected)) {
+      const actual = allRows.filter(([, , allowed]) => allowed.includes(role)).length;
+      if (actual !== count) throw new Error(`Manual access matrix mismatch for ${role}: ${actual} != ${count}`);
+    }
+
+    for (const sheet of document.querySelectorAll('.sheet')) {
+      if (sheet.getBoundingClientRect().height > 720) sheet.classList.add('dense');
+    }
+  </script>
+</body>
+</html>

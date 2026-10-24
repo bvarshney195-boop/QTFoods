@@ -1,0 +1,178 @@
+x-e2e-environment: &e2e-environment
+  APP_NAME: Q & T FOODS ERP E2E
+  APP_ENV: testing
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_DEBUG: "true"
+  APP_URL: http://localhost:18000
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: debug
+  LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_DATABASE: qtfoods_e2e
+  DB_USERNAME: qtfoods_e2e
+  DB_PASSWORD: qtfoods_e2e
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: redis
+  SESSION_DRIVER: redis
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  FILESYSTEM_DISK: local
+  MAIL_MAILER: log
+  MAIL_FROM_ADDRESS: no-reply@qtfoods.local
+  QT_FRONTEND_URL: http://127.0.0.1:${PLAYWRIGHT_WEB_PORT:-4173}
+  QT_IDENTITY_PREVIEW_LINKS: "true"
+  QT_EVIDENCE_DISK: evidence_test
+  QT_PRIVATE_DOCUMENT_DISK: evidence_test
+  QT_EVIDENCE_RETENTION_YEARS: 7
+  QT_EVIDENCE_RETENTION_POLICY: UNSOLD_RETURN_7Y
+  QT_EVIDENCE_MAX_UPLOAD_KB: 10240
+  QT_OUTBOX_TRANSPORT: log
+  QT_OUTBOX_BATCH_SIZE: 50
+  QT_OUTBOX_MAX_ATTEMPTS: 4
+  QT_OUTBOX_BASE_RETRY_SECONDS: 1
+  QT_OUTBOX_MAX_RETRY_SECONDS: 10
+  QT_OUTBOX_LOCK_TIMEOUT_SECONDS: 30
+  QT_READINESS_DATABASE: "true"
+  QT_READINESS_REDIS: "true"
+  QT_READINESS_OBJECT_STORAGE: "false"
+  QT_ALERT_TRANSPORT: log
+
+x-e2e-dependencies: &e2e-dependencies
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+services:
+  migrate:
+    build:
+      context: .
+    command:
+      - sh
+      - -lc
+      - php artisan migrate:fresh --force && php artisan db:seed --force
+    environment: *e2e-environment
+    depends_on: *e2e-dependencies
+
+  app:
+    build:
+      context: .
+    command: php artisan serve --host=0.0.0.0 --port=8000
+    environment: *e2e-environment
+    ports:
+      - "127.0.0.1:18000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://127.0.0.1:8000/api/health') === false ? 1 : 0);\""]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+      start_period: 5s
+
+  worker:
+    build:
+      context: .
+    command: php artisan queue:work redis --queue=outbox,default --sleep=1 --tries=1 --timeout=120
+    environment: *e2e-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler:
+    build:
+      context: .
+    command: php artisan schedule:work
+    environment: *e2e-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    environment:
+      POSTGRES_DB: qtfoods_e2e
+      POSTGRES_USER: qtfoods_e2e
+      POSTGRES_PASSWORD: qtfoods_e2e
+    volumes:
+      - e2e_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qtfoods_e2e -d qtfoods_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  k6:
+    profiles: [quality]
+    image: grafana/k6:1.8.1@sha256:23f2279054c3e01535455c4d92914a625df12aeb631ea0e3ea7a43f96bcbc843
+    environment:
+      BASE_URL: http://app:8000
+    volumes:
+      - ../quality/performance:/quality:ro
+      - ../quality-results:/results
+    command:
+      - run
+      - --summary-export=/results/k6-summary.json
+      - /quality/erp-read-smoke.js
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  zap:
+    profiles: [quality]
+    image: zaproxy/zap-stable:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
+    volumes:
+      - ../:/zap/wrk/repository:ro
+      - ../quality-results:/zap/wrk/results
+    command:
+      - zap-api-scan.py
+      - -t
+      - repository/quality/security/openapi-dast.yaml
+      - -f
+      - openapi
+      - -O
+      - http://app:8000
+      - -I
+      - -T
+      - "10"
+      - -D
+      - "2"
+      - -J
+      - results/zap-report.json
+      - -r
+      - results/zap-report.html
+      - -w
+      - results/zap-report.md
+      - -l
+      - WARN
+      - -s
+      - -z
+      - -silent -configfile /zap/wrk/results/.zap-auth.prop
+    depends_on:
+      app:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  e2e_pg:

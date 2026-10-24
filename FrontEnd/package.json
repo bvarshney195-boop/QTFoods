@@ -1,0 +1,41 @@
+{
+  "name": "qt-foods-crm-frontend-all-pages",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:a11y": "playwright test e2e/accessibility-edge-cases.spec.ts",
+    "test:e2e:install": "playwright install chromium",
+    "test:quality:php-sast": "node ../quality/run-php-security-gate.mjs",
+    "test:quality:dynamic": "node ../quality/run-dynamic-gates.mjs",
+    "test:quality:repository": "node ../quality/run-repository-security-gates.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^24.10.4",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "jsdom": "^29.1.1",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,384 @@
+#!/bin/sh
+
+set -eu
+umask 077
+
+die() {
+    printf 'qt-recovery: %s\n' "$1" >&2
+    exit "${2:-2}"
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "Required command '$1' is unavailable."
+}
+
+require_value() {
+    value=$(printenv "$1" 2>/dev/null || true)
+    [ -n "$value" ] || die "$1 is required."
+}
+
+backup_root() {
+    root=${QT_BACKUP_ROOT:-/backups}
+    case "$root" in
+        /*) ;;
+        *) die 'QT_BACKUP_ROOT must be an absolute container path.' ;;
+    esac
+    mkdir -p -- "$root"
+    root=$(readlink -f -- "$root")
+    case "$root" in
+        ''|'/'|'/tmp'|'/var/tmp') die 'The backup root resolves to an unsafe broad or temporary directory.' ;;
+    esac
+    printf '%s\n' "$root"
+}
+
+validate_snapshot_id() {
+    id=$1
+    printf '%s' "$id" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$' \
+        || die 'Snapshot IDs must use 1-80 letters, numbers, dots, underscores, or hyphens.'
+}
+
+snapshot_path() {
+    root=$1
+    id=$2
+    validate_snapshot_id "$id"
+    path=$(readlink -f -- "$root/$id" 2>/dev/null || true)
+    [ -n "$path" ] || die "Snapshot '$id' does not exist."
+    case "$path" in
+        "$root"/*) ;;
+        *) die 'Resolved snapshot path escaped the backup root.' ;;
+    esac
+    [ -d "$path" ] && [ ! -L "$path" ] || die "Snapshot '$id' is not a regular snapshot directory."
+    printf '%s\n' "$path"
+}
+
+new_snapshot_id() {
+    random=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+    printf '%s-%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" "$random"
+}
+
+require_database() {
+    for name in PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD; do
+        require_value "$name"
+    done
+}
+
+require_restore_database() {
+    case "$PGDATABASE" in
+        postgres|template0|template1) die "Refusing to replace reserved database '$PGDATABASE'." ;;
+    esac
+    printf '%s' "$PGDATABASE" | grep -Eq '^[A-Za-z_][A-Za-z0-9_-]{0,62}$' \
+        || die 'PGDATABASE must be a safe database name for full-database restore.'
+}
+
+require_object_store() {
+    for name in AWS_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_BUCKET; do
+        require_value "$name"
+    done
+    case "$AWS_ENDPOINT" in
+        http://*|https://*) ;;
+        *) die 'AWS_ENDPOINT must be an absolute HTTP(S) endpoint.' ;;
+    esac
+    printf '%s' "$AWS_BUCKET" | grep -Eq '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$' \
+        || die 'AWS_BUCKET must be a 3-63 character DNS-style bucket name.'
+    case "$AWS_BUCKET" in
+        *..*|*.-*|*-.*) die 'AWS_BUCKET contains an unsafe DNS label boundary.' ;;
+    esac
+}
+
+require_quiescence() {
+    [ "${QT_RECOVERY_WRITERS_STOPPED:-}" = 'YES' ] \
+        || die 'Stop gateway, app, worker, and scheduler, then set QT_RECOVERY_WRITERS_STOPPED=YES.'
+}
+
+configure_object_store() {
+    mc alias set qt-recovery "$AWS_ENDPOINT" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --api S3v4 >/dev/null
+    mc stat "qt-recovery/$AWS_BUCKET" >/dev/null
+}
+
+verify_snapshot_directory() {
+    require_command jq
+    require_command sha256sum
+    require_command pg_restore
+    require_command cmp
+    require_command sed
+    path=$1
+    id=$2
+    for file in manifest.json database.dump SHA256SUMS; do
+        [ -f "$path/$file" ] && [ ! -L "$path/$file" ] || die "Snapshot '$id' is missing $file."
+    done
+    [ -d "$path/objects" ] && [ ! -L "$path/objects" ] || die "Snapshot '$id' is missing its object tree."
+    if find "$path" -type l -print -quit | grep -q .; then
+        die "Snapshot '$id' contains a symbolic link."
+    fi
+    jq -e --arg id "$id" '
+        .format == "qtfoods-recovery-snapshot/v1"
+        and .snapshot_id == $id
+        and (.object_storage.object_count | type == "number" and . >= 0 and floor == .)
+        and (.object_storage.bytes | type == "number" and . >= 0 and floor == .)
+        and (.database.bytes | type == "number" and . > 0 and floor == .)
+        and (.policy.retention_days | type == "number" and . >= 1 and . <= 3650 and floor == .)
+        and (.policy.rpo_minutes | type == "number" and . >= 1 and . <= 10080 and floor == .)
+        and (.policy.rto_minutes | type == "number" and . >= 1 and . <= 10080 and floor == .)
+    ' \
+        "$path/manifest.json" >/dev/null \
+        || die "Snapshot '$id' has an invalid manifest."
+    if grep -Ev '^[0-9a-f]{64}  (database\.dump|manifest\.json|objects/.+)$' "$path/SHA256SUMS" | grep -q .; then
+        die "Snapshot '$id' contains an unsafe checksum path."
+    fi
+    expected_objects=$(jq -r '.object_storage.object_count' "$path/manifest.json")
+    actual_objects=$(find "$path/objects" -type f | wc -l | tr -d ' ')
+    [ "$expected_objects" = "$actual_objects" ] \
+        || die "Snapshot '$id' object inventory count does not match its manifest."
+    expected_sums=$((actual_objects + 2))
+    actual_sums=$(wc -l < "$path/SHA256SUMS" | tr -d ' ')
+    [ "$expected_sums" = "$actual_sums" ] \
+        || die "Snapshot '$id' checksum inventory is incomplete."
+    expected_object_bytes=$(jq -r '.object_storage.bytes' "$path/manifest.json")
+    actual_object_bytes=$(find "$path/objects" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+    [ "$expected_object_bytes" = "$actual_object_bytes" ] \
+        || die "Snapshot '$id' object byte count does not match its manifest."
+    expected_database_bytes=$(jq -r '.database.bytes' "$path/manifest.json")
+    actual_database_bytes=$(wc -c < "$path/database.dump" | tr -d ' ')
+    [ "$expected_database_bytes" = "$actual_database_bytes" ] \
+        || die "Snapshot '$id' database byte count does not match its manifest."
+
+    expected_inventory=$(mktemp)
+    checksum_inventory=$(mktemp)
+    (cd "$path" && find database.dump manifest.json objects -type f -print | LC_ALL=C sort) > "$expected_inventory"
+    sed 's/^[0-9a-f]\{64\}  //' "$path/SHA256SUMS" | LC_ALL=C sort > "$checksum_inventory"
+    if ! cmp -s "$expected_inventory" "$checksum_inventory"; then
+        rm -f -- "$expected_inventory" "$checksum_inventory"
+        die "Snapshot '$id' checksum inventory does not exactly match its files."
+    fi
+    rm -f -- "$expected_inventory" "$checksum_inventory"
+
+    (cd "$path" && sha256sum --strict --quiet --check SHA256SUMS) \
+        || die "Snapshot '$id' failed SHA-256 verification."
+    pg_restore --list "$path/database.dump" >/dev/null \
+        || die "Snapshot '$id' does not contain a readable PostgreSQL custom archive."
+
+    jq -n --arg snapshot_id "$id" --arg path "$path" --argjson object_count "$actual_objects" \
+        '{status:"verified", snapshot_id:$snapshot_id, path:$path, object_count:$object_count}'
+}
+
+verify_snapshot() {
+    root=$(backup_root)
+    id=$1
+    path=$(snapshot_path "$root" "$id")
+    verify_snapshot_directory "$path" "$id"
+}
+
+create_backup() {
+    require_command pg_dump
+    require_command pg_restore
+    require_command psql
+    require_command mc
+    require_command jq
+    require_command sha256sum
+    require_database
+    require_object_store
+    require_quiescence
+    [ "${QT_BACKUP_STORAGE_PROTECTED:-}" = 'YES' ] \
+        || die 'Use approved encrypted/restricted backup storage, then set QT_BACKUP_STORAGE_PROTECTED=YES.'
+
+    root=$(backup_root)
+    id=${1:-${QT_BACKUP_ID:-}}
+    [ -n "$id" ] || id=$(new_snapshot_id)
+    validate_snapshot_id "$id"
+    final="$root/$id"
+    [ ! -e "$final" ] || die "Snapshot '$id' already exists."
+    stage="$root/.partial-$id-$$"
+    case "$stage" in "$root"/.partial-*) ;; *) die 'Unsafe staging path.' ;; esac
+    mkdir -m 700 -- "$stage" "$stage/objects"
+    cleanup_stage() {
+        if [ -n "${stage:-}" ] && [ -d "$stage" ]; then
+            rm -rf -- "$stage"
+        fi
+    }
+    trap cleanup_stage EXIT HUP INT TERM
+
+    pg_dump --format=custom --no-owner --no-privileges --file "$stage/database.dump" "$PGDATABASE"
+    configure_object_store
+    mc mirror --overwrite "qt-recovery/$AWS_BUCKET" "$stage/objects" >/dev/null
+
+    created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    database_time=$(psql --no-align --tuples-only --command='SELECT CURRENT_TIMESTAMP' "$PGDATABASE" | tr -d '\r' | head -n 1)
+    migration_count=$(psql --no-align --tuples-only --command='SELECT COUNT(*) FROM migrations' "$PGDATABASE" | tr -d ' \r')
+    latest_migration=$(psql --no-align --tuples-only --command='SELECT migration FROM migrations ORDER BY migration DESC LIMIT 1' "$PGDATABASE" | tr -d '\r' | head -n 1)
+    outbox_count=$(psql --no-align --tuples-only --command='SELECT COUNT(*) FROM outbox_events' "$PGDATABASE" | tr -d ' \r')
+    object_count=$(find "$stage/objects" -type f | wc -l | tr -d ' ')
+    object_bytes=$(find "$stage/objects" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+    database_bytes=$(wc -c < "$stage/database.dump" | tr -d ' ')
+    retention_days=${QT_BACKUP_RETENTION_DAYS:-35}
+    printf '%s' "$retention_days" | grep -Eq '^[1-9][0-9]{0,3}$' \
+        && [ "$retention_days" -le 3650 ] \
+        || die 'QT_BACKUP_RETENTION_DAYS must be between 1 and 3650.'
+    rpo_minutes=${QT_RECOVERY_RPO_MINUTES:-1440}
+    rto_minutes=${QT_RECOVERY_RTO_MINUTES:-240}
+    printf '%s' "$rpo_minutes" | grep -Eq '^[1-9][0-9]{0,4}$' \
+        && [ "$rpo_minutes" -le 10080 ] \
+        || die 'QT_RECOVERY_RPO_MINUTES must be between 1 and 10080.'
+    printf '%s' "$rto_minutes" | grep -Eq '^[1-9][0-9]{0,4}$' \
+        && [ "$rto_minutes" -le 10080 ] \
+        || die 'QT_RECOVERY_RTO_MINUTES must be between 1 and 10080.'
+
+    jq -n \
+        --arg snapshot_id "$id" \
+        --arg created_at "$created_at" \
+        --arg database_time "$database_time" \
+        --arg database "$PGDATABASE" \
+        --arg latest_migration "$latest_migration" \
+        --arg bucket "$AWS_BUCKET" \
+        --arg image_tag "${IMAGE_TAG:-unknown}" \
+        --argjson migration_count "$migration_count" \
+        --argjson outbox_count "$outbox_count" \
+        --argjson database_bytes "$database_bytes" \
+        --argjson object_count "$object_count" \
+        --argjson object_bytes "$object_bytes" \
+        --argjson retention_days "$retention_days" \
+        --argjson rpo_minutes "$rpo_minutes" \
+        --argjson rto_minutes "$rto_minutes" \
+        '{
+            format:"qtfoods-recovery-snapshot/v1",
+            snapshot_id:$snapshot_id,
+            created_at:$created_at,
+            image_tag:$image_tag,
+            consistency:{writers_stopped_attested:true, database_time:$database_time},
+            database:{name:$database, archive:"database.dump", bytes:$database_bytes, migration_count:$migration_count, latest_migration:$latest_migration, outbox_count:$outbox_count},
+            object_storage:{bucket:$bucket, root:"objects", object_count:$object_count, bytes:$object_bytes},
+            policy:{retention_days:$retention_days, rpo_minutes:$rpo_minutes, rto_minutes:$rto_minutes, redis_authoritative:false}
+        }' > "$stage/manifest.json"
+
+    (cd "$stage" && find database.dump manifest.json objects -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) \
+        > "$stage/SHA256SUMS"
+    chmod -R go-rwx "$stage"
+    verify_snapshot_directory "$stage" "$id" >/dev/null
+    mv -- "$stage" "$final"
+    stage=''
+    trap - EXIT HUP INT TERM
+    jq -n --arg snapshot_id "$id" --arg path "$final" --argjson object_count "$object_count" \
+        '{status:"created", snapshot_id:$snapshot_id, path:$path, object_count:$object_count}'
+}
+
+restore_backup() {
+    require_command pg_restore
+    require_command psql
+    require_command dropdb
+    require_command createdb
+    require_command mc
+    require_command redis-cli
+    require_database
+    require_object_store
+    require_value REDIS_HOST
+    require_value REDIS_PORT
+    require_value REDIS_PASSWORD
+    require_quiescence
+    require_restore_database
+    id=${1:-}
+    [ -n "$id" ] || die 'restore requires a snapshot ID.'
+    validate_snapshot_id "$id"
+    expected="RESTORE:$id"
+    [ "${QT_RECOVERY_CONFIRM:-}" = "$expected" ] \
+        || die "Restore is destructive; set QT_RECOVERY_CONFIRM=$expected."
+    verify_snapshot "$id" >/dev/null
+    root=$(backup_root)
+    path=$(snapshot_path "$root" "$id")
+    source_bucket=$(jq -r '.object_storage.bucket' "$path/manifest.json")
+    [ "$source_bucket" = "$AWS_BUCKET" ] \
+        || die 'The snapshot bucket differs from AWS_BUCKET; explicit bucket remapping is not supported.'
+
+    dropdb --if-exists --force --maintenance-db=postgres -- "$PGDATABASE"
+    createdb --owner="$PGUSER" --maintenance-db=postgres -- "$PGDATABASE"
+    pg_restore --exit-on-error --no-owner --no-privileges --dbname "$PGDATABASE" "$path/database.dump"
+    configure_object_store
+    mc mirror --overwrite --remove "$path/objects" "qt-recovery/$AWS_BUCKET" >/dev/null
+
+    redis_databases="${REDIS_DB:-0} ${REDIS_CACHE_DB:-1}"
+    flushed_databases=''
+    for redis_database in $redis_databases; do
+        printf '%s' "$redis_database" | grep -Eq '^[0-9]+$' \
+            || die 'REDIS_DB and REDIS_CACHE_DB must be non-negative integers.'
+        case " $flushed_databases " in
+            *" $redis_database "*) continue ;;
+        esac
+        REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning \
+            -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$redis_database" FLUSHDB | grep -qx 'OK' \
+            || die "Redis database $redis_database invalidation failed after restore."
+        flushed_databases="$flushed_databases $redis_database"
+    done
+    psql --set ON_ERROR_STOP=1 "$PGDATABASE" <<SQL
+UPDATE outbox_events
+SET status = 'RETRY',
+    next_retry_at = CURRENT_TIMESTAMP,
+    locked_at = NULL,
+    locked_by = NULL,
+    last_error_code = 'RECOVERY_STALE_LOCK',
+    last_error_message = 'Processing lock cleared after restore from snapshot $id.',
+    record_version = record_version + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE status = 'PROCESSING';
+SQL
+
+    jq -n --arg snapshot_id "$id" --arg redis_databases "$flushed_databases" \
+        '{status:"restored", snapshot_id:$snapshot_id, database_recreated:true, redis_state:"invalidated", redis_databases:($redis_databases | ltrimstr(" ") | split(" ")), next:"Keep traffic stopped and run qt:recovery:verify --object-limit=0."}'
+}
+
+list_backups() {
+    root=$(backup_root)
+    found=0
+    for manifest in "$root"/*/manifest.json; do
+        [ -f "$manifest" ] || continue
+        found=1
+        jq -c '{snapshot_id,created_at,image_tag,database:.database.name,latest_migration:.database.latest_migration,object_count:.object_storage.object_count}' "$manifest"
+    done
+    [ "$found" -eq 1 ] || printf '%s\n' '[]'
+}
+
+prune_backups() {
+    root=$(backup_root)
+    days=${QT_BACKUP_RETENTION_DAYS:-35}
+    printf '%s' "$days" | grep -Eq '^[1-9][0-9]{0,3}$' \
+        && [ "$days" -le 3650 ] \
+        || die 'QT_BACKUP_RETENTION_DAYS must be between 1 and 3650.'
+    expected="PRUNE:$days"
+    [ "${QT_RECOVERY_CONFIRM:-}" = "$expected" ] \
+        || die "Pruning is destructive; set QT_RECOVERY_CONFIRM=$expected."
+    find "$root" -mindepth 1 -maxdepth 1 -type d -mtime "+$days" -print | while IFS= read -r candidate; do
+        id=$(basename -- "$candidate")
+        validate_snapshot_id "$id"
+        resolved=$(snapshot_path "$root" "$id")
+        jq -e --arg id "$id" '.format == "qtfoods-recovery-snapshot/v1" and .snapshot_id == $id' \
+            "$resolved/manifest.json" >/dev/null || die "Refusing to prune invalid snapshot '$id'."
+        rm -rf -- "$resolved"
+        printf 'pruned %s\n' "$id"
+    done
+    printf '%s\n' 'Prune evaluation complete.'
+}
+
+usage() {
+    cat <<'USAGE'
+Usage: qt-recovery COMMAND [SNAPSHOT_ID]
+
+Commands:
+  backup [ID]   Create an atomic PostgreSQL/object-store snapshot and checksum manifest.
+  verify ID     Verify every snapshot artifact and PostgreSQL archive structure.
+  restore ID    Destructively restore PostgreSQL/object storage and invalidate Redis state.
+  list          List locally available snapshot manifests.
+  prune         Remove snapshots older than QT_BACKUP_RETENTION_DAYS after exact confirmation.
+
+Backup and restore require QT_RECOVERY_WRITERS_STOPPED=YES. Backup additionally requires
+QT_BACKUP_STORAGE_PROTECTED=YES. Restore requires QT_RECOVERY_CONFIRM=RESTORE:<ID>;
+prune requires QT_RECOVERY_CONFIRM=PRUNE:<days>.
+USAGE
+}
+
+command=${1:-help}
+case "$command" in
+    backup) shift; create_backup "${1:-}" ;;
+    verify) shift; [ "$#" -eq 1 ] || die 'verify requires exactly one snapshot ID.'; verify_snapshot "$1" ;;
+    restore) shift; [ "$#" -eq 1 ] || die 'restore requires exactly one snapshot ID.'; restore_backup "$1" ;;
+    list) shift; [ "$#" -eq 0 ] || die 'list does not accept arguments.'; list_backups ;;
+    prune) shift; [ "$#" -eq 0 ] || die 'prune does not accept arguments.'; prune_backups ;;
+    help|-h|--help) usage ;;
+    *) die "Unknown command '$command'." ;;
+esac

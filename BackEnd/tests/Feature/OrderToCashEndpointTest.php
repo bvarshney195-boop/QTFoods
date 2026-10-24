@@ -1,0 +1,432 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Modules\Foundation\Domain\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Tests\TestCase;
+
+final class OrderToCashEndpointTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const COMPANY_ID = '00000000-0000-4000-8000-000000000001';
+    private const PLANT_ID = '00000000-0000-4000-8000-000000000101';
+    private const OTHER_PLANT_ID = '00000000-0000-4000-8000-000000000102';
+    private const SALES_ID = '00000000-0000-4000-8000-000000000201';
+    private const OPERATIONS_ID = '00000000-0000-4000-8000-000000000202';
+    private const FINANCE_ID = '00000000-0000-4000-8000-000000000203';
+    private const ADMIN_ID = '00000000-0000-4000-8000-000000000204';
+    private const CUSTOMER_ID = '00000000-0000-4000-8000-000000000501';
+    private const ITEM_ID = '00000000-0000-4000-8000-000000000601';
+    private const CONTRACT_ID = '00000000-0000-4000-8000-000000002501';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->seed();
+        $this->signIn(self::SALES_ID);
+    }
+
+    public function test_qualified_lead_can_create_and_link_a_new_customer_during_conversion(): void
+    {
+        $lead = $this->command()->postJson('/api/v1/sales/leads', [
+            'lead_number' => 'LEAD-NEW-CUSTOMER', 'customer_party_id' => null,
+            'company_name' => 'Fresh Retail Prospect', 'contact_name' => 'Buyer Desk',
+            'contact_email' => 'buyer@fresh-retail.example', 'contact_phone' => null,
+            'source' => 'DIRECT', 'enquiry_date' => now()->toDateString(),
+            'expected_close_date' => now()->addDays(7)->toDateString(), 'estimated_value' => '5000', 'notes' => null,
+        ])->assertCreated();
+        $leadId = (string) $lead->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/leads/'.$leadId.'/qualify')->assertOk();
+
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/leads/'.$leadId.'/convert', [
+            'conversion_path' => 'CREATE_CUSTOMER', 'customer_code' => 'CUST-FRESH-RETAIL',
+            'customer_name' => 'Fresh Retail Prospect', 'contact_name' => 'Buyer Desk',
+            'contact_email' => 'buyer@fresh-retail.example', 'contact_phone' => null,
+        ])->assertOk()->assertJsonPath('data.status', 'CONVERTED');
+
+        $customerId = DB::table('sales_leads')->where('id', $leadId)->value('customer_party_id');
+        $this->assertNotNull($customerId);
+        $this->assertDatabaseHas('parties', ['id' => $customerId, 'code' => 'CUST-FRESH-RETAIL', 'status' => 'ACTIVE']);
+        $this->assertDatabaseHas('party_roles', ['party_id' => $customerId, 'role_code' => 'CUSTOMER']);
+        $this->assertDatabaseHas('party_contacts', ['party_id' => $customerId, 'email' => 'buyer@fresh-retail.example', 'is_primary' => true]);
+    }
+
+    public function test_sales_orders_reject_fractional_quantities_for_whole_unit_uoms_at_capture_and_confirmation(): void
+    {
+        $payload = [
+            'order_number' => 'SO-WHOLE-UNIT-001', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Whole-unit UOM acceptance case.',
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '1.5', 'discount_percent' => '0']],
+        ];
+
+        $capture = $this->command()->postJson('/api/v1/sales/orders', $payload)
+            ->assertUnprocessable();
+        $this->assertSame(
+            'Order quantity for PACK must use whole units.',
+            $capture->json()['error']['fields']['lines.0.quantity'][0] ?? null,
+        );
+
+        $payload['order_number'] = 'SO-WHOLE-UNIT-LEGACY';
+        $payload['lines'][0]['quantity'] = '2';
+        $draft = $this->command()->postJson('/api/v1/sales/orders', $payload)
+            ->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $orderId = (string) $draft->json('data.id');
+        DB::table('sales_order_lines')->where('sales_order_id', $orderId)->update(['ordered_quantity' => '1.5']);
+
+        $confirmation = $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertUnprocessable();
+        $this->assertSame(
+            'Order quantity for PACK must use whole units.',
+            $confirmation->json()['error']['fields']['lines.0.quantity'][0] ?? null,
+        );
+        $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'DRAFT', 'record_version' => 1]);
+    }
+
+    public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
+    {
+        $lead = $this->command()->postJson('/api/v1/sales/leads', [
+            'lead_number' => 'LEAD-P2-001', 'customer_party_id' => self::CUSTOMER_ID,
+            'company_name' => 'North Market Distributor', 'contact_name' => 'Commercial Desk',
+            'contact_email' => 'commercial@north-market.example', 'contact_phone' => null,
+            'source' => 'DIRECT', 'enquiry_date' => now()->toDateString(),
+            'expected_close_date' => now()->addDays(10)->toDateString(), 'estimated_value' => '25000',
+            'notes' => 'New distributor enquiry for the P2 flow.',
+        ])->assertCreated()->assertJsonPath('data.status', 'NEW');
+        $leadId = (string) $lead->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/leads/'.$leadId.'/qualify')
+            ->assertOk()->assertJsonPath('data.status', 'QUALIFIED')->assertJsonPath('data.record_version', 2);
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/leads/'.$leadId.'/convert', ['customer_party_id' => self::CUSTOMER_ID])
+            ->assertOk()->assertJsonPath('data.status', 'CONVERTED')->assertJsonPath('data.record_version', 3);
+
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-P2-001', 'customer_party_id' => self::CUSTOMER_ID, 'sales_lead_id' => $leadId,
+            'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Contract-backed customer order.',
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '10', 'discount_percent' => '0']],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT')->assertJsonPath('data.total_amount', '1121.000000');
+        $orderId = (string) $order->json('data.id');
+        $confirmKey = (string) Str::uuid();
+        $confirmed = $this->withHeaders(['Idempotency-Key' => $confirmKey, 'If-Match' => '1'])
+            ->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')->assertOk()
+            ->assertJsonPath('data.status', 'CONFIRMED')->assertJsonPath('data.record_version', 2);
+        $this->withHeaders(['Idempotency-Key' => $confirmKey, 'If-Match' => '1'])
+            ->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')->assertOk()->assertExactJson($confirmed->json());
+        $this->assertDatabaseHas('sales_leads', ['id' => $leadId, 'status' => 'WON']);
+
+        $allocation = $this->withHeaders($this->headers(2))->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
+            'allocation_number' => 'ALLOC-P2-001',
+        ])->assertCreated()->assertJsonPath('data.status', 'RESERVED')
+            ->assertJsonPath('data.allocated_quantity', '10.000000')
+            ->assertJsonPath('data.fefo_lot_count', 1)->assertJsonPath('data.fefo_break_count', 0);
+        $allocationId = (string) $allocation->json('data.id');
+        $this->assertDatabaseHas('stock_reservations', ['status' => 'ACTIVE', 'quantity_base' => 10]);
+        $this->getJson('/api/v1/dispatch/allocations')->assertOk()
+            ->assertJsonPath('lookups.orders.0.order_number', 'SO-P2-001')
+            ->assertJsonPath('lookups.orders.0.customer_name', 'North Market Distributor');
+        $this->signIn(self::OPERATIONS_ID);
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
+            ->assertOk()->assertJsonPath('data.status', 'PICKED')->assertJsonPath('data.record_version', 2);
+        $this->getJson('/api/v1/dispatch/allocations')->assertOk()
+            ->assertJsonPath('data.0.allocated_quantity', '10.000000')
+            ->assertJsonPath('data.0.picked_quantity', '10.000000')
+            ->assertJsonPath('data.0.fefo_lot_count', 1)
+            ->assertJsonPath('data.0.fefo_break_count', 0)
+            ->assertJsonPath('data.0.allocation_summary_available', true);
+
+        $shipment = $this->command()->postJson('/api/v1/dispatch/shipments', [
+            'shipment_number' => 'SHP-P2-001', 'sales_allocation_id' => $allocationId,
+            'carrier_name' => 'Q&T Contract Logistics', 'vehicle_number' => 'MH01QT2609',
+            'driver_name' => 'Demo Driver', 'notes' => 'Sealed load.',
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $shipmentId = (string) $shipment->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/load')
+            ->assertOk()->assertJsonPath('data.status', 'LOADED')->assertJsonPath('data.record_version', 2);
+        $dispatched = $this->withHeaders($this->headers(2))->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/dispatch', [
+            'invoice_number' => 'INV-P2-001',
+        ])->assertOk()->assertJsonPath('data.status', 'DISPATCHED')->assertJsonPath('data.invoice_total', '1121.0000');
+        $invoiceId = (string) $dispatched->json('data.invoice_id');
+        $this->assertDatabaseHas('stock_movements', ['movement_type' => 'SALES_DISPATCH', 'source_id' => $shipmentId]);
+        $this->assertSame('490.000000', $this->decimal(DB::table('stock_positions')->where('id', '00000000-0000-4000-8000-000000002602')->value('quantity_base')));
+        $this->assertSame('0.000000', $this->decimal(DB::table('stock_positions')->where('id', '00000000-0000-4000-8000-000000002602')->value('reserved_quantity_base')));
+
+        $this->withHeaders($this->headers(3))->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/pod', [
+            'proof_number' => 'POD-P2-001', 'outcome' => 'DELIVERED', 'receiver_name' => 'North Market Receiving',
+            'event_at' => now()->toISOString(), 'failure_reason' => null, 'notes' => 'Delivery accepted without shortage.',
+        ])->assertCreated()->assertJsonPath('data.status', 'DELIVERED')->assertJsonPath('data.sales_order_status', 'COMPLETED');
+        $shipmentLineId = (string) $this->getJson('/api/v1/dispatch/shipments/'.$shipmentId)->assertOk()->json('data.lines.0.id');
+
+        $this->signIn(self::SALES_ID);
+        $claim = $this->command()->postJson('/api/v1/sales/customer-claims', [
+            'claim_number' => 'CLM-P2-001', 'shipment_id' => $shipmentId, 'claim_type' => 'DAMAGE',
+            'requested_resolution' => 'CREDIT', 'reason' => 'One outer case was damaged in transit.',
+            'lines' => [['shipment_line_id' => $shipmentLineId, 'quantity' => '1']],
+        ])->assertCreated()->assertJsonPath('data.status', 'OPEN');
+        $claimId = (string) $claim->json('data.id');
+        $this->getJson('/api/v1/sales/customer-claims')->assertOk()
+            ->assertJsonPath('data.0.id', $claimId)->assertJsonPath('data.0.status', 'OPEN');
+        $this->getJson('/api/v1/sales/customer-claims/'.$claimId)->assertOk()
+            ->assertJsonPath('data.id', $claimId)->assertJsonPath('data.lines.0.shipment_line_id', $shipmentLineId);
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/customer-claims/'.$claimId.'/resolve', [
+            'resolution_type' => 'CREDIT', 'credit_amount' => '118', 'notes' => 'Commercial credit approved for damaged pack.',
+        ])->assertOk()->assertJsonPath('data.status', 'RESOLVED')->assertJsonPath('data.credit_amount', '118.0000');
+
+        $this->getJson('/api/v1/finance/receivables?q=INV-P2-001')->assertOk()
+            ->assertJsonPath('data.0.payment_status', 'PARTIALLY_PAID')
+            ->assertJsonPath('data.0.status', 'PARTIALLY_PAID')
+            ->assertJsonPath('data.0.document_retention_status', 'NOT_ARCHIVED');
+
+        $this->command()->postJson('/api/v1/finance/receivables/collections', [
+            'receipt_number' => 'RCPT-P2-001', 'customer_party_id' => self::CUSTOMER_ID,
+            'receipt_date' => now()->toDateString(), 'payment_method' => 'BANK', 'bank_reference' => 'BANK-P2-001',
+            'total_amount' => '1003', 'allocations' => [['invoice_id' => $invoiceId, 'amount' => '1003']],
+        ])->assertCreated()->assertJsonPath('data.status', 'POSTED')->assertJsonPath('data.allocated_amount', '1003.0000');
+        $this->getJson('/api/v1/finance/receivables/'.$invoiceId)->assertOk()
+            ->assertJsonPath('data.outstanding_amount', '0.0000')->assertJsonCount(3, 'data.transactions');
+        $this->getJson('/api/v1/finance/receivables?q=INV-P2-001')->assertOk()
+            ->assertJsonPath('data.0.payment_status', 'SETTLED')
+            ->assertJsonPath('data.0.document_retention_status', 'NOT_ARCHIVED');
+
+        $partialProfitability = $this->getJson('/api/v1/reports/profitability?q=SO-P2-001')->assertOk()
+            ->assertJsonPath('data.0.order_number', 'SO-P2-001')
+            ->assertJsonPath('data.0.recognized_revenue', '950.000000')
+            ->assertJsonPath('data.0.costed_revenue', '0.000000')
+            ->assertJsonPath('data.0.uncosted_revenue', '950.000000')
+            ->assertJsonPath('data.0.cost_coverage_percent', '0.0000')
+            ->assertJsonPath('data.0.cost_status', 'PARTIAL')
+            ->assertJsonPath('data.0.gross_margin', null)
+            ->assertJsonPath('data.0.margin_percent', null)
+            ->assertJsonPath('summary.margin_status', 'PARTIAL_COST_COVERAGE');
+        $this->assertNotNull($partialProfitability->json('data.0.known_gross_margin'));
+
+        [$productionScheduleId, $productionScheduleLineId] = $this->createCostBackfillScheduleFixture();
+        $productionOrderId = (string) Str::uuid();
+        DB::table('production_orders')->insert([
+            'id' => $productionOrderId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'status' => 'DRAFT',
+            'record_version' => 1,
+            'created_by' => self::FINANCE_ID,
+            'order_number' => 'PROD-COST-BACKFILL-001',
+            'batch_number' => 'BATCH-COST-BACKFILL-001',
+            'production_schedule_id' => $productionScheduleId,
+            'production_schedule_line_id' => $productionScheduleLineId,
+            'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911',
+            'route_id' => '00000000-0000-4000-8000-000000000921',
+            'planned_quantity' => 100,
+            'uom_code' => 'PACK',
+            'planned_start_date' => now()->toDateString(),
+            'planned_end_date' => now()->toDateString(),
+            'quality_status' => 'PENDING',
+            'notes' => 'Controlled finalized cost source for audit acceptance.',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $batchCostId = (string) Str::uuid();
+        DB::table('batch_costs')->insert([
+            'id' => $batchCostId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'cost_number' => 'COST-BACKFILL-001',
+            'production_order_id' => $productionOrderId,
+            'snapshot_version' => 1,
+            'currency' => 'INR',
+            'labour_rate_per_minute' => 1,
+            'overhead_rate_per_minute' => 1,
+            'planned_material_cost' => 300,
+            'actual_material_cost' => 300,
+            'planned_conversion_cost' => 200,
+            'actual_conversion_cost' => 200,
+            'planned_total_cost' => 500,
+            'actual_total_cost' => 500,
+            'total_variance' => 0,
+            'variance_percent' => 0,
+            'good_quantity' => 100,
+            'yield_percent' => 100,
+            'cost_per_good_unit' => 5,
+            'status' => 'FINALIZED',
+            'calculated_by' => self::FINANCE_ID,
+            'calculated_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->signIn(self::FINANCE_ID);
+        $this->command()->postJson('/api/v1/reports/profitability/cost-backfill', ['order_id' => $orderId])
+            ->assertOk()->assertJsonPath('data.updated_count', 1)
+            ->assertJsonPath('data.unavailable_count', 0);
+        $lineId = (string) DB::table('sales_order_lines')->where('sales_order_id', $orderId)->value('id');
+        $this->assertDatabaseHas('sales_order_lines', [
+            'id' => $lineId,
+            'cost_snapshot_status' => 'BACKFILLED',
+            'cost_snapshot_source_type' => 'BATCH_COST',
+            'cost_snapshot_source_id' => $batchCostId,
+            'cost_backfilled_by' => self::FINANCE_ID,
+        ]);
+        $this->assertNotNull(DB::table('sales_order_lines')->where('id', $lineId)->value('cost_snapshot_source_id'));
+        $this->assertDatabaseHas('audit_events', ['command' => 'BACKFILL_PROFITABILITY_COST', 'entity_id' => $lineId]);
+        $this->assertDatabaseHas('outbox_events', ['event_type' => 'sales.profitability-cost.backfilled', 'aggregate_id' => $lineId]);
+        $backfilled = $this->getJson('/api/v1/reports/profitability?q=SO-P2-001')->assertOk()
+            ->assertJsonPath('data.0.cost_status', 'COMPLETE')
+            ->assertJsonPath('data.0.uncosted_revenue', '0.000000')
+            ->assertJsonPath('summary.margin_status', 'DEFINITIVE');
+        $this->assertNotNull($backfilled->json('summary.margin_percent'));
+        $this->assertDatabaseHas('invoices', ['id' => $invoiceId, 'invoice_type' => 'RECEIVABLE', 'status' => 'PAID']);
+        $this->assertDatabaseHas('audit_events', ['command' => 'DISPATCH_SALES_SHIPMENT', 'entity_id' => $shipmentId]);
+        $this->assertDatabaseHas('outbox_events', ['event_type' => 'finance.customer-receipt.posted']);
+    }
+
+    public function test_draft_and_cancelled_orders_never_enter_recognized_revenue(): void
+    {
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'SO-AUDIT-CANCELLED',
+            'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null,
+            'sales_contract_id' => self::CONTRACT_ID,
+            'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(),
+            'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Revenue-recognition cancellation acceptance case.',
+            'lines' => [[
+                'item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'quantity' => '2', 'discount_percent' => '0',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $orderId = (string) $order->json('data.id');
+
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.order_value', '190.000000')
+            ->assertJsonPath('data.0.booked_revenue', '0.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000')
+            ->assertJsonPath('data.0.revenue', '0.000000')
+            ->assertJsonPath('data.0.cost_status', 'NOT_RECOGNIZED');
+
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.booked_revenue', '190.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000');
+
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/orders/'.$orderId.'/cancel', [
+            'reason' => 'Controlled audit cancellation.',
+        ])->assertOk()->assertJsonPath('data.status', 'CANCELLED');
+        $this->getJson('/api/v1/reports/profitability?q=SO-AUDIT-CANCELLED')->assertOk()
+            ->assertJsonPath('data.0.status', 'CANCELLED')
+            ->assertJsonPath('data.0.booked_revenue', '0.000000')
+            ->assertJsonPath('data.0.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.recognized_revenue', '0.000000')
+            ->assertJsonPath('summary.cancelled_orders', 1);
+    }
+
+    public function test_pricing_contract_work_credit_scope_and_permissions_are_enforced(): void
+    {
+        $price = $this->command()->postJson('/api/v1/sales/price-lists', [
+            'list_number' => 'PL-P2-SPECIAL', 'name' => 'Special distributor price',
+            'effective_from' => now()->toDateString(), 'effective_to' => now()->addMonth()->toDateString(), 'notes' => null,
+            'lines' => [['item_id' => self::ITEM_ID, 'uom_code' => 'PACK', 'minimum_quantity' => '1',
+                'unit_price' => '90', 'maximum_discount_percent' => '5', 'tax_rate' => '18']],
+        ])->assertCreated();
+        $priceId = (string) $price->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/price-lists/'.$priceId.'/activate')
+            ->assertOk()->assertJsonPath('data.status', 'ACTIVE');
+
+        $work = $this->command()->postJson('/api/v1/sales/third-party-work', [
+            'work_number' => 'TPW-P2-001', 'sales_order_id' => null, 'provider_party_id' => '00000000-0000-4000-8000-000000000502',
+            'work_type' => 'CO_PACKING', 'description' => 'Contract packing validation lot.',
+            'expected_start_date' => now()->toDateString(), 'expected_end_date' => now()->addDays(2)->toDateString(), 'agreed_cost' => '5000',
+        ])->assertCreated();
+        $workId = (string) $work->json('data.id');
+        $this->getJson('/api/v1/sales/third-party-work')->assertOk()
+            ->assertJsonPath('lookups.work_types.0', 'CO_PACKING');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/third-party-work/'.$workId.'/release')->assertOk();
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/sales/third-party-work/'.$workId.'/complete', ['actual_cost' => '4900'])
+            ->assertOk()->assertJsonPath('data.status', 'COMPLETED');
+
+        $this->postJson('/api/v1/sales/credit-profiles', [
+            'customer_party_id' => self::CUSTOMER_ID, 'credit_limit' => 1, 'payment_terms_days' => 30,
+            'is_on_hold' => true, 'hold_reason' => 'Unauthorised sales hold.', 'record_version' => 1,
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertForbidden();
+
+        $this->signIn(self::FINANCE_ID);
+        $this->command()->postJson('/api/v1/sales/credit-profiles', [
+            'customer_party_id' => self::CUSTOMER_ID, 'credit_limit' => 500000, 'payment_terms_days' => 30,
+            'is_on_hold' => true, 'hold_reason' => 'Temporary finance review.', 'record_version' => 1,
+        ])->assertOk()->assertJsonPath('data.status', 'ON_HOLD');
+
+        $this->signIn(self::ADMIN_ID, self::OTHER_PLANT_ID);
+        $this->getJson('/api/v1/sales/price-lists/'.$priceId)->assertNotFound();
+        $this->getJson('/api/v1/sales/pricing')->assertOk()->assertJsonMissing(['list_number' => 'PL-P2-SPECIAL']);
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function createCostBackfillScheduleFixture(): array
+    {
+        $demandPlanId = (string) Str::uuid();
+        $demandLineId = (string) Str::uuid();
+        $mrpRunId = (string) Str::uuid();
+        $plannedOrderId = (string) Str::uuid();
+        $scheduleId = (string) Str::uuid();
+        $scheduleLineId = (string) Str::uuid();
+        $today = now()->toDateString();
+        $timestamps = ['created_at' => now(), 'updated_at' => now()];
+
+        DB::table('demand_plans')->insert([
+            'id' => $demandPlanId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'plan_number' => 'DEMAND-COST-BACKFILL-001', 'name' => 'Cost backfill test demand',
+            'horizon_start' => $today, 'horizon_end' => $today, 'status' => 'DRAFT',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID,
+        ] + $timestamps);
+        DB::table('demand_plan_lines')->insert([
+            'id' => $demandLineId, 'demand_plan_id' => $demandPlanId,
+            'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID, 'line_number' => 1,
+            'output_sku_id' => self::ITEM_ID, 'demand_date' => $today, 'demand_type' => 'FIRM',
+            'quantity' => 100, 'uom_code' => 'PACK',
+        ] + $timestamps);
+        DB::table('mrp_runs')->insert([
+            'id' => $mrpRunId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'run_number' => 'MRP-COST-BACKFILL-001', 'demand_plan_id' => $demandPlanId,
+            'demand_plan_version_snapshot' => 1, 'run_date' => $today, 'status' => 'COMPLETED',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID, 'completed_at' => now(),
+        ] + $timestamps);
+        DB::table('mrp_planned_orders')->insert([
+            'id' => $plannedOrderId, 'mrp_run_id' => $mrpRunId, 'demand_plan_id' => $demandPlanId,
+            'demand_plan_line_id' => $demandLineId, 'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID, 'line_number' => 1, 'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911', 'recipe_revision_snapshot' => 1,
+            'due_date' => $today, 'planned_quantity' => 100, 'uom_code' => 'PACK',
+        ] + $timestamps);
+        DB::table('production_schedules')->insert([
+            'id' => $scheduleId, 'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID,
+            'schedule_number' => 'SCHED-COST-BACKFILL-001', 'mrp_run_id' => $mrpRunId,
+            'horizon_start' => $today, 'horizon_end' => $today, 'status' => 'DRAFT',
+            'record_version' => 1, 'created_by' => self::FINANCE_ID,
+        ] + $timestamps);
+        DB::table('production_schedule_lines')->insert([
+            'id' => $scheduleLineId, 'production_schedule_id' => $scheduleId, 'mrp_run_id' => $mrpRunId,
+            'mrp_planned_order_id' => $plannedOrderId, 'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID, 'line_number' => 1, 'output_sku_id' => self::ITEM_ID,
+            'recipe_id' => '00000000-0000-4000-8000-000000000911',
+            'route_id' => '00000000-0000-4000-8000-000000000921', 'planned_quantity' => 100,
+            'uom_code' => 'PACK', 'planned_start_date' => $today, 'planned_end_date' => $today,
+            'is_active' => true,
+        ] + $timestamps);
+
+        return [$scheduleId, $scheduleLineId];
+    }
+
+    private function signIn(string $userId, string $plantId = self::PLANT_ID): void
+    {
+        $this->actingAs(User::query()->findOrFail($userId))->withSession(['erp.company_id' => self::COMPANY_ID, 'erp.plant_id' => $plantId]);
+    }
+
+    private function command(): static { return $this->withHeader('Idempotency-Key', (string) Str::uuid()); }
+    private function headers(int $version): array { return ['Idempotency-Key' => (string) Str::uuid(), 'If-Match' => (string) $version]; }
+    private function decimal(mixed $value): string { return bcadd((string) ($value ?? 0), '0', 6); }
+}

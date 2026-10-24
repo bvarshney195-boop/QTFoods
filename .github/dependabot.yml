@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /FrontEnd
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: composer
+    directory: /BackEnd
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    groups:
+      backend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /BackEnd
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:45"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    groups:
+      workflow-actions:
+        patterns: ["*"]

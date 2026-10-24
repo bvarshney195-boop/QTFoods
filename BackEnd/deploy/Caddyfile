@@ -1,0 +1,25 @@
+{
+	email {$ACME_EMAIL}
+	admin 127.0.0.1:2019
+}
+
+{$APP_HOST} {
+	encode zstd gzip
+	root * /var/www/html/public
+
+	request_body {
+		max_size 22MB
+	}
+
+	php_fastcgi app:9000
+	file_server
+
+	header {
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

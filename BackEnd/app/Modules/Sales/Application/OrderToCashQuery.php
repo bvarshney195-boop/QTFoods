@@ -1,0 +1,755 @@
+<?php
+
+namespace App\Modules\Sales\Application;
+
+use App\Shared\Visibility\OperationalVisibilityScope;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+
+final class OrderToCashQuery
+{
+    public const SORTS = ['NEWEST', 'OLDEST', 'NUMBER', 'STATUS'];
+
+    public function __construct(private readonly OperationalVisibilityScope $visibility) {}
+
+    public function leads(array $scope, array $filters, array $permissions): array
+    {
+        $base = DB::table('sales_leads as lead')->leftJoin('parties as customer', 'customer.id', '=', 'lead.customer_party_id')
+            ->where('lead.company_id', $scope['company_id'])->where('lead.plant_id', $scope['plant_id'])
+            ->select(['lead.*', 'customer.code as customer_code', 'customer.display_name as customer_name']);
+        $page = $this->page($base, $filters, ['lead.lead_number', 'lead.company_name', 'lead.contact_name', 'lead.contact_email'], 'lead.status', 'lead.lead_number', 'lead');
+        return [
+            'data' => collect($page->items())->map(fn (object $row) => $this->leadPayload($row, $permissions))->all(),
+            'meta' => $this->meta($page),
+            'summary' => $this->statusSummary('sales_leads', $scope, OrderToCashService::LEAD_STATUSES),
+            'lookups' => ['statuses' => OrderToCashService::LEAD_STATUSES, 'sources' => OrderToCashService::LEAD_SOURCES,
+                'sorts' => self::SORTS, 'customers' => $this->customers($scope)],
+            'allowed_actions' => $this->can($permissions, 'ACTION:CRM-LEAD:CREATE') ? ['CREATE'] : [],
+        ];
+    }
+
+    public function pricing(array $scope, array $filters, array $permissions): array
+    {
+        $base = DB::table('sales_price_lists as price')->where('price.company_id', $scope['company_id'])
+            ->where('price.plant_id', $scope['plant_id']);
+        $page = $this->page($base, $filters, ['price.list_number', 'price.name'], 'price.status', 'price.list_number', 'price');
+        $prices = collect($page->items())->map(function (object $row) use ($permissions): array {
+            $payload = $this->row($row);
+            $payload['line_count'] = DB::table('sales_price_list_lines')->where('sales_price_list_id', $row->id)->count();
+            $payload['allowed_actions'] = $this->actions($permissions, [
+                'UPDATE' => ['ACTION:CRM-PRICE:UPDATE', ['DRAFT']], 'ACTIVATE' => ['ACTION:CRM-PRICE:ACTIVATE', ['DRAFT']],
+                'RETIRE' => ['ACTION:CRM-PRICE:RETIRE', ['ACTIVE']],
+            ], $row->status);
+            return $payload;
+        })->all();
+        $credits = DB::table('customer_credit_profiles as credit')->join('parties as customer', 'customer.id', '=', 'credit.customer_party_id')
+            ->where('credit.company_id', $scope['company_id'])->orderBy('customer.display_name')
+            ->get(['credit.*', 'customer.code as customer_code', 'customer.display_name as customer_name'])->map(fn ($row) => $this->row($row))->all();
+        $contracts = DB::table('sales_contracts as contract')->join('parties as customer', 'customer.id', '=', 'contract.customer_party_id')
+            ->leftJoin('sales_price_lists as price', 'price.id', '=', 'contract.sales_price_list_id')
+            ->where('contract.company_id', $scope['company_id'])->where('contract.plant_id', $scope['plant_id'])
+            ->orderByDesc('contract.updated_at')->limit(100)->get(['contract.*', 'customer.code as customer_code',
+                'customer.display_name as customer_name', 'price.list_number as price_list_number'])->map(function ($row) use ($permissions) {
+                    $payload = $this->row($row);
+                    $payload['allowed_actions'] = $this->actions($permissions, [
+                        'UPDATE' => ['ACTION:CRM-PRICE:UPDATE', ['DRAFT']], 'ACTIVATE' => ['ACTION:CRM-PRICE:ACTIVATE', ['DRAFT']],
+                        'CLOSE' => ['ACTION:CRM-PRICE:RETIRE', ['DRAFT', 'ACTIVE']],
+                    ], $row->status);
+                    return $payload;
+                })->all();
+        return [
+            'data' => $prices, 'meta' => $this->meta($page), 'credit_profiles' => $credits, 'contracts' => $contracts,
+            'summary' => ['price_lists' => count($prices), 'active_price_lists' => collect($prices)->where('status', 'ACTIVE')->count(),
+                'credit_holds' => collect($credits)->where('is_on_hold', true)->count(), 'active_contracts' => collect($contracts)->where('status', 'ACTIVE')->count()],
+            'lookups' => ['price_statuses' => OrderToCashService::PRICE_STATUSES, 'contract_statuses' => OrderToCashService::CONTRACT_STATUSES,
+                'sorts' => self::SORTS, 'customers' => $this->customers($scope), 'items' => $this->items($scope),
+                'price_lists' => $this->activePriceLists($scope)],
+            'allowed_actions' => array_values(array_filter([
+                $this->can($permissions, 'ACTION:CRM-PRICE:CREATE') ? 'CREATE_PRICE_LIST' : null,
+                $this->can($permissions, 'ACTION:CRM-PRICE:CREATE') ? 'CREATE_CONTRACT' : null,
+                $this->can($permissions, 'ACTION:CRM-PRICE:CREDIT') ? 'MANAGE_CREDIT' : null,
+            ])),
+        ];
+    }
+
+    public function orders(array $scope, array $filters, array $permissions): array
+    {
+        $base = $this->orderBase($scope, $permissions, $filters['visibility'] ?? null);
+        $page = $this->page($base, $filters, ['orders.order_number', 'customer.display_name', 'contract.contract_number'], 'orders.status', 'orders.order_number', 'orders');
+        $summary = $this->visibleStatusSummary($base, 'orders.status', OrderToCashService::ORDER_STATUSES);
+        $summary['sales_total'] = $this->decimal((clone $base)->where('orders.status', '<>', 'CANCELLED')->sum('orders.total_amount'));
+        return [
+            'data' => collect($page->items())->map(fn ($row) => $this->orderPayload($row, $permissions, false))->all(),
+            'meta' => $this->meta($page), 'summary' => $summary,
+            'lookups' => ['statuses' => OrderToCashService::ORDER_STATUSES, 'sorts' => self::SORTS, 'customers' => $this->customers($scope),
+                'items' => $this->items($scope), 'price_lists' => $this->activePriceLists($scope), 'contracts' => $this->activeContracts($scope),
+                'leads' => DB::table('sales_leads')->where($scope)->whereIn('status', ['QUALIFIED', 'CONVERTED'])->orderBy('lead_number')->get(['id', 'lead_number', 'company_name', 'customer_party_id'])->all(),
+                'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:CRM-ORDER:CREATE') ? ['CREATE'] : [],
+        ];
+    }
+
+    public function thirdPartyWork(array $scope, array $filters, array $permissions): array
+    {
+        $base = DB::table('third_party_work_orders as work')->join('parties as provider', 'provider.id', '=', 'work.provider_party_id')
+            ->leftJoin('sales_orders as orders', 'orders.id', '=', 'work.sales_order_id')->where('work.company_id', $scope['company_id'])
+            ->where('work.plant_id', $scope['plant_id'])->select(['work.*', 'provider.code as provider_code',
+                'provider.display_name as provider_name', 'orders.order_number']);
+        $this->visibility->apply($base, 'SALES_ORDER', 'orders.id', $permissions, null, 'work_order_visibility', false);
+        $page = $this->page($base, $filters, ['work.work_number', 'provider.display_name', 'orders.order_number'], 'work.status', 'work.work_number', 'work');
+        return ['data' => collect($page->items())->map(function ($row) use ($permissions) {
+                $payload = $this->row($row); $payload['allowed_actions'] = $this->actions($permissions, [
+                    'RELEASE' => ['ACTION:CON-WORK:RELEASE', ['DRAFT']], 'COMPLETE' => ['ACTION:CON-WORK:COMPLETE', ['RELEASED']],
+                    'CANCEL' => ['ACTION:CON-WORK:CANCEL', ['DRAFT', 'RELEASED']],
+                ], $row->status); return $payload;
+            })->all(), 'meta' => $this->meta($page),
+            'summary' => $this->visibleStatusSummary($base, 'work.status', OrderToCashService::WORK_STATUSES),
+            'lookups' => ['statuses' => OrderToCashService::WORK_STATUSES, 'work_types' => $this->workTypes($scope), 'sorts' => self::SORTS,
+                'providers' => $this->parties($scope), 'sales_orders' => $this->orderLookup($scope, $permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:CON-WORK:CREATE') ? ['CREATE'] : []];
+    }
+
+    private function workTypes(array $scope): array
+    {
+        return DB::table('third_party_work_orders')->where($scope)->whereNotNull('work_type')
+            ->pluck('work_type')->prepend('CO_PACKING')->map(fn ($value) => strtoupper(trim((string) $value)))
+            ->filter()->unique()->sort()->values()->all();
+    }
+
+    public function allocations(array $scope, array $filters, array $permissions): array
+    {
+        $base = DB::table('sales_allocations as allocation')->join('sales_orders as orders', 'orders.id', '=', 'allocation.sales_order_id')
+            ->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')->where('allocation.company_id', $scope['company_id'])
+            ->where('allocation.plant_id', $scope['plant_id'])->select(['allocation.*', 'orders.order_number', 'orders.total_amount',
+                'customer.code as customer_code', 'customer.display_name as customer_name']);
+        $this->visibility->apply($base, 'SALES_ORDER', 'orders.id', $permissions, null, 'allocation_order_visibility', false);
+        $page = $this->page($base, $filters, ['allocation.allocation_number', 'orders.order_number', 'customer.display_name'], 'allocation.status', 'allocation.allocation_number', 'allocation');
+        return ['data' => collect($page->items())->map(fn ($row) => $this->allocationPayload($row, $permissions, true))->all(),
+            'meta' => $this->meta($page), 'summary' => $this->visibleStatusSummary($base, 'allocation.status', OrderToCashService::ALLOCATION_STATUSES),
+            'lookups' => ['statuses' => OrderToCashService::ALLOCATION_STATUSES, 'sorts' => self::SORTS,
+                'orders' => $this->orderLookup($scope, $permissions, ['CONFIRMED', 'ALLOCATED'])],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:DSP-PICK:ALLOCATE') ? ['ALLOCATE'] : []];
+    }
+
+    public function shipments(array $scope, array $filters, array $permissions): array
+    {
+        $base = $this->shipmentBase($scope, $permissions, $filters['visibility'] ?? null);
+        $page = $this->page($base, $filters, ['shipment.shipment_number', 'orders.order_number', 'customer.display_name', 'shipment.vehicle_number'], 'shipment.status', 'shipment.shipment_number', 'shipment');
+        return ['data' => collect($page->items())->map(fn ($row) => $this->shipmentPayload($row, $permissions))->all(),
+            'meta' => $this->meta($page), 'summary' => $this->visibleStatusSummary($base, 'shipment.status', OrderToCashService::SHIPMENT_STATUSES),
+            'lookups' => ['statuses' => OrderToCashService::SHIPMENT_STATUSES, 'sorts' => self::SORTS,
+                'allocations' => $this->availableShipmentAllocations($scope, $permissions),
+                'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:DSP-LOAD:CREATE') ? ['CREATE'] : []];
+    }
+
+    public function deliveryProofs(array $scope, array $filters, array $permissions): array
+    {
+        $base = $this->shipmentBase($scope, $permissions, $filters['visibility'] ?? null)->leftJoin('delivery_proofs as proof', 'proof.shipment_id', '=', 'shipment.id')
+            ->addSelect(['proof.id as proof_id', 'proof.proof_number', 'proof.outcome', 'proof.receiver_name', 'proof.event_at', 'proof.failure_reason']);
+        $page = $this->page($base, $filters, ['shipment.shipment_number', 'orders.order_number', 'proof.proof_number', 'customer.display_name'], 'shipment.status', 'shipment.shipment_number', 'shipment');
+        return ['data' => collect($page->items())->map(fn ($row) => $this->shipmentPayload($row, $permissions))->all(),
+            'meta' => $this->meta($page), 'summary' => $this->visibleStatusSummary($base, 'shipment.status', ['DISPATCHED', 'DELIVERED', 'FAILED']),
+            'lookups' => ['statuses' => ['DISPATCHED', 'DELIVERED', 'FAILED'], 'outcomes' => ['DELIVERED', 'FAILED'], 'sorts' => self::SORTS,
+                'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => []];
+    }
+
+    public function claims(array $scope, array $filters, array $permissions): array
+    {
+        $base = $this->claimBase($scope, $permissions, $filters['visibility'] ?? null);
+        $page = $this->page($base, $filters, ['claim.claim_number', 'shipment.shipment_number', 'customer.display_name', 'invoice.invoice_number'], 'claim.status', 'claim.claim_number', 'claim');
+        return ['data' => collect($page->items())->map(fn ($row) => $this->claimPayload($row, $permissions, false))->all(),
+            'meta' => $this->meta($page), 'summary' => $this->visibleStatusSummary($base, 'claim.status', OrderToCashService::CLAIM_STATUSES),
+            'lookups' => ['statuses' => OrderToCashService::CLAIM_STATUSES, 'claim_types' => OrderToCashService::CLAIM_TYPES,
+                'resolutions' => OrderToCashService::CLAIM_RESOLUTIONS, 'sorts' => self::SORTS,
+                'shipments' => $this->claimableShipments($scope, $permissions),
+                'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:RET-CASE:CREATE') ? ['CREATE'] : []];
+    }
+
+    public function receivables(array $scope, array $filters, array $permissions): array
+    {
+        $base = $this->receivableBase($scope, $permissions);
+        $page = $this->page($base, $filters, ['invoice.invoice_number', 'customer.display_name', 'shipment.shipment_number', 'orders.order_number'], null, 'invoice.invoice_number', 'invoice');
+        $today = CarbonImmutable::today();
+        $invoices = collect($page->items())->map(function ($row) use ($today): array {
+            $payload = $this->receivableRow($row);
+            $settled = bccomp((string) $row->outstanding_amount, '0', 4) === 0;
+            $partiallyPaid = bccomp(bcadd((string) $row->paid_amount, (string) $row->credited_amount, 4), '0', 4) > 0;
+            $days = $row->due_date && $today->greaterThan(CarbonImmutable::parse($row->due_date))
+                ? CarbonImmutable::parse($row->due_date)->diffInDays($today) : ($row->due_date ? 0 : null);
+            $payload['payment_status'] = $settled ? 'SETTLED'
+                : ($days !== null && $days > 0 ? 'OVERDUE' : ($partiallyPaid ? 'PARTIALLY_PAID' : 'OPEN'));
+            $payload['status'] = $payload['payment_status'];
+            $payload['ageing_bucket'] = $settled ? 'SETTLED'
+                : ($days === null ? 'UNKNOWN' : ($days === 0 ? 'CURRENT' : ($days <= 30 ? '1-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+')))));
+            $payload['days_overdue'] = $days;
+            $payload['document_retention_status'] = DB::table('bill_archive_documents')
+                ->where('company_id', $row->company_id)->where('invoice_id', $row->invoice_id)->exists()
+                ? 'ARCHIVED' : 'NOT_ARCHIVED';
+            return $payload;
+        })->all();
+        $openBase = (clone $base)->where('invoice.outstanding_amount', '>', 0);
+        $receipts = DB::table('customer_receipts as receipt')->join('parties as customer', 'customer.id', '=', 'receipt.customer_party_id')
+            ->where('receipt.company_id', $scope['company_id'])->where('receipt.plant_id', $scope['plant_id'])
+            ->orderByDesc('receipt.receipt_date')->limit(100)->get(['receipt.*', 'customer.code as customer_code', 'customer.display_name as customer_name'])
+            ->map(fn ($row) => $this->row($row))->all();
+        return ['data' => $invoices, 'meta' => $this->meta($page), 'receipts' => $receipts,
+            'summary' => ['open_invoices' => (clone $openBase)->count(), 'outstanding_amount' => $this->decimal((clone $openBase)->sum('invoice.outstanding_amount'), 4),
+                'overdue_amount' => $this->decimal((clone $openBase)->whereDate('invoice.due_date', '<', $today->toDateString())->sum('invoice.outstanding_amount'), 4),
+                'collected_amount' => $this->decimal(DB::table('customer_receipts')->where($scope)->sum('total_amount'), 4)],
+            'lookups' => ['payment_methods' => ['BANK', 'UPI', 'CHEQUE', 'CASH'], 'sorts' => self::SORTS,
+                'customers' => $this->customers($scope),
+                'open_invoices' => $this->collectableReceivables($scope, $permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:FIN-AR:COLLECT') ? ['COLLECT'] : []];
+    }
+
+    public function profitability(array $scope, array $filters, array $permissions = []): array
+    {
+        $bookedStatuses = "'CONFIRMED','ALLOCATED','PICKED','LOADED','DISPATCHED','DELIVERED','COMPLETED'";
+        $recognizedStatuses = "'DISPATCHED','DELIVERED','COMPLETED'";
+        $costAvailable = "line.cost_snapshot_status IN ('AVAILABLE','BACKFILLED')";
+        $query = DB::table('sales_orders as orders')->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')
+            ->join('sales_order_lines as line', 'line.sales_order_id', '=', 'orders.id')
+            ->where('orders.company_id', $scope['company_id'])->where('orders.plant_id', $scope['plant_id'])->where('orders.order_type', 'SALES');
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, $filters['visibility'] ?? null, 'profit_visibility', false);
+        if ($q = trim((string) ($filters['q'] ?? ''))) {
+            $query->where(function ($inner) use ($q): void { $inner->where('orders.order_number', 'like', "%{$q}%")->orWhere('customer.display_name', 'like', "%{$q}%"); });
+        }
+        if ($from = $filters['date_from'] ?? null) $query->whereDate('orders.order_date', '>=', $from);
+        if ($to = $filters['date_to'] ?? null) $query->whereDate('orders.order_date', '<=', $to);
+        $rows = $query->groupBy('orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id', 'customer.code', 'customer.display_name')
+            ->orderByDesc('orders.order_date')->limit(500)->get([
+                'orders.id', 'orders.order_number', 'orders.order_date', 'orders.status', 'customer.id as customer_id',
+                'customer.code as customer_code', 'customer.display_name as customer_name',
+                DB::raw('SUM(line.net_amount) as order_value'),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$bookedStatuses}) THEN line.net_amount ELSE 0 END) as booked_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) THEN line.net_amount ELSE 0 END) as recognized_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND {$costAvailable} THEN line.net_amount ELSE 0 END) as costed_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND NOT ({$costAvailable}) THEN line.net_amount ELSE 0 END) as uncosted_revenue"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND {$costAvailable} THEN line.ordered_quantity * line.unit_cost_snapshot ELSE 0 END) as known_cost"),
+                DB::raw("SUM(CASE WHEN orders.status IN ({$recognizedStatuses}) AND NOT ({$costAvailable}) THEN 1 ELSE 0 END) as missing_cost_lines"),
+            ])->map(function ($row): array {
+                $recognized = $this->decimal($row->recognized_revenue);
+                $costedRevenue = $this->decimal($row->costed_revenue);
+                $uncostedRevenue = $this->decimal($row->uncosted_revenue);
+                $knownCost = $this->decimal($row->known_cost);
+                $knownMargin = bcsub($costedRevenue, $knownCost, 6);
+                $complete = bccomp($uncostedRevenue, '0', 6) === 0;
+                $definitiveMargin = $complete ? bcsub($recognized, $knownCost, 6) : null;
+                $coverage = bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($costedRevenue, $recognized, 8), '100', 4)
+                    : null;
+                return ['id' => (string) $row->id, 'order_number' => $row->order_number, 'order_date' => (string) $row->order_date,
+                    'status' => $row->status, 'customer' => ['id' => (string) $row->customer_id, 'code' => $row->customer_code, 'name' => $row->customer_name],
+                    'order_value' => $this->decimal($row->order_value),
+                    'booked_revenue' => $this->decimal($row->booked_revenue),
+                    'recognized_revenue' => $recognized,
+                    // Backwards-compatible revenue alias is deliberately recognized revenue only.
+                    'revenue' => $recognized,
+                    'costed_revenue' => $costedRevenue,
+                    'uncosted_revenue' => $uncostedRevenue,
+                    'cost_coverage_percent' => $coverage,
+                    'known_cost' => $knownCost,
+                    'cost' => $complete ? $knownCost : null,
+                    'known_gross_margin' => $knownMargin,
+                    'gross_margin' => $definitiveMargin,
+                    'margin_percent' => $definitiveMargin !== null && bccomp($recognized, '0', 6) > 0
+                        ? bcmul(bcdiv($definitiveMargin, $recognized, 8), '100', 4) : null,
+                    'missing_cost_lines' => (int) $row->missing_cost_lines,
+                    'cost_status' => bccomp($recognized, '0', 6) === 0 ? 'NOT_RECOGNIZED'
+                        : ($complete ? 'COMPLETE' : 'PARTIAL')];
+            });
+        $recognized = $this->decimal($rows->sum(fn ($row) => $row['recognized_revenue']));
+        $costedRevenue = $this->decimal($rows->sum(fn ($row) => $row['costed_revenue']));
+        $uncostedRevenue = $this->decimal($rows->sum(fn ($row) => $row['uncosted_revenue']));
+        $knownCost = $this->decimal($rows->sum(fn ($row) => $row['known_cost']));
+        $complete = bccomp($uncostedRevenue, '0', 6) === 0;
+        $definitiveMargin = $complete ? bcsub($recognized, $knownCost, 6) : null;
+        return ['data' => $rows->all(), 'meta' => ['total' => $rows->count()],
+            'summary' => [
+                'order_value' => $this->decimal($rows->sum(fn ($row) => $row['order_value'])),
+                'booked_revenue' => $this->decimal($rows->sum(fn ($row) => $row['booked_revenue'])),
+                'recognized_revenue' => $recognized,
+                'revenue' => $recognized,
+                'costed_revenue' => $costedRevenue,
+                'uncosted_revenue' => $uncostedRevenue,
+                'cost_coverage_percent' => bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($costedRevenue, $recognized, 8), '100', 4) : null,
+                'known_cost' => $knownCost,
+                'cost' => $complete ? $knownCost : null,
+                'known_gross_margin' => bcsub($costedRevenue, $knownCost, 6),
+                'gross_margin' => $definitiveMargin,
+                'margin_percent' => $definitiveMargin !== null && bccomp($recognized, '0', 6) > 0
+                    ? bcmul(bcdiv($definitiveMargin, $recognized, 8), '100', 4) : null,
+                'missing_cost_snapshots' => $rows->sum('missing_cost_lines'),
+                'margin_status' => $complete ? 'DEFINITIVE' : 'PARTIAL_COST_COVERAGE',
+                'cancelled_orders' => $rows->where('status', 'CANCELLED')->count(),
+                'draft_orders' => $rows->where('status', 'DRAFT')->count(),
+            ],
+            'lookups' => ['customers' => $this->customers($scope), 'visibility_filters' => $this->visibility->filterOptions($permissions)],
+            'operational_view' => $this->visibility->viewDescriptor($permissions),
+            'allowed_actions' => $this->can($permissions, 'ACTION:BI-PROFIT:COST-BACKFILL') ? ['COST-BACKFILL'] : []];
+    }
+
+    public function detail(string $resource, string $id, array $scope, array $permissions): array
+    {
+        return match ($resource) {
+            'lead' => $this->leadDetail($id, $scope, $permissions),
+            'price-list' => $this->priceDetail($id, $scope, $permissions),
+            'contract' => $this->contractDetail($id, $scope, $permissions),
+            'order' => $this->orderDetail($id, $scope, $permissions),
+            'work' => $this->thirdPartyWorkDetail($id, $scope, $permissions),
+            'allocation' => $this->allocationDetail($id, $scope, $permissions),
+            'shipment' => $this->shipmentDetail($id, $scope, $permissions),
+            'claim' => $this->claimDetail($id, $scope, $permissions),
+            'receivable' => $this->receivableDetail($id, $scope, $permissions),
+            default => throw new NotFoundHttpException('Order-to-cash resource not found.'),
+        };
+    }
+
+    private function leadDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = DB::table('sales_leads as lead')->leftJoin('parties as customer', 'customer.id', '=', 'lead.customer_party_id')
+            ->where('lead.id', $id)->where('lead.company_id', $scope['company_id'])->where('lead.plant_id', $scope['plant_id'])
+            ->first(['lead.*', 'customer.code as customer_code', 'customer.display_name as customer_name']);
+        if (! $row) throw new NotFoundHttpException('Sales lead not found.');
+        $payload = $this->leadPayload($row, $permissions);
+        $payload['events'] = DB::table('sales_lead_events as event')->join('users as actor', 'actor.id', '=', 'event.actor_id')
+            ->where('event.sales_lead_id', $id)->orderBy('event.occurred_at')->get(['event.*', 'actor.name as actor_name'])->map(fn ($record) => $this->row($record))->all();
+        return $payload;
+    }
+
+    private function priceDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = DB::table('sales_price_lists')->where('id', $id)->where($scope)->first();
+        if (! $row) throw new NotFoundHttpException('Price list not found.');
+        $payload = $this->row($row);
+        $payload['lines'] = DB::table('sales_price_list_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+            ->where('line.sales_price_list_id', $id)->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn ($record) => $this->row($record))->all();
+        $payload['allowed_actions'] = $this->actions($permissions, ['UPDATE' => ['ACTION:CRM-PRICE:UPDATE', ['DRAFT']],
+            'ACTIVATE' => ['ACTION:CRM-PRICE:ACTIVATE', ['DRAFT']], 'RETIRE' => ['ACTION:CRM-PRICE:RETIRE', ['ACTIVE']]], $row->status);
+        return $payload;
+    }
+
+    private function contractDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = DB::table('sales_contracts')->where('id', $id)->where($scope)->first();
+        if (! $row) throw new NotFoundHttpException('Sales contract not found.');
+        $payload = $this->row($row);
+        $payload['lines'] = DB::table('sales_contract_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+            ->where('line.sales_contract_id', $id)->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn ($record) => $this->row($record))->all();
+        $payload['allowed_actions'] = $this->actions($permissions, ['UPDATE' => ['ACTION:CRM-PRICE:UPDATE', ['DRAFT']],
+            'ACTIVATE' => ['ACTION:CRM-PRICE:ACTIVATE', ['DRAFT']], 'CLOSE' => ['ACTION:CRM-PRICE:RETIRE', ['DRAFT', 'ACTIVE']]], $row->status);
+        return $payload;
+    }
+
+    private function orderDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = $this->orderBase($scope, $permissions)->where('orders.id', $id)->first();
+        if (! $row) throw new NotFoundHttpException('Sales order not found.');
+        return $this->orderPayload($row, $permissions, true);
+    }
+
+    private function allocationDetail(string $id, array $scope, array $permissions): array
+    {
+        $query = DB::table('sales_allocations as allocation')->join('sales_orders as orders', 'orders.id', '=', 'allocation.sales_order_id')
+            ->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')->where('allocation.id', $id)
+            ->where('allocation.company_id', $scope['company_id'])->where('allocation.plant_id', $scope['plant_id'])
+            ->select(['allocation.*', 'orders.order_number', 'orders.total_amount', 'customer.code as customer_code', 'customer.display_name as customer_name']);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'allocation_detail_order_visibility', false);
+        $row = $query->first();
+        if (! $row) throw new NotFoundHttpException('Sales allocation not found.');
+        return $this->allocationPayload($row, $permissions, true);
+    }
+
+    private function shipmentDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = $this->shipmentBase($scope, $permissions)->where('shipment.id', $id)->first();
+        if (! $row) throw new NotFoundHttpException('Shipment not found.');
+        $payload = $this->shipmentPayload($row, $permissions);
+        $payload['lines'] = DB::table('shipment_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')->leftJoin('lots as lot', 'lot.id', '=', 'line.fg_lot_id')
+            ->where('line.shipment_id', $id)->orderBy('line.created_at')->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])->map(fn ($record) => $this->row($record))->all();
+        $payload['proof'] = DB::table('delivery_proofs')->where('shipment_id', $id)->first();
+        $payload['invoice'] = DB::table('sales_invoice_financials')->where('shipment_id', $id)->first();
+        return $payload;
+    }
+
+    private function claimDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = $this->claimBase($scope, $permissions)->where('claim.id', $id)->first();
+        if (! $row) throw new NotFoundHttpException('Customer claim not found.');
+        return $this->claimPayload($row, $permissions, true);
+    }
+
+    private function receivableDetail(string $id, array $scope, array $permissions): array
+    {
+        $row = $this->receivableBase($scope, $permissions)->where('invoice.invoice_id', $id)->first();
+        if (! $row) throw new NotFoundHttpException('Receivable invoice not found.');
+        $payload = $this->receivableRow($row);
+        $payload['transactions'] = DB::table('receivable_transactions')->where('invoice_id', $id)->orderBy('posted_at')->get()->map(function ($record): array {
+            $transaction = $this->row($record);
+            foreach (['amount', 'balance_before', 'balance_after'] as $field) {
+                $transaction[$field] = $this->decimal($transaction[$field] ?? 0, 4);
+            }
+            return $transaction;
+        })->all();
+        return $payload;
+    }
+
+    private function leadPayload(object $row, array $permissions): array
+    {
+        $payload = $this->row($row);
+        $payload['customer'] = $row->customer_party_id ? ['id' => (string) $row->customer_party_id, 'code' => $row->customer_code, 'name' => $row->customer_name] : null;
+        $payload['allowed_actions'] = $this->actions($permissions, [
+            'UPDATE' => ['ACTION:CRM-LEAD:UPDATE', ['NEW', 'QUALIFIED']], 'QUALIFY' => ['ACTION:CRM-LEAD:QUALIFY', ['NEW']],
+            'CONVERT' => ['ACTION:CRM-LEAD:CONVERT', ['QUALIFIED']], 'CLOSE_WON' => ['ACTION:CRM-LEAD:CLOSE', ['CONVERTED']],
+            'CLOSE_LOST' => ['ACTION:CRM-LEAD:CLOSE', ['NEW', 'QUALIFIED', 'CONVERTED']],
+        ], $row->status);
+        return $payload;
+    }
+
+    private function orderPayload(object $row, array $permissions, bool $detail): array
+    {
+        $payload = $this->row($row);
+        $payload['customer'] = ['id' => (string) $row->customer_party_id, 'code' => $row->customer_code, 'name' => $row->customer_name];
+        $payload['visibility'] = $this->visibility->metadata($row);
+        $payload['allowed_actions'] = $this->actions($permissions, [
+            'UPDATE' => ['ACTION:CRM-ORDER:UPDATE', ['DRAFT']], 'CONFIRM' => ['ACTION:CRM-ORDER:CONFIRM', ['DRAFT']],
+            'AMEND' => ['ACTION:CRM-ORDER:AMEND', ['CONFIRMED']], 'CANCEL' => ['ACTION:CRM-ORDER:CANCEL', ['DRAFT', 'CONFIRMED']],
+            'ALLOCATE' => ['ACTION:DSP-PICK:ALLOCATE', ['CONFIRMED', 'ALLOCATED']],
+        ], $row->status);
+        if ($detail) {
+            $payload['lines'] = DB::table('sales_order_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+                ->where('line.sales_order_id', $row->id)->orderBy('line.line_number')->get(['line.*', 'item.code as item_code', 'item.name as item_name'])->map(fn ($record) => $this->row($record))->all();
+            $payload['revisions'] = DB::table('sales_order_revisions as revision')->join('users as creator', 'creator.id', '=', 'revision.created_by')
+                ->where('revision.sales_order_id', $row->id)->orderByDesc('revision.revision_number')->get(['revision.*', 'creator.name as creator_name'])->map(fn ($record) => $this->row($record))->all();
+        }
+        return $payload;
+    }
+
+    private function allocationPayload(object $row, array $permissions, bool $lines): array
+    {
+        $payload = $this->row($row);
+        $payload['allowed_actions'] = $this->actions($permissions, [
+            'PICK' => ['ACTION:DSP-PICK:PICK', ['RESERVED']], 'CANCEL' => ['ACTION:DSP-PICK:CANCEL', ['RESERVED', 'PICKED']],
+            'CREATE_SHIPMENT' => ['ACTION:DSP-LOAD:CREATE', ['PICKED']],
+        ], $row->status);
+        $allocationLines = DB::table('sales_allocation_lines as line')
+            ->where('line.sales_allocation_id', $row->id)->get([
+                'line.allocated_quantity', 'line.picked_quantity', 'line.lot_id',
+            ]);
+        $payload['allocated_quantity'] = $allocationLines->reduce(
+            fn (string $total, object $line): string => bcadd($total, (string) $line->allocated_quantity, 6), '0.000000');
+        $payload['picked_quantity'] = $allocationLines->reduce(
+            fn (string $total, object $line): string => bcadd($total, (string) $line->picked_quantity, 6), '0.000000');
+        $payload['fefo_lot_count'] = $allocationLines->pluck('lot_id')->unique()->count();
+        // Allocation is performed exclusively by the server's expiry-date ordering. A lot count
+        // is not an exception count: a multi-lot allocation may still be perfectly FEFO compliant.
+        $payload['fefo_break_count'] = 0;
+        $payload['allocation_summary_available'] = true;
+        if ($lines) $payload['lines'] = DB::table('sales_allocation_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+            ->join('lots as lot', 'lot.id', '=', 'line.lot_id')->join('stock_positions as position', 'position.id', '=', 'line.stock_position_id')
+            ->join('locations as location', 'location.id', '=', 'position.location_id')->where('line.sales_allocation_id', $row->id)->orderBy('line.line_number')
+            ->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code', 'lot.expiry_date', 'location.code as location_code'])
+            ->map(fn ($record) => $this->row($record))->all();
+        return $payload;
+    }
+
+    private function shipmentPayload(object $row, array $permissions): array
+    {
+        $payload = $this->row($row);
+        $payload['visibility'] = $this->visibility->metadata($row);
+        $payload['allowed_actions'] = $this->actions($permissions, [
+            'LOAD' => ['ACTION:DSP-LOAD:LOAD', ['DRAFT']], 'DISPATCH' => ['ACTION:DSP-LOAD:DISPATCH', ['LOADED']],
+            'CANCEL' => ['ACTION:DSP-LOAD:CANCEL', ['DRAFT', 'LOADED']], 'POD' => ['ACTION:DSP-POD:COMPLETE', ['DISPATCHED']],
+            'CLAIM' => ['ACTION:RET-CASE:CREATE', ['DISPATCHED', 'DELIVERED']],
+        ], $row->status);
+        return $payload;
+    }
+
+    private function claimPayload(object $row, array $permissions, bool $detail): array
+    {
+        $payload = $this->row($row);
+        $payload['visibility'] = $this->visibility->metadata($row);
+        $payload['allowed_actions'] = $this->actions($permissions, [
+            'RECEIVE' => ['ACTION:RET-CASE:RECEIVE', ['RETURN_REQUIRED']],
+            'RESOLVE' => ['ACTION:RET-CASE:RESOLVE', ['OPEN', 'RECEIVED']],
+        ], $row->status);
+        if ($detail) {
+            $payload['lines'] = DB::table('customer_claim_lines as line')->join('items as item', 'item.id', '=', 'line.item_id')
+                ->leftJoin('lots as lot', 'lot.id', '=', 'line.lot_id')->where('line.customer_claim_id', $row->id)->orderBy('line.line_number')
+                ->get(['line.*', 'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code'])->map(fn ($record) => $this->row($record))->all();
+            $payload['actions'] = DB::table('customer_claim_actions as action')->join('users as actor', 'actor.id', '=', 'action.actor_id')
+                ->where('action.customer_claim_id', $row->id)->orderBy('action.created_at')->get(['action.*', 'actor.name as actor_name'])->map(fn ($record) => $this->row($record))->all();
+        }
+        return $payload;
+    }
+
+    private function orderBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
+    {
+        $query = DB::table('sales_orders as orders')->join('parties as customer', 'customer.id', '=', 'orders.customer_party_id')
+            ->leftJoin('sales_contracts as contract', 'contract.id', '=', 'orders.sales_contract_id')
+            ->where('orders.company_id', $scope['company_id'])->where('orders.plant_id', $scope['plant_id'])->where('orders.order_type', 'SALES')
+            ->select(['orders.*', 'customer.code as customer_code', 'customer.display_name as customer_name', 'contract.contract_number']);
+
+        return $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, $visibilityFilter, 'order_visibility');
+    }
+
+    private function shipmentBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
+    {
+        $query = DB::table('shipments as shipment')->join('sales_orders as orders', 'orders.id', '=', 'shipment.sales_order_id')
+            ->join('parties as customer', 'customer.id', '=', 'shipment.party_id')
+            ->join('sales_allocations as allocation', 'allocation.id', '=', 'shipment.sales_allocation_id')
+            ->where('shipment.company_id', $scope['company_id'])->where('shipment.plant_id', $scope['plant_id'])->where('shipment.shipment_type', 'SALES')
+            ->select(['shipment.*', 'orders.order_number', 'orders.total_amount', 'allocation.allocation_number',
+                'customer.code as customer_code', 'customer.display_name as customer_name']);
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, $visibilityFilter, 'shipment_visibility');
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'shipment_order_visibility', false);
+
+        return $query;
+    }
+
+    private function claimBase(array $scope, array $permissions, ?string $visibilityFilter = null): Builder
+    {
+        $query = DB::table('customer_claims as claim')->join('shipments as shipment', 'shipment.id', '=', 'claim.shipment_id')
+            ->join('parties as customer', 'customer.id', '=', 'claim.customer_party_id')
+            ->leftJoin('sales_invoice_financials as invoice', 'invoice.invoice_id', '=', 'claim.invoice_id')
+            ->where('claim.company_id', $scope['company_id'])->where('claim.plant_id', $scope['plant_id'])
+            ->select(['claim.*', 'shipment.shipment_number', 'customer.code as customer_code', 'customer.display_name as customer_name', 'invoice.invoice_number']);
+        $this->visibility->apply($query, 'CUSTOMER_CLAIM', 'claim.id', $permissions, $visibilityFilter, 'claim_visibility');
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'claim_parent_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'shipment.sales_order_id', $permissions, null, 'claim_parent_order_visibility', false);
+
+        return $query;
+    }
+
+    private function receivableBase(array $scope, array $permissions): Builder
+    {
+        $query = DB::table('sales_invoice_financials as invoice')->join('parties as customer', 'customer.id', '=', 'invoice.party_id')
+            ->join('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')
+            ->leftJoin('sales_orders as orders', 'orders.id', '=', 'invoice.sales_order_id')
+            ->where('invoice.company_id', $scope['company_id'])->where('invoice.plant_id', $scope['plant_id'])
+            ->select(['invoice.*', 'customer.code as customer_code', 'customer.display_name as customer_name',
+                'shipment.shipment_number', 'orders.order_number']);
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'receivable_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'receivable_order_visibility', false);
+
+        return $query;
+    }
+
+    private function availableShipmentAllocations(array $scope, array $permissions): array
+    {
+        $query = DB::table('sales_allocations as allocation')
+            ->join('sales_orders as orders', 'orders.id', '=', 'allocation.sales_order_id')
+            ->where('allocation.company_id', $scope['company_id'])
+            ->where('allocation.plant_id', $scope['plant_id'])
+            ->where('allocation.status', 'PICKED')
+            ->whereNotExists(function (Builder $used): void {
+                $used->selectRaw('1')->from('shipments as used_shipment')
+                    ->whereColumn('used_shipment.sales_allocation_id', 'allocation.id')
+                    ->where('used_shipment.shipment_type', 'SALES')
+                    ->whereNot('used_shipment.status', 'CANCELLED');
+            })
+            ->select(['allocation.id', 'allocation.allocation_number', 'allocation.record_version', 'orders.order_number']);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'shipment_lookup_order_visibility', false);
+
+        return $query->orderBy('allocation.allocation_number')->get()->all();
+    }
+
+    private function claimableShipments(array $scope, array $permissions): array
+    {
+        $query = DB::table('shipments as shipment')
+            ->join('parties as customer', 'customer.id', '=', 'shipment.party_id')
+            ->leftJoin('sales_orders as orders', 'orders.id', '=', 'shipment.sales_order_id')
+            ->where('shipment.company_id', $scope['company_id'])
+            ->where('shipment.plant_id', $scope['plant_id'])
+            ->where('shipment.shipment_type', 'SALES')
+            ->whereIn('shipment.status', ['DISPATCHED', 'DELIVERED'])
+            ->select(['shipment.id', 'shipment.shipment_number', 'shipment.status', 'customer.display_name as customer_name']);
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'claim_lookup_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'claim_lookup_order_visibility', false);
+
+        return $query->orderByDesc('shipment.dispatched_at')->get()->map(function (object $shipment): array {
+            $line = DB::table('shipment_lines')->where('shipment_id', $shipment->id)
+                ->orderBy('created_at')->first(['id', 'shipped_quantity']);
+
+            return $this->row($shipment) + [
+                'first_line_id' => $line?->id,
+                'first_line_quantity' => $line?->shipped_quantity,
+            ];
+        })->all();
+    }
+
+    private function collectableReceivables(array $scope, array $permissions): array
+    {
+        $query = DB::table('sales_invoice_financials as invoice')
+            ->join('parties as customer', 'customer.id', '=', 'invoice.party_id')
+            ->join('shipments as shipment', 'shipment.id', '=', 'invoice.shipment_id')
+            ->leftJoin('sales_orders as orders', 'orders.id', '=', 'invoice.sales_order_id')
+            ->where('invoice.company_id', $scope['company_id'])
+            ->where('invoice.plant_id', $scope['plant_id'])
+            ->where('invoice.outstanding_amount', '>', 0)
+            ->select([
+                'invoice.invoice_id as id', 'invoice.invoice_number',
+                'invoice.party_id as customer_party_id', 'invoice.outstanding_amount',
+                'invoice.due_date', 'customer.display_name as customer_name',
+            ]);
+        $this->visibility->apply($query, 'SHIPMENT', 'shipment.id', $permissions, null, 'collection_shipment_visibility', false);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'collection_order_visibility', false);
+
+        return $query->orderBy('invoice.due_date')->get()->all();
+    }
+
+    private function thirdPartyWorkDetail(string $id, array $scope, array $permissions): array
+    {
+        $query = DB::table('third_party_work_orders as work')
+            ->join('parties as provider', 'provider.id', '=', 'work.provider_party_id')
+            ->leftJoin('sales_orders as orders', 'orders.id', '=', 'work.sales_order_id')
+            ->where('work.id', $id)
+            ->where('work.company_id', $scope['company_id'])
+            ->where('work.plant_id', $scope['plant_id'])
+            ->select([
+                'work.*', 'provider.code as provider_code',
+                'provider.display_name as provider_name', 'orders.order_number',
+            ]);
+        $this->visibility->apply($query, 'SALES_ORDER', 'orders.id', $permissions, null, 'work_detail_order_visibility', false);
+        $record = $query->first();
+        if (! $record) throw new NotFoundHttpException('Third-party work order not found.');
+
+        return $this->row($record);
+    }
+
+    private function page(Builder $base, array $filters, array $searchColumns, ?string $statusColumn, string $numberColumn, string $alias): LengthAwarePaginator
+    {
+        $query = clone $base;
+        if ($q = trim((string) ($filters['q'] ?? ''))) {
+            $query->where(function ($inner) use ($q, $searchColumns): void {
+                foreach ($searchColumns as $index => $column) $index === 0 ? $inner->where($column, 'like', "%{$q}%") : $inner->orWhere($column, 'like', "%{$q}%");
+            });
+        }
+        if ($statusColumn && ($status = $filters['status'] ?? null)) $query->where($statusColumn, $status);
+        $sort = $filters['sort'] ?? 'NEWEST';
+        if ($sort === 'OLDEST') $query->orderBy("{$alias}.created_at")->orderBy($numberColumn);
+        elseif ($sort === 'NUMBER') $query->orderBy($numberColumn);
+        elseif ($sort === 'STATUS' && $statusColumn) $query->orderBy($statusColumn)->orderBy($numberColumn);
+        else $query->orderByDesc("{$alias}.updated_at")->orderBy($numberColumn);
+        return $query->paginate((int) ($filters['per_page'] ?? 25));
+    }
+
+    private function statusSummary(string $table, array $scope, array $statuses): array
+    {
+        $base = DB::table($table)->where($scope); $summary = ['total' => (clone $base)->count()];
+        foreach ($statuses as $status) $summary[strtolower($status)] = (clone $base)->where('status', $status)->count();
+        return $summary;
+    }
+
+    private function customers(array $scope): array
+    {
+        return DB::table('parties as party')->join('party_roles as role', function ($join): void { $join->on('role.party_id', '=', 'party.id')->where('role.role_code', 'CUSTOMER'); })
+            ->leftJoin('customer_credit_profiles as credit', function ($join): void { $join->on('credit.customer_party_id', '=', 'party.id')->on('credit.company_id', '=', 'party.company_id'); })
+            ->where('party.company_id', $scope['company_id'])->where('party.status', 'ACTIVE')->orderBy('party.display_name')
+            ->get(['party.id', 'party.code', 'party.display_name as name', 'credit.credit_limit', 'credit.payment_terms_days', 'credit.is_on_hold'])->all();
+    }
+
+    private function parties(array $scope): array
+    {
+        return DB::table('parties')->where('company_id', $scope['company_id'])->where('status', 'ACTIVE')->orderBy('display_name')->get(['id', 'code', 'display_name as name'])->all();
+    }
+
+    private function items(array $scope): array
+    {
+        return DB::table('items')->where('company_id', $scope['company_id'])->where('status', 'ACTIVE')
+            ->whereIn('item_type', ['FINISHED_GOOD', 'SERVICE'])->orderBy('code')->get(['id', 'code', 'name', 'item_type', 'base_uom'])->all();
+    }
+
+    private function visibleStatusSummary(Builder $base, string $statusColumn, array $statuses): array
+    {
+        $summary = ['total' => (clone $base)->count()];
+        foreach ($statuses as $status) $summary[strtolower($status)] = (clone $base)->where($statusColumn, $status)->count();
+        return $summary;
+    }
+
+    private function activePriceLists(array $scope): array
+    {
+        return DB::table('sales_price_lists')->where($scope)->where('status', 'ACTIVE')->orderBy('list_number')->get(['id', 'list_number', 'name', 'effective_from', 'effective_to'])->all();
+    }
+
+    private function activeContracts(array $scope): array
+    {
+        return DB::table('sales_contracts as contract')->join('parties as customer', 'customer.id', '=', 'contract.customer_party_id')->where('contract.company_id', $scope['company_id'])
+            ->where('contract.plant_id', $scope['plant_id'])->where('contract.status', 'ACTIVE')->orderBy('contract.contract_number')
+            ->get(['contract.id', 'contract.contract_number', 'contract.customer_party_id', 'contract.effective_from', 'contract.effective_to', 'customer.display_name as customer_name'])->all();
+    }
+
+    private function orderLookup(array $scope, array $permissions, ?array $statuses = null): array
+    {
+        $query = DB::table('sales_orders as lookup_order')
+            ->join('parties as lookup_customer', 'lookup_customer.id', '=', 'lookup_order.customer_party_id')
+            ->where('lookup_order.company_id', $scope['company_id'])
+            ->where('lookup_order.plant_id', $scope['plant_id'])->where('lookup_order.order_type', 'SALES')
+            ->when($statuses, fn (Builder $builder, array $allowed) => $builder->whereIn('lookup_order.status', $allowed),
+                fn (Builder $builder) => $builder->where('lookup_order.status', '<>', 'CANCELLED'))
+            ->orderByDesc('lookup_order.order_date')->select(['lookup_order.id', 'lookup_order.order_number', 'lookup_order.status',
+                'lookup_order.record_version', 'lookup_order.total_amount', 'lookup_customer.code as customer_code',
+                'lookup_customer.display_name as customer_name']);
+        $this->visibility->apply($query, 'SALES_ORDER', 'lookup_order.id', $permissions, null, 'order_lookup_visibility', false);
+
+        return $query->get()->all();
+    }
+
+    private function actions(array $permissions, array $definitions, string $status): array
+    {
+        $actions = [];
+        foreach ($definitions as $action => [$permission, $statuses]) if ($this->can($permissions, $permission) && in_array($status, $statuses, true)) $actions[] = $action;
+        return $actions;
+    }
+
+    private function can(array $permissions, string $permission): bool
+    {
+        return in_array($permission, $permissions, true);
+    }
+
+    private function meta(LengthAwarePaginator $page): array
+    {
+        return ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'per_page' => $page->perPage(), 'total' => $page->total()];
+    }
+
+    private function row(object $row): array
+    {
+        return collect((array) $row)->map(function ($value) {
+            if (is_string($value) && ((str_starts_with($value, '{') && str_ends_with($value, '}')) || (str_starts_with($value, '[') && str_ends_with($value, ']')))) {
+                try { return json_decode($value, true, 512, JSON_THROW_ON_ERROR); } catch (\Throwable) {}
+            }
+            return $value;
+        })->all();
+    }
+
+    private function receivableRow(object $row): array
+    {
+        $payload = $this->row($row);
+        foreach (['net_amount', 'tax_amount', 'gross_amount', 'outstanding_amount', 'paid_amount', 'credited_amount'] as $field) {
+            if (array_key_exists($field, $payload)) {
+                $payload[$field] = $this->decimal($payload[$field], 4);
+            }
+        }
+        return $payload;
+    }
+
+    private function decimal(mixed $value, int $scale = 6): string
+    {
+        return bcadd((string) ($value ?? 0), '0', $scale);
+    }
+}

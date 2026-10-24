@@ -1,0 +1,10 @@
+/.env
+/.env.*
+!/.env.example
+!/.env.production.example
+/.phpunit.cache/
+/bootstrap/cache/*.php
+/storage/logs/*.log
+/storage/framework/testing/recovery-verification-*/
+/backups/
+/vendor/

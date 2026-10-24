@@ -1,0 +1,332 @@
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { screenRegistry } from '../data/screenRegistry';
+import type { ErpSession } from '../types/session';
+import { ErpSessionContext } from './ErpSessionContext';
+import { pageMap } from './lazyPageMap';
+import { AccountSecurityPanel } from '../components/AccountSecurityPanel';
+import { GlobalSearch } from '../components/GlobalSearch';
+import { NotificationCentre } from '../components/NotificationCentre';
+import { useEditorActionReveal } from './useEditorActionReveal';
+import { useKeyboardScrollableRegions } from './useKeyboardScrollableRegions';
+import { useResponsiveDataTables } from './useResponsiveDataTables';
+import { roleLabel, screenLabel } from '../utils/displayText';
+import { PageLoadBoundary } from './PageLoadBoundary';
+
+const navigationSections = [
+  { key: 'Foundation / Admin', label: 'Home & Administration' },
+  { key: 'Master / Procurement / Stock', label: 'Purchasing & Inventory' },
+  { key: 'Manufacturing / Quality', label: 'Production & Quality' },
+  { key: 'Sales / Dispatch', label: 'Sales & Delivery' },
+  { key: 'Finance / Support', label: 'Finance & People' },
+  { key: 'Scale', label: 'Multi-Plant & Planning' },
+  { key: 'Finance Supplement', label: 'Finance Tools' },
+];
+
+type AppShellProps = {
+  session: ErpSession;
+  onChooseContext: () => void;
+  onLogout: () => Promise<void> | void;
+};
+
+export default function AppShell({ session, onChooseContext, onLogout }: AppShellProps) {
+  const allowedKey = session.allowed_screens.join('|');
+  const allowedScreens = useMemo(() => new Set(session.allowed_screens), [allowedKey]);
+  const navigation = useMemo(
+    () => screenRegistry.filter((screen) => allowedScreens.has(screen.code) && !screen.code.startsWith('ACC-')),
+    [allowedScreens]
+  );
+  const defaultCode = allowedScreens.has('WRK-HOME') ? 'WRK-HOME' : navigation[0]?.code;
+  const [screenCode, setScreenCode] = useState(defaultCode ?? '');
+  const [search, setSearch] = useState('');
+  const [favourites, setFavourites] = useState<string[]>(() => readCodes('qtfoods:favourite-screens'));
+  const [recent, setRecent] = useState<string[]>(() => readCodes('qtfoods:recent-screens'));
+  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(
+    () => {
+      const saved = readCodes('qtfoods:expanded-navigation');
+      return new Set(saved.length ? saved : navigationSections.map(({ key }) => key));
+    }
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [compactNavigation, setCompactNavigation] = useState(() => window.matchMedia('(max-width: 820px)').matches);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarSearchRef = useRef<HTMLInputElement>(null);
+  const securityButtonRef = useRef<HTMLButtonElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
+  const previousScreenRef = useRef(screenCode);
+
+  useKeyboardScrollableRegions(mainContentRef);
+  useResponsiveDataTables(mainContentRef);
+  useEditorActionReveal(mainContentRef);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }, []);
+
+  const closeSecurity = useCallback(() => {
+    setSecurityOpen(false);
+    window.requestAnimationFrame(() => securityButtonRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 820px)');
+    const update = (matches: boolean) => {
+      setCompactNavigation(matches);
+      if (!matches) setSidebarOpen(false);
+    };
+    const handleChange = (event: MediaQueryListEvent) => update(event.matches);
+
+    update(media.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!compactNavigation || !sidebarOpen) return;
+
+    const frame = window.requestAnimationFrame(() => sidebarSearchRef.current?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeSidebar();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeSidebar, compactNavigation, sidebarOpen]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setGlobalSearchOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handleShortcut);
+    return () => document.removeEventListener('keydown', handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    const syncHash = () => {
+      const route = window.location.hash.replace(/^#/, '');
+      const requested = route.split('?', 1)[0];
+      const permitted = Boolean(requested && requested in pageMap && allowedScreens.has(requested));
+      const resolved = permitted ? requested : defaultCode;
+
+      setScreenCode(resolved ?? '');
+      setSidebarOpen(false);
+
+      if (!permitted && resolved) {
+        window.history.replaceState(null, '', `#${resolved}`);
+      }
+    };
+
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, [allowedScreens, defaultCode]);
+
+  const current = navigation.find((screen) => screen.code === screenCode);
+  const CurrentPage = current ? pageMap[current.code as keyof typeof pageMap] : null;
+
+  useEffect(() => {
+    if (!current) return;
+    document.title = `${screenLabel(current.code, current.title)} — Q & T FOODS LTD`;
+    if (previousScreenRef.current === current.code) return;
+
+    previousScreenRef.current = current.code;
+    const frame = window.requestAnimationFrame(() => mainContentRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [current]);
+
+  useEffect(() => {
+    if (!current?.area) return;
+    const area = current.area;
+    setExpandedAreas((areas) => {
+      if (areas.has(area)) return areas;
+      const next = new Set(areas);
+      next.add(area);
+      localStorage.setItem('qtfoods:expanded-navigation', JSON.stringify([...next]));
+      return next;
+    });
+  }, [current?.area]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return navigation.filter((screen) =>
+      !query || `${screenLabel(screen.code, screen.title)} ${screen.description}`.toLowerCase().includes(query)
+    );
+  }, [navigation, search]);
+
+  function go(code: string) {
+    if (!allowedScreens.has(code)) return;
+    const nextRecent = [code, ...recent.filter((item) => item !== code)].slice(0, 4);
+    setRecent(nextRecent);
+    localStorage.setItem('qtfoods:recent-screens', JSON.stringify(nextRecent));
+    window.location.hash = code;
+    setSidebarOpen(false);
+  }
+
+  function toggleFavourite() {
+    if (!current) return;
+    const next = favourites.includes(current.code)
+      ? favourites.filter((code) => code !== current.code)
+      : [current.code, ...favourites].slice(0, 6);
+    setFavourites(next);
+    localStorage.setItem('qtfoods:favourite-screens', JSON.stringify(next));
+  }
+
+  function toggleArea(area: string) {
+    setExpandedAreas((areas) => {
+      const next = new Set(areas);
+      if (next.has(area)) next.delete(area);
+      else next.add(area);
+      localStorage.setItem('qtfoods:expanded-navigation', JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  const context = session.selected_context;
+  const primaryRole = session.roles[0] ? roleLabel(session.roles[0]) : 'Assigned user';
+
+  return (
+    <div className="app-shell">
+      <a
+        className="skip-link"
+        href="#erp-main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          mainContentRef.current?.focus();
+        }}
+      >
+        Skip to main content
+      </a>
+      <aside
+        id="erp-sidebar"
+        className={`sidebar ${sidebarOpen ? 'open' : ''}`}
+        aria-hidden={compactNavigation && !sidebarOpen ? true : undefined}
+        inert={compactNavigation && !sidebarOpen ? true : undefined}
+      >
+        <div className="side-brand">
+          <span className="brand-mark">Q&T</span>
+          <div><b>Q & T FOODS LTD</b><small>Business workspace</small></div>
+        </div>
+        <div className="side-search">
+          <input ref={sidebarSearchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search menu" aria-label="Search menu" />
+        </div>
+        <nav aria-label="Main menu">
+          {!search.trim() && (favourites.length > 0 || recent.length > 0) && (
+            <section className="smart-navigation" aria-label="Pinned and recent pages">
+              {favourites.length > 0 && <div><b>Pinned</b>{favourites.filter((code) => allowedScreens.has(code)).map((code) => {
+                const item = navigation.find((screen) => screen.code === code);
+                return item ? <button type="button" key={code} onClick={() => go(code)}><span>★</span>{screenLabel(code, item.title)}</button> : null;
+              })}</div>}
+              {recent.length > 0 && <div><span className="smart-navigation-title"><b>Recent</b><button type="button" aria-label="Dismiss recent pages" title="Dismiss recent pages" onClick={() => { setRecent([]); localStorage.removeItem('qtfoods:recent-screens'); }}>×</button></span>{recent.filter((code) => allowedScreens.has(code) && !favourites.includes(code)).slice(0, 3).map((code) => {
+                const item = navigation.find((screen) => screen.code === code);
+                return item ? <button type="button" key={code} onClick={() => go(code)}><NavIcon area={item.area} />{screenLabel(code, item.title)}</button> : null;
+              })}</div>}
+            </section>
+          )}
+          {navigationSections.map(({ key, label }) => {
+            const items = filtered.filter((screen) => screen.area === key);
+            if (!items.length) return null;
+            const expanded = Boolean(search.trim()) || expandedAreas.has(key);
+            return (
+              <section key={key} className="nav-group">
+                <button className="nav-group-toggle" type="button" aria-expanded={expanded} onClick={() => toggleArea(key)}>
+                  <span>{label}</span><small>{items.length}</small><i aria-hidden="true">{expanded ? '−' : '+'}</i>
+                </button>
+                {expanded && <div className="nav-group-items">{items.map((item) => (
+                  <button key={item.code} data-screen-code={item.code} aria-label={screenLabel(item.code, item.title)} className={item.code === current?.code ? 'active' : ''} aria-current={item.code === current?.code ? 'page' : undefined} onClick={() => go(item.code)}>
+                    <NavIcon area={item.area} /><span>{screenLabel(item.code, item.title)}</span>
+                  </button>
+                ))}</div>}
+              </section>
+            );
+          })}
+          {!filtered.length && <div className="nav-empty">No menu item matches your search.</div>}
+        </nav>
+        <div className="side-user" title={`${session.user.name} · ${primaryRole}`}>
+          <span className="avatar">{initials(session.user.name)}</span>
+          <div className="side-user-copy"><b>{session.user.name}</b><small>{primaryRole}</small></div>
+          <button className="side-logout" type="button" aria-label="Sign out" title="Sign out" onClick={() => void onLogout()}>↪</button>
+        </div>
+      </aside>
+
+      {sidebarOpen && <button className="sidebar-scrim" type="button" aria-label="Close navigation" onClick={() => closeSidebar()} />}
+
+      <section className="main">
+        <header className="topbar">
+          <button
+            ref={menuButtonRef}
+            className="icon mobile-menu"
+            type="button"
+            aria-label="Toggle navigation"
+            aria-controls="erp-sidebar"
+            aria-expanded={sidebarOpen}
+            onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)}
+          >☰</button>
+          <button className="context-button" type="button" aria-label="Change company or plant" onClick={onChooseContext}>
+            <i></i>
+            <span><b>{context?.company_name}</b><small>{context?.plant_name ?? 'All plants'} · {primaryRole}</small></span>
+            ⌄
+          </button>
+          <div className="spacer"></div>
+          <button className="global-search-trigger" type="button" onClick={() => setGlobalSearchOpen(true)}><span>⌕</span><b>Search everything</b><kbd>Ctrl K</kbd></button>
+          <NotificationCentre onNavigate={(href) => { window.location.hash = href.replace(/^#/, ''); }} />
+          {current && <button className={`icon favourite-button ${favourites.includes(current.code) ? 'is-favourite' : ''}`} type="button" aria-label={favourites.includes(current.code) ? 'Remove current page from favourites' : 'Add current page to favourites'} title="Pin page" onClick={toggleFavourite}>★</button>}
+          <button ref={securityButtonRef} className="security-button" type="button" aria-label={`Account security for ${session.user.name}`} title={`${session.user.name} · ${primaryRole}`} aria-haspopup="dialog" aria-controls="account-security-dialog" aria-expanded={securityOpen} onClick={() => setSecurityOpen(true)}><span>{session.user.name}</span><b>{session.security?.mfa_enabled ? '2-step on' : session.security?.mfa_required ? '2-step required' : '2-step off'}</b></button>
+          {allowedScreens.has('ADM-HELP') && <button className="icon" type="button" aria-label="Open help" title="Help" onClick={() => go('ADM-HELP')}>?</button>}
+        </header>
+
+        <main ref={mainContentRef} id="erp-main-content" className="content" tabIndex={-1}>
+          <ErpSessionContext.Provider value={session}>
+            <PageLoadBoundary key={screenCode} screenCode={screenCode}>
+              <Suspense fallback={<section className="panel page-loading" role="status" aria-live="polite"><span aria-hidden="true"></span><b>Opening workspace…</b></section>}>
+                {CurrentPage ? <CurrentPage /> : (
+                  <section className="panel empty-state">No ERP screens are assigned to this role in the selected context.</section>
+                )}
+              </Suspense>
+            </PageLoadBoundary>
+          </ErpSessionContext.Provider>
+        </main>
+      </section>
+      {securityOpen && <AccountSecurityPanel session={session} onClose={closeSecurity} />}
+      <GlobalSearch allowedScreens={allowedScreens} open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} onNavigate={go} />
+    </div>
+  );
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function NavIcon({ area }: { area: string }) {
+  const path = area.includes('Finance')
+    ? 'M4 18h16M6 15h12M7 15V8m5 7V8m5 7V8M5 8h14l-7-4-7 4Z'
+    : area.includes('Manufacturing')
+      ? 'M4 19V9l5 3V8l5 3V5h6v14H4Zm3-3h2m3 0h2m3 0h1'
+      : area.includes('Sales')
+        ? 'M5 6h2l2 9h8l2-6H8m2 9a1 1 0 1 0 0 .01M17 18a1 1 0 1 0 0 .01'
+        : area.includes('Scale')
+          ? 'M4 19h16M6 16v-5h4v5m4 0V7h4v9M8 8V5h4v3'
+          : area.includes('Master')
+            ? 'M4 7h16v12H4V7Zm3 0V4h10v3m-8 5h6'
+            : 'M4 10 12 4l8 6v10H4V10Zm5 10v-6h6v6';
+
+  return <svg className="nav-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={path} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function readCodes(key: string): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}

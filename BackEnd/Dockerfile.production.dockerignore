@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+.phpunit.cache
+Dockerfile
+Dockerfile.production.dockerignore
+README.md
+docker-compose*.yml
+docs
+tests
+storage/logs/*
+storage/framework/testing
+vendor

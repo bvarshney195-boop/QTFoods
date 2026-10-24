@@ -1,0 +1,514 @@
+{
+  "ACC-LOGIN": {
+    "login": "/api/v1/auth/login",
+    "mfa_challenge": "/api/v1/auth/mfa/challenge",
+    "invitation_inspect": "/api/v1/auth/invitations/{token}",
+    "invitation_accept": "/api/v1/auth/invitations/accept",
+    "password_forgot": "/api/v1/auth/password/forgot",
+    "password_reset": "/api/v1/auth/password/reset",
+    "verification_request": "/api/v1/auth/email/verification/request",
+    "email_verify": "/api/v1/auth/email/verify"
+  },
+  "ACC-CTX": "/api/v1/contexts",
+  "ACCOUNT-SECURITY": {
+    "password_change": "/api/v1/auth/password/change",
+    "mfa_setup": "/api/v1/auth/mfa/setup",
+    "mfa_confirm": "/api/v1/auth/mfa/confirm",
+    "mfa_disable": "/api/v1/auth/mfa/disable",
+    "mfa_recovery_codes": "/api/v1/auth/mfa/recovery-codes",
+    "session_list": "/api/v1/auth/sessions",
+    "session_revoke": "/api/v1/auth/sessions/{sessionId}/revoke",
+    "session_revoke_others": "/api/v1/auth/sessions/revoke-others"
+  },
+  "WRK-HOME": {
+    "list": "/api/v1/work/tasks",
+    "claim": "/api/v1/work/tasks/{workItemId}/claim",
+    "manager_assign": "/api/v1/work/tasks/{workItemId}/assign",
+    "complete": "/api/v1/work/tasks/{workItemId}/complete"
+  },
+  "ADM-ORG": {
+    "overview": "/api/v1/admin/organisation",
+    "company_detail": "/api/v1/admin/companies/{companyId}",
+    "company_create": "/api/v1/admin/companies",
+    "company_update": "/api/v1/admin/companies/{companyId}",
+    "plant_detail": "/api/v1/admin/plants/{plantId}",
+    "plant_create": "/api/v1/admin/plants",
+    "plant_update": "/api/v1/admin/plants/{plantId}"
+  },
+  "ADM-LOC": {
+    "list_create": "/api/v1/admin/locations",
+    "detail_update": "/api/v1/admin/locations/{locationId}",
+    "delete": "/api/v1/admin/locations/{locationId}/delete"
+  },
+  "ADM-USER": {
+    "list_create": "/api/v1/admin/users",
+    "detail_update": "/api/v1/admin/users/{userId}",
+    "invite": "/api/v1/admin/user-invitations",
+    "invitation_resend": "/api/v1/admin/user-invitations/{invitationId}/resend",
+    "invitation_revoke": "/api/v1/admin/user-invitations/{invitationId}/revoke",
+    "verification_send": "/api/v1/admin/users/{userId}/verification",
+    "session_list": "/api/v1/admin/users/{userId}/sessions",
+    "session_revoke": "/api/v1/admin/users/{userId}/sessions/{sessionId}/revoke",
+    "assignment_create": "/api/v1/admin/users/{userId}/assignments",
+    "assignment_detail_update": "/api/v1/admin/role-assignments/{assignmentId}",
+    "delete": "/api/v1/admin/users/{userId}/delete"
+  },
+  "ADM-ROLE": {
+    "role_list_create": "/api/v1/admin/roles",
+    "role_detail_update": "/api/v1/admin/roles/{roleId}",
+    "role_delete": "/api/v1/admin/roles/{roleId}/delete",
+    "role_permission_sync": "/api/v1/admin/roles/{roleId}/permissions",
+    "permission_list_create": "/api/v1/admin/permissions",
+    "permission_detail_update": "/api/v1/admin/permissions/{permissionId}",
+    "permission_delete": "/api/v1/admin/permissions/{permissionId}/delete"
+  },
+  "ADM-RULE": {
+    "workspace": "/api/v1/admin/approvals",
+    "escalate_due": "/api/v1/admin/approvals/escalate-due",
+    "rule_create": "/api/v1/admin/approval-rules",
+    "rule_detail_update": "/api/v1/admin/approval-rules/{ruleId}",
+    "rule_delete": "/api/v1/admin/approval-rules/{ruleId}/delete",
+    "delegation_create": "/api/v1/admin/approval-delegations",
+    "delegation_revoke": "/api/v1/admin/approval-delegations/{delegationId}/revoke"
+  },
+  "ADM-AUD": {
+    "search": "/api/v1/admin/audit",
+    "detail": "/api/v1/admin/audit/{auditId}",
+    "evidence_view_download": "/api/v1/admin/audit/{auditId}/evidence/{evidenceId}"
+  },
+  "ADM-INT": {
+    "workspace": "/api/v1/admin/integrations",
+    "process_due": "/api/v1/admin/integrations/process-due",
+    "event_detail": "/api/v1/admin/outbox-events/{eventId}",
+    "event_retry": "/api/v1/admin/outbox-events/{eventId}/retry",
+    "event_quarantine": "/api/v1/admin/outbox-events/{eventId}/quarantine"
+  },
+  "ADM-HELP": {
+    "workspace": "/api/v1/admin/help",
+    "article_detail": "/api/v1/admin/help/articles/{slug}",
+    "case_detail": "/api/v1/admin/help/cases/{caseId}",
+    "case_create": "/api/v1/admin/help/cases",
+    "case_comment": "/api/v1/admin/help/cases/{caseId}/comments",
+    "case_start": "/api/v1/admin/help/cases/{caseId}/start",
+    "case_resolve": "/api/v1/admin/help/cases/{caseId}/resolve",
+    "case_reopen": "/api/v1/admin/help/cases/{caseId}/reopen",
+    "case_close": "/api/v1/admin/help/cases/{caseId}/close"
+  },
+  "BI-REP": {
+    "workspace": "/api/v1/reports",
+    "run_detail": "/api/v1/reports/runs/{runId}",
+    "run_generate": "/api/v1/reports/runs",
+    "export_create": "/api/v1/reports/runs/{runId}/exports",
+    "export_download": "/api/v1/reports/exports/{exportId}/download"
+  },
+  "MD-PARTY": {
+    "workspace": "/api/v1/master/parties",
+    "detail": "/api/v1/master/parties/{partyId}",
+    "create": "/api/v1/master/parties",
+    "update": "/api/v1/master/parties/{partyId}",
+    "lifecycle": "/api/v1/master/parties/{partyId}/status",
+    "delete": "/api/v1/master/parties/{partyId}/delete"
+  },
+  "MD-BRAND": {
+    "workspace_create": "/api/v1/master/brands",
+    "detail_update": "/api/v1/master/brands/{recordId}",
+    "lifecycle": "/api/v1/master/brands/{recordId}/status",
+    "delete": "/api/v1/master/brands/{recordId}/delete"
+  },
+  "MD-ITEM": {
+    "workspace_create": "/api/v1/master/items",
+    "detail_update": "/api/v1/master/items/{recordId}",
+    "lifecycle": "/api/v1/master/items/{recordId}/status",
+    "delete": "/api/v1/master/items/{recordId}/delete"
+  },
+  "MD-SKU": {
+    "workspace_create": "/api/v1/master/skus",
+    "detail_update": "/api/v1/master/skus/{recordId}",
+    "lifecycle": "/api/v1/master/skus/{recordId}/status",
+    "delete": "/api/v1/master/skus/{recordId}/delete"
+  },
+  "PUR-REQ": {
+    "workspace_create": "/api/v1/procurement/requisitions",
+    "detail_update": "/api/v1/procurement/requisitions/{requisitionId}",
+    "submit": "/api/v1/procurement/requisitions/{requisitionId}/submit",
+    "cancel": "/api/v1/procurement/requisitions/{requisitionId}/cancel",
+    "approve": "/api/v1/procurement/requisition-approvals/{approvalId}/approve",
+    "reject": "/api/v1/procurement/requisition-approvals/{approvalId}/reject"
+  },
+  "PUR-RFQ": {
+    "workspace_create": "/api/v1/procurement/rfqs",
+    "detail_update": "/api/v1/procurement/rfqs/{rfqId}",
+    "issue": "/api/v1/procurement/rfqs/{rfqId}/issue",
+    "record_quote": "/api/v1/procurement/rfqs/{rfqId}/quotes",
+    "award": "/api/v1/procurement/rfqs/{rfqId}/award",
+    "cancel": "/api/v1/procurement/rfqs/{rfqId}/cancel"
+  },
+  "PUR-PO": {
+    "workspace_create": "/api/v1/procurement/purchase-orders",
+    "detail": "/api/v1/procurement/purchase-orders/{purchaseOrderId}",
+    "amend": "/api/v1/procurement/purchase-orders/{purchaseOrderId}/amend",
+    "issue": "/api/v1/procurement/purchase-orders/{purchaseOrderId}/issue",
+    "cancel": "/api/v1/procurement/purchase-orders/{purchaseOrderId}/cancel"
+  },
+  "INB-GATE": {
+    "workspace_create": "/api/v1/procurement/gate-entries",
+    "detail_update": "/api/v1/procurement/gate-entries/{gateEntryId}",
+    "cancel": "/api/v1/procurement/gate-entries/{gateEntryId}/cancel"
+  },
+  "INB-GRN": {
+    "workspace_create": "/api/v1/procurement/receipts",
+    "detail_update": "/api/v1/procurement/receipts/{receiptId}",
+    "post_to_quality_hold": "/api/v1/procurement/receipts/{receiptId}/post",
+    "cancel": "/api/v1/procurement/receipts/{receiptId}/cancel"
+  },
+  "QC-IN": {
+    "workspace": "/api/v1/quality/incoming",
+    "detail": "/api/v1/quality/incoming/{qualityTaskId}",
+    "complete_and_post_stock": "/api/v1/quality/incoming/{qualityTaskId}/complete"
+  },
+  "INB-RETURN": {
+    "workspace_create": "/api/v1/procurement/supplier-returns",
+    "detail_update": "/api/v1/procurement/supplier-returns/{supplierReturnId}",
+    "post_stock_issue": "/api/v1/procurement/supplier-returns/{supplierReturnId}/post",
+    "cancel": "/api/v1/procurement/supplier-returns/{supplierReturnId}/cancel"
+  },
+  "INV-STK": {
+    "stock_workspace": "/api/v1/inventory/stock",
+    "stock_detail": "/api/v1/inventory/stock/{positionId}",
+    "reserve_stock": "/api/v1/inventory/stock/{positionId}/reservations",
+    "owner_workspace_create": "/api/v1/inventory/owners",
+    "owner_detail_update": "/api/v1/inventory/owners/{ownerId}",
+    "owner_lifecycle": "/api/v1/inventory/owners/{ownerId}/status",
+    "owner_delete": "/api/v1/inventory/owners/{ownerId}/delete",
+    "lot_workspace_create": "/api/v1/inventory/lots",
+    "lot_detail_update": "/api/v1/inventory/lots/{lotId}",
+    "lot_lifecycle": "/api/v1/inventory/lots/{lotId}/status",
+    "lot_delete": "/api/v1/inventory/lots/{lotId}/delete",
+    "release_reservation": "/api/v1/inventory/reservations/{reservationId}/release",
+    "movement_workspace": "/api/v1/inventory/movements",
+    "movement_detail": "/api/v1/inventory/movements/{movementId}"
+  },
+  "INV-ISS": {
+    "workspace_create": "/api/v1/inventory/issues",
+    "detail_update": "/api/v1/inventory/issues/{operationId}",
+    "post": "/api/v1/inventory/issues/{operationId}/post",
+    "cancel": "/api/v1/inventory/issues/{operationId}/cancel"
+  },
+  "INV-TRF": {
+    "workspace_create": "/api/v1/inventory/transfers",
+    "detail_update": "/api/v1/inventory/transfers/{operationId}",
+    "post": "/api/v1/inventory/transfers/{operationId}/post",
+    "cancel": "/api/v1/inventory/transfers/{operationId}/cancel"
+  },
+  "INV-COUNT": {
+    "workspace_create": "/api/v1/inventory/counts",
+    "detail_update": "/api/v1/inventory/counts/{operationId}",
+    "post": "/api/v1/inventory/counts/{operationId}/post",
+    "cancel": "/api/v1/inventory/counts/{operationId}/cancel"
+  },
+  "INV-EXP": {
+    "workspace_create": "/api/v1/inventory/expiry-disposals",
+    "detail_update": "/api/v1/inventory/expiry-disposals/{operationId}",
+    "post": "/api/v1/inventory/expiry-disposals/{operationId}/post",
+    "cancel": "/api/v1/inventory/expiry-disposals/{operationId}/cancel"
+  },
+  "MD-REC": {
+    "workspace_create": "/api/v1/manufacturing/recipes",
+    "detail_update": "/api/v1/manufacturing/recipes/{recordId}",
+    "lifecycle": "/api/v1/manufacturing/recipes/{recordId}/status",
+    "delete": "/api/v1/manufacturing/recipes/{recordId}/delete"
+  },
+  "MD-ROUTE": {
+    "workspace_create": "/api/v1/manufacturing/routes",
+    "detail_update": "/api/v1/manufacturing/routes/{recordId}",
+    "lifecycle": "/api/v1/manufacturing/routes/{recordId}/status",
+    "delete": "/api/v1/manufacturing/routes/{recordId}/delete"
+  },
+  "MD-SPEC": {
+    "workspace_create": "/api/v1/quality/specifications",
+    "detail_update": "/api/v1/quality/specifications/{recordId}",
+    "lifecycle": "/api/v1/quality/specifications/{recordId}/status",
+    "delete": "/api/v1/quality/specifications/{recordId}/delete"
+  },
+  "PLAN-DEM": "/api/v1/planning/demand",
+  "PLAN-MRP": "/api/v1/planning/mrp",
+  "PLAN-SCH": "/api/v1/planning/schedules",
+  "PRO-ORDER": {
+    "workspace_create": "/api/v1/manufacturing/orders",
+    "detail": "/api/v1/manufacturing/orders/{productionOrderId}",
+    "release": "/api/v1/manufacturing/orders/{productionOrderId}/release",
+    "issue_materials": "/api/v1/manufacturing/orders/{productionOrderId}/issue-materials",
+    "complete": "/api/v1/manufacturing/orders/{productionOrderId}/complete",
+    "cancel": "/api/v1/manufacturing/orders/{productionOrderId}/cancel"
+  },
+  "PRO-STAGE": {
+    "workspace": "/api/v1/manufacturing/stages",
+    "detail": "/api/v1/manufacturing/stages/{productionStageId}",
+    "start": "/api/v1/manufacturing/stages/{productionStageId}/start",
+    "complete": "/api/v1/manufacturing/stages/{productionStageId}/complete"
+  },
+  "PRO-LOSS": {
+    "workspace": "/api/v1/manufacturing/pro-loss",
+    "record": "/api/v1/manufacturing/orders/{productionOrderId}/outputs",
+    "resolve_rework": "/api/v1/manufacturing/output-events/{outputEventId}/resolve"
+  },
+  "QC-LAB": {
+    "workspace_create": "/api/v1/quality/lab-samples",
+    "detail": "/api/v1/quality/lab-samples/{labSampleId}",
+    "complete": "/api/v1/quality/lab-samples/{labSampleId}/complete"
+  },
+  "QC-SAFE": {
+    "workspace": "/api/v1/quality/safety",
+    "detail": "/api/v1/quality/safety/{kind}/{safetyRecordId}",
+    "hold_create": "/api/v1/quality/food-safety-holds",
+    "hold_release": "/api/v1/quality/food-safety-holds/{foodSafetyHoldId}/release",
+    "deviation_resolve": "/api/v1/quality/deviations/{qualityDeviationId}/resolve",
+    "batch_release": "/api/v1/quality/production-orders/{productionOrderId}/release"
+  },
+  "PACK-ART": {
+    "workspace_create": "/api/v1/packing/artworks",
+    "detail_update": "/api/v1/packing/artworks/{packagingArtworkId}",
+    "approve": "/api/v1/packing/artworks/{packagingArtworkId}/approve",
+    "retire": "/api/v1/packing/artworks/{packagingArtworkId}/retire"
+  },
+  "PACK-RUN": {
+    "workspace_create": "/api/v1/packing/runs",
+    "detail": "/api/v1/packing/runs/{packingRunId}",
+    "complete": "/api/v1/packing/runs/{packingRunId}/complete",
+    "cancel": "/api/v1/packing/runs/{packingRunId}/cancel"
+  },
+  "FG-LOT": {
+    "workspace": "/api/v1/manufacturing/finished-goods",
+    "detail": "/api/v1/manufacturing/finished-goods/{finishedLotId}"
+  },
+  "TRACE-CASE": {
+    "workspace_create": "/api/v1/trace/cases",
+    "detail": "/api/v1/trace/cases/{recallCaseId}",
+    "lot_trace": "/api/v1/trace/lots/{lotId}",
+    "close": "/api/v1/trace/cases/{recallCaseId}/close"
+  },
+  "COST-BATCH": {
+    "workspace_create": "/api/v1/costing/batches",
+    "detail": "/api/v1/costing/batches/{batchCostId}"
+  },
+  "CRM-LEAD": {
+    "workspace_create": "/api/v1/sales/leads",
+    "detail_update": "/api/v1/sales/leads/{leadId}",
+    "qualify": "/api/v1/sales/leads/{leadId}/qualify",
+    "convert": "/api/v1/sales/leads/{leadId}/convert",
+    "close": "/api/v1/sales/leads/{leadId}/close"
+  },
+  "CRM-PRICE": {
+    "workspace": "/api/v1/sales/pricing",
+    "price_list_create": "/api/v1/sales/price-lists",
+    "price_list_detail_update": "/api/v1/sales/price-lists/{priceListId}",
+    "price_list_activate": "/api/v1/sales/price-lists/{priceListId}/activate",
+    "price_list_retire": "/api/v1/sales/price-lists/{priceListId}/retire",
+    "credit_profile_upsert": "/api/v1/sales/credit-profiles",
+    "contract_create": "/api/v1/sales/contracts",
+    "contract_detail_update": "/api/v1/sales/contracts/{contractId}",
+    "contract_activate": "/api/v1/sales/contracts/{contractId}/activate",
+    "contract_close": "/api/v1/sales/contracts/{contractId}/close"
+  },
+  "CRM-ORDER": {
+    "workspace_create": "/api/v1/sales/orders",
+    "detail_update": "/api/v1/sales/orders/{orderId}",
+    "confirm": "/api/v1/sales/orders/{orderId}/confirm",
+    "amend": "/api/v1/sales/orders/{orderId}/amend",
+    "cancel": "/api/v1/sales/orders/{orderId}/cancel"
+  },
+  "CON-WORK": {
+    "workspace_create": "/api/v1/sales/third-party-work",
+    "detail": "/api/v1/sales/third-party-work/{workId}",
+    "release": "/api/v1/sales/third-party-work/{workId}/release",
+    "complete": "/api/v1/sales/third-party-work/{workId}/complete",
+    "cancel": "/api/v1/sales/third-party-work/{workId}/cancel"
+  },
+  "DSP-PICK": {
+    "workspace": "/api/v1/dispatch/allocations",
+    "detail": "/api/v1/dispatch/allocations/{allocationId}",
+    "allocate": "/api/v1/dispatch/orders/{orderId}/allocations",
+    "pick": "/api/v1/dispatch/allocations/{allocationId}/pick",
+    "cancel": "/api/v1/dispatch/allocations/{allocationId}/cancel"
+  },
+  "DSP-LOAD": {
+    "workspace_create": "/api/v1/dispatch/shipments",
+    "detail": "/api/v1/dispatch/shipments/{shipmentId}",
+    "load": "/api/v1/dispatch/shipments/{shipmentId}/load",
+    "dispatch": "/api/v1/dispatch/shipments/{shipmentId}/dispatch",
+    "cancel": "/api/v1/dispatch/shipments/{shipmentId}/cancel"
+  },
+  "DSP-POD": {
+    "workspace": "/api/v1/dispatch/pod",
+    "complete": "/api/v1/dispatch/shipments/{shipmentId}/pod"
+  },
+  "RET-CASE": {
+    "workspace_create": "/api/v1/sales/customer-claims",
+    "detail": "/api/v1/sales/customer-claims/{claimId}",
+    "receive": "/api/v1/sales/customer-claims/{claimId}/receive",
+    "resolve": "/api/v1/sales/customer-claims/{claimId}/resolve"
+  },
+  "RET-UNSOLD": "/api/v1/sales/unsold-returns",
+  "FIN-AR": {
+    "workspace": "/api/v1/finance/receivables",
+    "detail": "/api/v1/finance/receivables/{invoiceId}",
+    "collect": "/api/v1/finance/receivables/collections"
+  },
+  "BI-PROFIT": "/api/v1/reports/profitability",
+  "FIN-AP": {
+    "workspace": "/api/v1/finance/payables",
+    "invoice_create": "/api/v1/finance/payables/invoices",
+    "invoice_detail_update": "/api/v1/finance/payables/invoices/{invoiceId}",
+    "invoice_match": "/api/v1/finance/payables/invoices/{invoiceId}/match",
+    "invoice_approve": "/api/v1/finance/payables/invoices/{invoiceId}/approve",
+    "invoice_cancel": "/api/v1/finance/payables/invoices/{invoiceId}/cancel",
+    "proposal_create": "/api/v1/finance/payables/proposals",
+    "proposal_detail_update": "/api/v1/finance/payables/proposals/{proposalId}",
+    "proposal_approve": "/api/v1/finance/payables/proposals/{proposalId}/approve",
+    "proposal_execute": "/api/v1/finance/payables/proposals/{proposalId}/execute",
+    "proposal_cancel": "/api/v1/finance/payables/proposals/{proposalId}/cancel",
+    "payment_detail": "/api/v1/finance/payables/payments/{paymentId}",
+    "payment_reconcile": "/api/v1/finance/payables/payments/{paymentId}/reconcile",
+    "integration_workspace": "/api/v1/finance/payables/integrations",
+    "bank_account_create": "/api/v1/finance/payables/bank-accounts",
+    "bank_account_update": "/api/v1/finance/payables/bank-accounts/{bankAccountId}",
+    "export_create": "/api/v1/finance/payables/exports",
+    "export_detail": "/api/v1/finance/payables/exports/{exportId}",
+    "export_acknowledge": "/api/v1/finance/payables/exports/{exportId}/acknowledge"
+  },
+  "FIN-EXP": {
+    "workspace_create": "/api/v1/finance/expenses",
+    "detail_update": "/api/v1/finance/expenses/{expenseId}",
+    "submit": "/api/v1/finance/expenses/{expenseId}/submit",
+    "approve": "/api/v1/finance/expenses/{expenseId}/approve",
+    "post": "/api/v1/finance/expenses/{expenseId}/post",
+    "cancel": "/api/v1/finance/expenses/{expenseId}/cancel"
+  },
+  "FIN-GL": {
+    "workspace": "/api/v1/finance/ledger",
+    "journal_create": "/api/v1/finance/journals",
+    "journal_detail": "/api/v1/finance/journals/{journalId}",
+    "journal_post": "/api/v1/finance/journals/{journalId}/post",
+    "journal_reverse": "/api/v1/finance/journals/{journalId}/reverse",
+    "period_close": "/api/v1/finance/fiscal-periods/{periodId}/close"
+  },
+  "COST-OH": {
+    "workspace_create": "/api/v1/costing/overheads",
+    "detail_update": "/api/v1/costing/overheads/{poolId}",
+    "allocate": "/api/v1/costing/overheads/{poolId}/allocate"
+  },
+  "ASSET-REG": {
+    "workspace_create": "/api/v1/finance/assets",
+    "detail_update": "/api/v1/finance/assets/{assetId}",
+    "activate": "/api/v1/finance/assets/{assetId}/activate",
+    "depreciate": "/api/v1/finance/assets/{assetId}/depreciate",
+    "dispose": "/api/v1/finance/assets/{assetId}/dispose"
+  },
+  "HR-PAY": {
+    "workspace_create": "/api/v1/finance/payroll",
+    "detail": "/api/v1/finance/payroll/{payrollId}",
+    "approve": "/api/v1/finance/payroll/{payrollId}/approve",
+    "post": "/api/v1/finance/payroll/{payrollId}/post",
+    "employee_create": "/api/v1/finance/employees",
+    "employee_update": "/api/v1/finance/employees/{employeeId}"
+  },
+  "ENG-MNT": {
+    "workspace_create": "/api/v1/engineering/maintenance",
+    "detail_update": "/api/v1/engineering/maintenance/{workId}",
+    "release": "/api/v1/engineering/maintenance/{workId}/release",
+    "complete": "/api/v1/engineering/maintenance/{workId}/complete",
+    "cancel": "/api/v1/engineering/maintenance/{workId}/cancel"
+  },
+  "SCALE-PLANT": {
+    "workspace": "/api/v1/scale/plants",
+    "transfer_detail": "/api/v1/scale/transfers/{transferId}",
+    "transfer_create": "/api/v1/scale/transfers",
+    "transfer_update": "/api/v1/scale/transfers/{transferId}",
+    "transfer_submit": "/api/v1/scale/transfers/{transferId}/submit",
+    "transfer_approve": "/api/v1/scale/transfers/{transferId}/approve",
+    "transfer_accept": "/api/v1/scale/transfers/{transferId}/accept",
+    "transfer_dispatch": "/api/v1/scale/transfers/{transferId}/dispatch",
+    "transfer_receive": "/api/v1/scale/transfers/{transferId}/receive",
+    "transfer_cancel": "/api/v1/scale/transfers/{transferId}/cancel",
+    "route_detail": "/api/v1/scale/transfer-routes/{routeId}",
+    "route_create": "/api/v1/scale/transfer-routes",
+    "route_update": "/api/v1/scale/transfer-routes/{routeId}",
+    "route_activate": "/api/v1/scale/transfer-routes/{routeId}/activate",
+    "route_deactivate": "/api/v1/scale/transfer-routes/{routeId}/deactivate",
+    "group_detail": "/api/v1/scale/consolidation-groups/{groupId}",
+    "group_create": "/api/v1/scale/consolidation-groups",
+    "group_update": "/api/v1/scale/consolidation-groups/{groupId}",
+    "group_activate": "/api/v1/scale/consolidation-groups/{groupId}/activate",
+    "group_retire": "/api/v1/scale/consolidation-groups/{groupId}/retire",
+    "consolidation_detail": "/api/v1/scale/consolidations/{runId}",
+    "consolidation_create": "/api/v1/scale/consolidations",
+    "consolidation_finalize": "/api/v1/scale/consolidations/{runId}/finalize"
+  },
+  "PORTAL-EXT": {
+    "workspace": "/api/v1/partner/workspaces",
+    "access_grant_detail": "/api/v1/partner/access-grants/{grantId}",
+    "access_grant_create": "/api/v1/partner/access-grants",
+    "access_grant_update": "/api/v1/partner/access-grants/{grantId}",
+    "access_grant_revoke": "/api/v1/partner/access-grants/{grantId}/revoke",
+    "order_detail": "/api/v1/partner/orders/{orderId}",
+    "shipment_detail": "/api/v1/partner/shipments/{shipmentId}",
+    "invoice_detail": "/api/v1/partner/invoices/{invoiceId}",
+    "claim_detail": "/api/v1/partner/claims/{claimId}",
+    "claim_create": "/api/v1/partner/claims",
+    "document_detail": "/api/v1/partner/documents/{documentId}",
+    "document_publish": "/api/v1/partner/documents/publish",
+    "document_upload": "/api/v1/partner/documents",
+    "document_download": "/api/v1/partner/documents/{documentId}/download",
+    "document_acknowledge": "/api/v1/partner/documents/{documentId}/acknowledge",
+    "document_withdraw": "/api/v1/partner/documents/{documentId}/withdraw"
+  },
+  "OPT-PLAN": {
+    "workspace_create": "/api/v1/optimisation/plans",
+    "detail": "/api/v1/optimisation/plans/{planId}",
+    "revise_input": "/api/v1/optimisation/plans/{planId}/inputs",
+    "generate": "/api/v1/optimisation/plans/{planId}/generate",
+    "submit": "/api/v1/optimisation/plans/{planId}/submit",
+    "approve": "/api/v1/optimisation/plans/{planId}/approve",
+    "reject": "/api/v1/optimisation/plans/{planId}/reject",
+    "outcome": "/api/v1/optimisation/plans/{planId}/recommendations/{recommendationId}/outcome",
+    "complete": "/api/v1/optimisation/plans/{planId}/complete",
+    "cancel": "/api/v1/optimisation/plans/{planId}/cancel"
+  },
+  "FIN-SIM": {
+    "workspace": "/api/v1/finance/simulation",
+    "create": "/api/v1/finance/simulations",
+    "detail": "/api/v1/finance/simulations/{simulationId}",
+    "run": "/api/v1/finance/simulations/{simulationId}/run"
+  },
+  "FIN-ADJ": {
+    "workspace_create": "/api/v1/finance/adjustments",
+    "detail": "/api/v1/finance/adjustments/{adjustmentId}",
+    "submit": "/api/v1/finance/adjustments/{adjustmentId}/submit",
+    "approve": "/api/v1/finance/adjustments/{adjustmentId}/approve",
+    "post": "/api/v1/finance/adjustments/{adjustmentId}/post",
+    "cancel": "/api/v1/finance/adjustments/{adjustmentId}/cancel"
+  },
+  "FIN-LEGACY": {
+    "workspace_create": "/api/v1/finance/legacy-imports",
+    "detail": "/api/v1/finance/legacy-imports/{batchId}",
+    "validate": "/api/v1/finance/legacy-imports/{batchId}/validate",
+    "post": "/api/v1/finance/legacy-imports/{batchId}/post"
+  },
+  "FIN-ARCH": {
+    "workspace_upload": "/api/v1/finance/archive",
+    "detail": "/api/v1/finance/archive/{documentId}",
+    "download": "/api/v1/finance/archive/{documentId}/download"
+  },
+  "FIN-OPEN": {
+    "workspace_create": "/api/v1/finance/opening-balances",
+    "detail": "/api/v1/finance/opening-balances/{batchId}",
+    "reconcile": "/api/v1/finance/opening-balances/{batchId}/reconcile",
+    "post": "/api/v1/finance/opening-balances/{batchId}/post"
+  },
+  "FIN-SUP": {
+    "workspace_create": "/api/v1/finance/support-cases",
+    "detail": "/api/v1/finance/support-cases/{caseId}",
+    "diagnose": "/api/v1/finance/support-cases/{caseId}/diagnose",
+    "close": "/api/v1/finance/support-cases/{caseId}/close"
+  }
+}
