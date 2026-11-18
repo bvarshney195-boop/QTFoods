@@ -18,6 +18,13 @@ export type OperationPosition = {
   record_version: number;
 };
 
+export type OperationLocation = {
+  id: string;
+  code: string;
+  name: string;
+  location_type: string;
+};
+
 export type InventoryMovement = {
   id: string;
   company_id: string;
@@ -100,6 +107,7 @@ export type InventoryOperationWorkspace = {
     adjustment_directions: AdjustmentDirection[];
     sorts: string[];
     positions: OperationPosition[];
+    locations?: OperationLocation[];
   };
   allowed_actions: ('CREATE')[];
 };
@@ -115,6 +123,7 @@ export type InventoryMovementWorkspace = {
 export type InventoryOperationLineWrite = {
   source_position_id?: string | null;
   target_position_id?: string | null;
+  target_location_id?: string | null;
   quantity_base?: string | null;
   counted_quantity_base?: string | null;
   adjustment_direction?: AdjustmentDirection | null;

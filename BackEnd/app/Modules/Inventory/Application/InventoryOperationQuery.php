@@ -46,6 +46,7 @@ final class InventoryOperationQuery
                 'adjustment_directions' => InventoryOperationService::ADJUSTMENT_DIRECTIONS,
                 'sorts' => self::SORTS,
                 'positions' => $this->positionLookups($scope, $permissions),
+                'locations' => $resource === 'transfers' ? $this->locationLookups($scope) : [],
                 'visibility_filters' => $this->visibility->filterOptions($permissions),
             ],
             'operational_view' => $this->visibility->viewDescriptor($permissions),
@@ -370,6 +371,22 @@ final class InventoryOperationQuery
     private function positionLookups(array $scope, array $permissions): array
     {
         return $this->positions($scope, null, $permissions)->map(fn (object $position) => $this->positionPayload($position))->all();
+    }
+
+    private function locationLookups(array $scope): array
+    {
+        return DB::table('locations')
+            ->where('company_id', $scope['company_id'])
+            ->where('plant_id', $scope['plant_id'])
+            ->where('status', 'ACTIVE')
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'location_type'])
+            ->map(fn (object $location): array => [
+                'id' => (string) $location->id,
+                'code' => (string) $location->code,
+                'name' => (string) $location->name,
+                'location_type' => (string) $location->location_type,
+            ])->all();
     }
 
     private function positions(array $scope, ?array $ids, array $permissions): Collection

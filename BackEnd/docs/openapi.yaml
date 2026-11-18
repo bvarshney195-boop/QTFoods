@@ -10067,6 +10067,10 @@ components:
       properties:
         source_position_id: { type: [string, "null"], format: uuid }
         target_position_id: { type: [string, "null"], format: uuid }
+        target_location_id:
+          type: [string, "null"]
+          format: uuid
+          description: For TRANSFER only, selects an active destination location when the matching controlled stock position does not exist yet. Mutually exclusive with target_position_id.
         quantity_base:
           oneOf:
             - $ref: "#/components/schemas/PositiveInventoryQuantity"
@@ -10080,7 +10084,7 @@ components:
             - $ref: "#/components/schemas/InventoryAdjustmentDirection"
             - type: "null"
         notes: { type: [string, "null"], maxLength: 1000 }
-      description: Shape is type-dependent. ISSUE/DISPOSAL use source and quantity; RETURN uses target and quantity; TRANSFER/EXPIRY use both positions and quantity; COUNT uses source and counted quantity; ADJUSTMENT uses source, quantity, and direction.
+      description: Shape is type-dependent. ISSUE/DISPOSAL use source and quantity; RETURN uses target and quantity; TRANSFER uses source plus either target_position_id or target_location_id and quantity; EXPIRY uses both positions and quantity; COUNT uses source and counted quantity; ADJUSTMENT uses source, quantity, and direction.
     InventoryOperationWrite:
       type: object
       required: [reason_code, lines]
@@ -10125,6 +10129,14 @@ components:
             reserved: { $ref: "#/components/schemas/InventoryDecimal" }
             uom_code: { type: string, maxLength: 16 }
         record_version: { type: integer, minimum: 1 }
+    InventoryOperationLocation:
+      type: object
+      required: [id, code, name, location_type]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        location_type: { type: string }
     InventoryOperationLine:
       type: object
       required: [id, sequence_no, source_position_id, source_position, target_position_id, target_position, quantity_base, counted_quantity_base, system_quantity_base, variance_quantity_base, source_position_version, adjustment_direction, uom_code, movement_id, notes]
@@ -10260,13 +10272,14 @@ components:
               additionalProperties: { type: integer, minimum: 0 }
         lookups:
           type: object
-          required: [operation_types, statuses, adjustment_directions, sorts, positions]
+          required: [operation_types, statuses, adjustment_directions, sorts, positions, locations]
           properties:
             operation_types: { type: array, items: { $ref: "#/components/schemas/InventoryOperationType" } }
             statuses: { type: array, items: { $ref: "#/components/schemas/InventoryOperationStatus" } }
             adjustment_directions: { type: array, items: { $ref: "#/components/schemas/InventoryAdjustmentDirection" } }
             sorts: { type: array, items: { type: string, enum: [NEWEST, OLDEST, NUMBER, STATUS] } }
             positions: { type: array, items: { $ref: "#/components/schemas/InventoryOperationPosition" } }
+            locations: { type: array, items: { $ref: "#/components/schemas/InventoryOperationLocation" } }
         allowed_actions: { type: array, items: { type: string, enum: [CREATE] } }
     InventoryMovementWorkspace:
       type: object

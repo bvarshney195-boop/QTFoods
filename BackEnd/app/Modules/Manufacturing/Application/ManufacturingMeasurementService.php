@@ -193,9 +193,11 @@ final class ManufacturingMeasurementService
             $result = ['entity_type' => 'production_stage', 'id' => $stageId,
                 'production_order_id' => (string) $stage->production_order_id, 'measurement_ids' => $ids,
                 'measurement_count' => count($ids), 'mass_balance' => $balance];
+            $businessKey = $stageId.':'.hash('sha256', $data['idempotency_key']);
             $this->record('RECORD_STAGE_MEASUREMENTS', 'manufacturing.stage-measurements.recorded',
                 'production_stage', $stageId, $data, (int) $stage->stage_version,
-                ['measurement_count' => count($ids), 'kinds' => collect($data['measurements'])->pluck('measurement_kind')->all()], $result);
+                ['measurement_count' => count($ids), 'kinds' => collect($data['measurements'])->pluck('measurement_kind')->all()],
+                $result, $businessKey);
             $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
             return $result;
         }, 3);
@@ -308,12 +310,22 @@ final class ManufacturingMeasurementService
         }
     }
 
-    private function record(string $command, string $event, string $type, string $id, array $data, int $version, array $diff, array $result): void
+    private function record(
+        string $command,
+        string $event,
+        string $type,
+        string $id,
+        array $data,
+        int $version,
+        array $diff,
+        array $result,
+        ?string $businessKey = null,
+    ): void
     {
         $this->audit->record($command, $type, $id, $data['actor_id'], $data['company_id'], $data['plant_id'], 'SUCCESS', [
             'entity_version' => $version, 'correlation_id' => $data['correlation_id'] ?? null, 'safe_diff' => $diff,
         ]);
-        $this->outbox->append($event, $type, $id, $id.':'.$version, $result + [
+        $this->outbox->append($event, $type, $id, $businessKey ?? $id.':'.$version, $result + [
             'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
         ], $data['correlation_id'] ?? null, $data['company_id'], $data['plant_id']);
     }

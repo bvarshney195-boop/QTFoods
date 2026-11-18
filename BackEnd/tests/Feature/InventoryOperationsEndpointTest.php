@@ -25,6 +25,7 @@ final class InventoryOperationsEndpointTest extends TestCase
     private const TRANSFER_TARGET = '00000000-0000-4000-8000-000000001217';
     private const EXPIRED_SOURCE = '00000000-0000-4000-8000-000000001218';
     private const EXPIRED_TARGET = '00000000-0000-4000-8000-000000001219';
+    private const NEW_TRANSFER_LOCATION = '00000000-0000-4000-8000-000000009901';
 
     protected function setUp(): void
     {
@@ -168,6 +169,92 @@ final class InventoryOperationsEndpointTest extends TestCase
             'Source and target must use the same SKU, lot, inventory owner, and UOM.',
             $badTransfer->json('error.fields')['lines.0.target_position_id'][0],
         );
+    }
+
+    public function test_transfer_can_prepare_a_matching_position_at_an_active_destination_location(): void
+    {
+        DB::table('locations')->insert([
+            'id' => self::NEW_TRANSFER_LOCATION,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'parent_location_id' => null,
+            'code' => 'LINE-02',
+            'name' => 'Line 2 staging',
+            'description' => 'Transfer regression destination.',
+            'location_type' => 'BIN',
+            'status' => 'ACTIVE',
+            'record_version' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->getJson('/api/v1/inventory/transfers')->assertOk()->assertJsonFragment([
+            'id' => self::NEW_TRANSFER_LOCATION,
+            'code' => 'LINE-02',
+            'location_type' => 'BIN',
+        ]);
+
+        $sourceLocationId = DB::table('stock_positions')->where('id', self::AVAILABLE)->value('location_id');
+        $sameLocation = $this->command()->postJson('/api/v1/inventory/transfers', [
+            'operation_number' => 'TRF-SAME-LOCATION',
+            'operation_type' => 'TRANSFER',
+            'reason_code' => 'LINE_REPLENISHMENT',
+            'notes' => null,
+            'lines' => [[
+                'source_position_id' => self::AVAILABLE,
+                'target_location_id' => $sourceLocationId,
+                'quantity_base' => '1',
+            ]],
+        ])->assertUnprocessable();
+        $this->assertSame(
+            'Choose a target location different from the source location.',
+            $sameLocation->json('error.fields')['lines.0.target_location_id'][0],
+        );
+
+        $created = $this->command()->postJson('/api/v1/inventory/transfers', [
+            'operation_number' => 'TRF-NEW-TARGET-001',
+            'operation_type' => 'TRANSFER',
+            'reason_code' => 'LINE_REPLENISHMENT',
+            'notes' => 'Create the controlled destination coordinate from the selected location.',
+            'lines' => [[
+                'source_position_id' => self::AVAILABLE,
+                'target_location_id' => self::NEW_TRANSFER_LOCATION,
+                'quantity_base' => '6',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $operationId = $created->json('data.id');
+        $detail = $this->getJson('/api/v1/inventory/transfers/'.$operationId)->assertOk()
+            ->assertJsonPath('data.lines.0.target_position.location.id', self::NEW_TRANSFER_LOCATION)
+            ->assertJsonPath('data.lines.0.target_position.quantity.total', '0.000000');
+        $targetId = $detail->json('data.lines.0.target_position_id');
+
+        $this->assertDatabaseHas('stock_positions', [
+            'id' => $targetId,
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'location_id' => self::NEW_TRANSFER_LOCATION,
+            'quantity_base' => 0,
+        ]);
+        $postKey = (string) Str::uuid();
+        $posted = $this->withHeaders(['Idempotency-Key' => $postKey, 'If-Match' => '1'])
+            ->postJson('/api/v1/inventory/transfers/'.$operationId.'/post')
+            ->assertOk()->assertJsonPath('data.status', 'POSTED');
+        $this->withHeaders(['Idempotency-Key' => $postKey, 'If-Match' => '1'])
+            ->postJson('/api/v1/inventory/transfers/'.$operationId.'/post')
+            ->assertOk()->assertExactJson($posted->json());
+
+        $this->assertDatabaseHas('stock_positions', ['id' => self::AVAILABLE, 'quantity_base' => 119]);
+        $this->assertDatabaseHas('stock_positions', ['id' => $targetId, 'quantity_base' => 6]);
+        $this->assertSame(1, DB::table('stock_positions')->where([
+            'company_id' => self::COMPANY_ID,
+            'plant_id' => self::PLANT_ID,
+            'item_id' => DB::table('stock_positions')->where('id', self::AVAILABLE)->value('item_id'),
+            'lot_id' => DB::table('stock_positions')->where('id', self::AVAILABLE)->value('lot_id'),
+            'inventory_owner_id' => DB::table('stock_positions')->where('id', self::AVAILABLE)->value('inventory_owner_id'),
+            'location_id' => self::NEW_TRANSFER_LOCATION,
+            'quality_status' => 'RELEASED',
+            'uom_code' => 'KG',
+        ])->count());
+        $this->assertSame(1, DB::table('stock_movements')->where('source_id', $operationId)->count());
     }
 
     public function test_counts_detect_stale_snapshots_and_adjustments_post_signed_variances(): void

@@ -160,6 +160,7 @@ final class InventoryOperationController
             'lines.*' => ['required', 'array'],
             'lines.*.source_position_id' => ['nullable', 'uuid'],
             'lines.*.target_position_id' => ['nullable', 'uuid'],
+            'lines.*.target_location_id' => ['nullable', 'uuid'],
             'lines.*.quantity_base' => ['nullable', 'numeric', 'gt:0', 'max:99999999999999'],
             'lines.*.counted_quantity_base' => ['nullable', 'numeric', 'min:0', 'max:99999999999999'],
             'lines.*.adjustment_direction' => [

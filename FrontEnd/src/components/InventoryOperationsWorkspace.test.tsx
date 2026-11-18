@@ -101,6 +101,45 @@ describe('inventory operation workspaces', () => {
     expect(within(target).queryByRole('option', { name: /Quality hold/ })).not.toBeInTheDocument();
   });
 
+  it('offers active destination locations when a matching target position does not exist yet', async () => {
+    const user = userEvent.setup();
+    const transferWorkspace = workspace('transfers');
+    transferWorkspace.lookups.positions = [positions()[0]];
+    transferWorkspace.lookups.locations = [
+      { id: 'available-location', code: 'RAW-STORE', name: 'Raw store', location_type: 'RAW_MATERIAL' },
+      { id: 'empty-target-location', code: 'LINE-02', name: 'Line 2 staging', location_type: 'BIN' },
+    ];
+    apiMocks.listInventoryOperations.mockResolvedValueOnce(transferWorkspace);
+    apiMocks.createInventoryOperation.mockResolvedValue(result('transfer-1', 'TRANSFER', 'DRAFT', 1));
+    apiMocks.getInventoryOperation.mockResolvedValue(operation('transfer-1', 'TRANSFER'));
+    renderPage('transfers');
+
+    await user.click(await screen.findByRole('button', { name: '+ New' }));
+    const target = screen.getByLabelText('Line 1 target position');
+    expect(target).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText('Line 1 source position'), 'available');
+    expect(target).toBeEnabled();
+    expect(within(target).getByRole('option', { name: /LINE-02.*new position/i })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Operation number'), { target: { value: 'trf-ui-new-target' } });
+    fireEvent.change(screen.getByLabelText('Operation reason code'), { target: { value: 'line_replenishment' } });
+    await user.selectOptions(target, 'location:empty-target-location');
+    fireEvent.change(screen.getByLabelText('Line 1 quantity'), { target: { value: '7' } });
+    await user.click(screen.getByRole('button', { name: 'Create draft' }));
+
+    await waitFor(() => expect(apiMocks.createInventoryOperation).toHaveBeenCalledWith(
+      'transfers',
+      expect.objectContaining({
+        operation_type: 'TRANSFER',
+        lines: [expect.objectContaining({
+          source_position_id: 'available', target_location_id: 'empty-target-location', quantity_base: '7',
+        })],
+      }),
+      expect.any(String),
+    ));
+    expect(apiMocks.createInventoryOperation.mock.calls[0][1].lines[0]).not.toHaveProperty('target_position_id');
+  });
+
   it('submits a count as a snapshot quantity and exposes its variance', async () => {
     const user = userEvent.setup();
     apiMocks.createInventoryOperation.mockResolvedValue(result('count-1', 'COUNT', 'DRAFT', 1));
@@ -150,6 +189,12 @@ function workspace(resource: InventoryOperationResource): InventoryOperationWork
       operation_types: types[resource], statuses: ['DRAFT', 'POSTED', 'CANCELLED'],
       adjustment_directions: ['INCREASE', 'DECREASE'], sorts: ['NEWEST', 'OLDEST', 'NUMBER', 'STATUS'],
       positions: positions(),
+      locations: positions().map((value) => ({
+        id: value.location.id,
+        code: value.location.code,
+        name: value.location.name,
+        location_type: 'BIN',
+      })),
     },
     allowed_actions: ['CREATE'],
   };

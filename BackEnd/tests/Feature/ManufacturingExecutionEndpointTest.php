@@ -605,15 +605,38 @@ final class ManufacturingExecutionEndpointTest extends TestCase
                 'measurement_method' => 'Input less accounted output', 'target_quantity' => null,
                 'reason_code' => 'BALANCE_GAP', 'disposition_code' => null, 'notes' => 'Investigate at batch review.'],
         ];
-        $this->command()->postJson('/api/v1/manufacturing/stages/'.$stage['id'].'/measurements', [
-            'measurements' => $measurements,
-        ])->assertCreated()->assertJsonPath('data.measurement_count', 4)
+        $measurementKeys = [];
+        $firstResponse = null;
+        $latestResponse = null;
+        foreach ($measurements as $index => $measurement) {
+            $measurementKeys[$index] = (string) Str::uuid();
+            $latestResponse = $this->withHeader('Idempotency-Key', $measurementKeys[$index])
+                ->postJson('/api/v1/manufacturing/stages/'.$stage['id'].'/measurements', [
+                    'measurements' => [$measurement],
+                ])->assertCreated()->assertJsonPath('data.measurement_count', 1);
+            $firstResponse ??= $latestResponse;
+        }
+        $this->withHeader('Idempotency-Key', $measurementKeys[0])
+            ->postJson('/api/v1/manufacturing/stages/'.$stage['id'].'/measurements', [
+                'measurements' => [$measurements[0]],
+            ])->assertCreated()->assertExactJson($firstResponse->json());
+        $latestResponse
             ->assertJsonPath('data.mass_balance.0.input_quantity', '10.000000')
             ->assertJsonPath('data.mass_balance.0.accounted_output_quantity', '9.000000')
             ->assertJsonPath('data.mass_balance.0.calculated_unexplained_quantity', '1.000000')
             ->assertJsonPath('data.mass_balance.0.recorded_unexplained_quantity', '1.000000')
             ->assertJsonPath('data.mass_balance.0.measured_quantity', '18.000000')
             ->assertJsonPath('data.mass_balance.0.estimated_quantity', '2.000000');
+        self::assertSame(4, DB::table('outbox_events')
+            ->where('event_type', 'manufacturing.stage-measurements.recorded')
+            ->where('aggregate_id', $stage['id'])->count());
+        foreach ($measurementKeys as $measurementKey) {
+            $this->assertDatabaseHas('outbox_events', [
+                'event_type' => 'manufacturing.stage-measurements.recorded',
+                'aggregate_id' => $stage['id'],
+                'business_key' => $stage['id'].':'.hash('sha256', $measurementKey),
+            ]);
+        }
         $this->getJson('/api/v1/manufacturing/stages/'.$stage['id'])->assertOk()
             ->assertJsonPath('data.measurement_template.revision', 1)
             ->assertJsonPath('data.measurement_template.recipe_revision', 1)

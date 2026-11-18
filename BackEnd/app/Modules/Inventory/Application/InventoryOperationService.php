@@ -280,12 +280,32 @@ final class InventoryOperationService
         foreach (array_values($input) as $index => $line) {
             $sourceId = $line['source_position_id'] ?? null;
             $targetId = $line['target_position_id'] ?? null;
+            $targetLocationId = $line['target_location_id'] ?? null;
             $source = $sourceId ? $positions->get($sourceId) : null;
             $target = $targetId ? $positions->get($targetId) : null;
             if (($sourceId && ! $source) || ($targetId && ! $target)) {
                 throw ValidationException::withMessages([
                     "lines.{$index}.position" => ['Select stock positions from the current company and plant.'],
                 ]);
+            }
+            if ($targetId && $targetLocationId) {
+                throw ValidationException::withMessages([
+                    "lines.{$index}.target_position_id" => ['Choose one target position or target location, not both.'],
+                ]);
+            }
+            if ($targetLocationId && $type !== 'TRANSFER') {
+                throw ValidationException::withMessages([
+                    "lines.{$index}.target_location_id" => ['A target location can only be used for a stock transfer.'],
+                ]);
+            }
+            if ($type === 'TRANSFER' && ! $target && $targetLocationId) {
+                if (! $source) {
+                    throw ValidationException::withMessages([
+                        "lines.{$index}.source_position_id" => ['Select a source position before choosing a target location.'],
+                    ]);
+                }
+                $target = $this->resolveTransferTarget($source, (string) $targetLocationId, $scope, $index);
+                $targetId = (string) $target->id;
             }
             foreach (array_filter([$sourceId, $targetId]) as $positionId) {
                 if (isset($seen[$positionId])) {
@@ -323,6 +343,62 @@ final class InventoryOperationService
         }
 
         return $prepared;
+    }
+
+    private function resolveTransferTarget(object $source, string $locationId, array $scope, int $index): object
+    {
+        $location = DB::table('locations')
+            ->where('id', $locationId)
+            ->where('company_id', $scope['company_id'])
+            ->where('plant_id', $scope['plant_id'])
+            ->where('status', 'ACTIVE')
+            ->lockForUpdate()
+            ->first();
+        if (! $location) {
+            throw ValidationException::withMessages([
+                "lines.{$index}.target_location_id" => ['Select an active target location from the current plant.'],
+            ]);
+        }
+        if ((string) $source->location_id === (string) $location->id) {
+            throw ValidationException::withMessages([
+                "lines.{$index}.target_location_id" => ['Choose a target location different from the source location.'],
+            ]);
+        }
+
+        $coordinates = [
+            'company_id' => $scope['company_id'],
+            'plant_id' => $scope['plant_id'],
+            'item_id' => (string) $source->item_id,
+            'lot_id' => (string) $source->lot_id,
+            'inventory_owner_id' => (string) $source->inventory_owner_id,
+            'location_id' => (string) $location->id,
+            'quality_status' => (string) $source->quality_status,
+            'uom_code' => (string) $source->uom_code,
+        ];
+        $target = DB::table('stock_positions')->where($coordinates)->lockForUpdate()->first();
+        if ($target) {
+            return $target;
+        }
+
+        $targetId = (string) Str::uuid();
+        DB::table('stock_positions')->insertOrIgnore($coordinates + [
+            'id' => $targetId,
+            'owner_party_id' => $source->owner_party_id,
+            'quantity_base' => '0.000000',
+            'reserved_quantity_base' => '0.000000',
+            'record_version' => 1,
+            'status_reason' => 'Created as a stock transfer destination.',
+            'status_changed_at' => null,
+            'status_changed_by' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $target = DB::table('stock_positions')->where($coordinates)->lockForUpdate()->first();
+        if (! $target) {
+            throw new ConflictHttpException('The target stock position could not be prepared. Refresh and try again.');
+        }
+
+        return $target;
     }
 
     private function validateLine(

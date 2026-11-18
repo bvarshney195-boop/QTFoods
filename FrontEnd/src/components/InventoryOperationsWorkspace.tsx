@@ -12,6 +12,7 @@ import {
   type InventoryOperationLineWrite,
   type InventoryOperationResource,
   type InventoryOperationType,
+  type OperationLocation,
   type InventoryOperationWorkspace,
   type OperationPosition,
 } from '../api/inventoryOperations';
@@ -344,6 +345,7 @@ export function InventoryOperationsWorkspace({ resource }: { resource: Inventory
                       line={lineForm}
                       detail={selected?.lines?.[index]}
                       positions={positions}
+                      locations={workspace?.lookups.locations ?? []}
                       errors={fieldErrors}
                       disabled={!editing || busy}
                       onChange={(patch) => updateLine(index, patch)}
@@ -375,6 +377,7 @@ function OperationLineEditor(props: {
   line: LineForm;
   detail?: InventoryOperation['lines'] extends (infer T)[] | undefined ? T : never;
   positions: OperationPosition[];
+  locations: OperationLocation[];
   errors: Record<string, string>;
   disabled: boolean;
   removable: boolean;
@@ -387,13 +390,17 @@ function OperationLineEditor(props: {
   const sourceOptions = sourcePositions(props.type, props.positions);
   const selectedSource = props.positions.find((position) => position.id === props.line.source_position_id);
   const targetOptions = targetPositions(props.type, props.positions, selectedSource);
+  const transferChoices = props.type === 'TRANSFER'
+    ? transferTargetChoices(props.positions, props.locations, selectedSource)
+    : [];
+  const targetUnavailable = props.type === 'TRANSFER' && Boolean(selectedSource) && transferChoices.length === 0;
   const error = (field: string) => props.errors[`lines.${props.index}.${field}`] ?? props.errors[field];
 
   return <section className="operation-line-card">
     <div className="operation-line-title"><b>Line {number}</b>{props.removable && !props.disabled && <button type="button" onClick={props.onRemove}>Remove</button>}</div>
     <div className="operation-line-grid">
       {usesSource && <Field label="Source position" wide error={error('source_position_id') ?? error('position')}><select aria-label={`Line ${number} source position`} value={props.line.source_position_id} onChange={(event) => props.onChange({ source_position_id: event.target.value, target_position_id: '' })}><option value="">Select source position</option>{positionOptions(sourceOptions)}</select></Field>}
-      {usesTarget && <Field label="Target position" wide error={error('target_position_id') ?? error('position')}><select aria-label={`Line ${number} target position`} value={props.line.target_position_id} onChange={(event) => props.onChange({ target_position_id: event.target.value })}><option value="">Select target position</option>{positionOptions(targetOptions)}</select></Field>}
+      {usesTarget && <Field label="Target position" wide error={error('target_position_id') ?? error('target_location_id') ?? error('position')}><select aria-label={`Line ${number} target position`} value={props.line.target_position_id} disabled={props.type === 'TRANSFER' && (!selectedSource || targetUnavailable)} onChange={(event) => props.onChange({ target_position_id: event.target.value })}><option value="">{props.type === 'TRANSFER' && !selectedSource ? 'Select a source position first' : targetUnavailable ? 'No active target location available' : 'Select target position'}</option>{props.type === 'TRANSFER' ? choiceOptions(transferChoices) : positionOptions(targetOptions)}</select>{targetUnavailable && <span className="field-hint">Configure another active location in this plant before transferring stock.</span>}</Field>}
       {props.type === 'COUNT' ? <Field label="Counted quantity" error={error('counted_quantity_base')}><input aria-label={`Line ${number} counted quantity`} type="number" min="0" step="any" value={props.line.counted_quantity_base} onChange={(event) => props.onChange({ counted_quantity_base: event.target.value })} /></Field> : <Field label="Quantity" error={error('quantity_base')}><input aria-label={`Line ${number} quantity`} type="number" min="0" step="any" value={props.line.quantity_base} onChange={(event) => props.onChange({ quantity_base: event.target.value })} /></Field>}
       {props.type === 'ADJUSTMENT' && <Field label="Direction" error={error('adjustment_direction')}><select aria-label={`Line ${number} adjustment direction`} value={props.line.adjustment_direction} onChange={(event) => props.onChange({ adjustment_direction: event.target.value as AdjustmentDirection })}><option value="INCREASE">Increase</option><option value="DECREASE">Decrease</option></select></Field>}
       <Field label="Line note" wide error={error('notes')}><input aria-label={`Line ${number} note`} value={props.line.notes} onChange={(event) => props.onChange({ notes: event.target.value })} /></Field>
@@ -467,7 +474,16 @@ function writePayload(form: OperationForm) {
     lines: form.lines.map((line): InventoryOperationLineWrite => {
       if (form.operation_type === 'COUNT') return { source_position_id: line.source_position_id, counted_quantity_base: line.counted_quantity_base, notes: nullable(line.notes) };
       if (form.operation_type === 'RETURN') return { target_position_id: line.target_position_id, quantity_base: line.quantity_base, notes: nullable(line.notes) };
-      if (form.operation_type === 'TRANSFER' || form.operation_type === 'EXPIRY') return { source_position_id: line.source_position_id, target_position_id: line.target_position_id, quantity_base: line.quantity_base, notes: nullable(line.notes) };
+      if (form.operation_type === 'TRANSFER') {
+        const targetLocationId = selectedTargetLocationId(line.target_position_id);
+        return {
+          source_position_id: line.source_position_id,
+          ...(targetLocationId ? { target_location_id: targetLocationId } : { target_position_id: line.target_position_id }),
+          quantity_base: line.quantity_base,
+          notes: nullable(line.notes),
+        };
+      }
+      if (form.operation_type === 'EXPIRY') return { source_position_id: line.source_position_id, target_position_id: line.target_position_id, quantity_base: line.quantity_base, notes: nullable(line.notes) };
       return { source_position_id: line.source_position_id, quantity_base: line.quantity_base, adjustment_direction: form.operation_type === 'ADJUSTMENT' ? line.adjustment_direction : null, notes: nullable(line.notes) };
     }),
   };
@@ -508,6 +524,40 @@ function targetPositions(type: InventoryOperationType, positions: OperationPosit
     && position.quantity.uom_code === source.quantity.uom_code
     && (type !== 'TRANSFER' || position.quality_status.code === source.quality_status.code)
     && (type !== 'EXPIRY' || position.quality_status.code === 'EXPIRED'));
+}
+
+type TargetChoice = { value: string; label: string };
+
+function transferTargetChoices(
+  positions: OperationPosition[],
+  locations: OperationLocation[],
+  source?: OperationPosition,
+): TargetChoice[] {
+  if (!source) return [];
+  const activeLocationIds = new Set(locations.map((location) => location.id));
+  const compatible = targetPositions('TRANSFER', positions, source)
+    .filter((position) => activeLocationIds.size === 0 || activeLocationIds.has(position.location.id));
+  const choices = compatible.map((position) => ({
+    value: position.id,
+    label: `${position.label} · ${quantity(position.quantity.total)} ${position.quantity.uom_code}`,
+  }));
+  const representedLocations = new Set(compatible.map((position) => position.location.id));
+  for (const location of locations) {
+    if (location.id === source.location.id || representedLocations.has(location.id)) continue;
+    choices.push({
+      value: `location:${location.id}`,
+      label: `${source.sku.code} · ${source.lot.code} · ${location.code} · ${source.quality_status.code} · ${source.owner.code} · new position`,
+    });
+  }
+  return choices;
+}
+
+function selectedTargetLocationId(value: string): string | null {
+  return value.startsWith('location:') ? value.slice('location:'.length) : null;
+}
+
+function choiceOptions(choices: TargetChoice[]) {
+  return choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>);
 }
 
 function positionOptions(positions: OperationPosition[]) {
