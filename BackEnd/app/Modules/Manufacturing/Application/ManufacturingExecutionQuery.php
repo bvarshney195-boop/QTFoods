@@ -777,6 +777,7 @@ final class ManufacturingExecutionQuery
     {
         $actions = [];
         if ($row->status === 'DRAFT') {
+            if ($this->can($permissions, 'ACTION:PACK-RUN:UPDATE')) $actions[] = 'UPDATE';
             if ($this->can($permissions, 'ACTION:PACK-RUN:COMPLETE')) $actions[] = 'COMPLETE';
             if ($this->can($permissions, 'ACTION:PACK-RUN:CANCEL')) $actions[] = 'CANCEL';
         }
@@ -1125,14 +1126,17 @@ final class ManufacturingExecutionQuery
     private function qualityOrders(array $scope): array
     {
         return DB::table('production_orders as orders')->join('items as item', 'item.id', '=', 'orders.output_sku_id')
+            ->join('catalog_items as catalog', 'catalog.id', '=', 'item.catalog_item_id')
             ->where('orders.company_id', $scope['company_id'])->where('orders.plant_id', $scope['plant_id'])
             ->where('orders.status', 'COMPLETED')->where('orders.quality_status', '<>', 'RECALLED')
             ->orderByDesc('orders.completed_at')->get(['orders.id', 'orders.order_number', 'orders.batch_number',
-                'orders.output_sku_id', 'orders.record_version', 'orders.quality_status', 'item.code as item_code', 'item.name as item_name'])
+                'orders.output_sku_id', 'orders.record_version', 'orders.quality_status', 'item.code as item_code',
+                'item.name as item_name', 'catalog.shelf_life_days'])
             ->map(fn (object $row) => ['id' => (string) $row->id, 'number' => (string) $row->order_number,
                 'batch_number' => (string) $row->batch_number, 'record_version' => (int) $row->record_version,
                 'quality_status' => (string) $row->quality_status, 'output_sku' => ['id' => (string) $row->output_sku_id,
-                    'code' => (string) $row->item_code, 'name' => (string) $row->item_name]])->all();
+                    'code' => (string) $row->item_code, 'name' => (string) $row->item_name,
+                    'shelf_life_days' => $row->shelf_life_days === null ? null : (int) $row->shelf_life_days]])->all();
     }
 
     private function holdableOrders(array $scope): array

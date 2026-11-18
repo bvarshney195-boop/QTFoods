@@ -93,3 +93,4 @@ export function date(value: string | null | undefined) { return value ? new Intl
 export function dateTime(value: string | null | undefined) { return value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 export function today() { return new Date().toISOString().slice(0, 10); }
 export function addMonths(value: string, months: number) { const result = new Date(`${value}T00:00:00Z`); result.setUTCMonth(result.getUTCMonth() + months); return result.toISOString().slice(0, 10); }
+export function addDays(value: string, days: number) { const result = new Date(`${value}T00:00:00Z`); result.setUTCDate(result.getUTCDate() + days); return result.toISOString().slice(0, 10); }

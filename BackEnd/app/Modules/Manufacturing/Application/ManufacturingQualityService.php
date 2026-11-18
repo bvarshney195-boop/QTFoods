@@ -462,6 +462,96 @@ final class ManufacturingQualityService
         }, 3);
     }
 
+    public function updatePackingRun(string $id, array $data): array
+    {
+        return DB::transaction(function () use ($id, $data): array {
+            $namespace = 'packing.run.update.'.$id;
+            if ($replay = $this->begin($namespace, $data + ['packing_run_id' => $id])) {
+                return $replay;
+            }
+            $run = $this->findPackingRun($id, $data, true);
+            $this->assertVersion($run, $data['expected_version'], 'packing run');
+            if ($run->status !== 'DRAFT') {
+                throw ValidationException::withMessages(['status' => ['Only a draft packing run can be edited.']]);
+            }
+            $order = $this->findOrder($run->production_order_id, $data, true);
+            if ($order->status !== 'COMPLETED' || $order->quality_status !== 'RELEASED') {
+                throw ValidationException::withMessages(['production_order_id' => ['Packing requires a completed production order with quality release.']]);
+            }
+            $artwork = $this->findArtwork($data['packaging_artwork_id'], $data, false);
+            $manufactureDate = $data['manufacture_date'];
+            if ($artwork->status !== 'APPROVED' || $artwork->output_sku_id !== $order->output_sku_id
+                || $manufactureDate < $artwork->effective_from || ($artwork->effective_to && $manufactureDate > $artwork->effective_to)) {
+                throw ValidationException::withMessages(['packaging_artwork_id' => ['Choose approved artwork for this SKU that is effective on the manufacture date.']]);
+            }
+            $location = DB::table('locations')->where('id', $data['target_location_id'])
+                ->where('company_id', $data['company_id'])->where('plant_id', $data['plant_id'])->where('status', 'ACTIVE')->first();
+            if (! $location || $location->location_type !== 'FINISHED_GOODS') {
+                throw ValidationException::withMessages(['target_location_id' => ['Choose an active finished-goods location in the selected plant.']]);
+            }
+            $quantity = $this->positive($data['packed_quantity'], 'packed_quantity', 'Packed quantity');
+            $good = $this->execution->outputMetrics($order->id)['good_quantity'];
+            $allocated = $this->decimal(DB::table('packing_runs')->where('production_order_id', $order->id)
+                ->where('id', '<>', $id)->whereIn('status', ['DRAFT', 'COMPLETED'])->sum('packed_quantity'));
+            if (bccomp(bcadd($allocated, $quantity, 6), $good, 6) > 0) {
+                throw ValidationException::withMessages(['packed_quantity' => ['Draft and completed packing runs cannot exceed the batch good output.']]);
+            }
+            $standardSnapshot = $order->recipe_standard_snapshot;
+            if (is_string($standardSnapshot) && $standardSnapshot !== '') {
+                $standardSnapshot = json_decode($standardSnapshot, true, 512, JSON_THROW_ON_ERROR);
+            }
+            $recipeStandard = is_array($standardSnapshot) ? ($standardSnapshot['recipe'] ?? []) : [];
+            $piecesPerPack = max(1, (int) ($recipeStandard['pieces_per_pack'] ?? 1));
+            $targetWeight = ($recipeStandard['target_finished_weight'] ?? null) === null
+                ? null : $this->positive($recipeStandard['target_finished_weight'], 'target_finished_weight', 'Target finished weight');
+            $targetWeightUom = $recipeStandard['target_weight_uom_code'] ?? null;
+            $weightUom = $this->nullable($data['weight_uom_code'] ?? $targetWeightUom);
+            if ($weightUom !== null) {
+                $weightUom = Str::upper($weightUom);
+                if (! DB::table('uoms')->where('code', $weightUom)->exists()) {
+                    throw ValidationException::withMessages(['weight_uom_code' => ['Choose a configured weight UOM.']]);
+                }
+                if ($targetWeightUom !== null && $weightUom !== $targetWeightUom) {
+                    throw ValidationException::withMessages(['weight_uom_code' => ['Actual samples must use the approved recipe target-weight UOM.']]);
+                }
+            }
+            $samples = collect($data['actual_weight_samples'] ?? [])->map(
+                fn (mixed $sample, int $index): string => $this->positive($sample, "actual_weight_samples.{$index}", 'Sample weight')
+            )->values();
+            $averageWeight = $samples->isEmpty() ? null
+                : bcdiv($samples->reduce(fn (string $sum, string $sample): string => bcadd($sum, $sample, 6), '0.000000'), (string) $samples->count(), 6);
+            $coding = $this->codingValue($artwork->coding_template,
+                $data + ['finished_lot_code' => $run->finished_lot_code], $order);
+            $version = (int) $run->record_version + 1;
+            $now = CarbonImmutable::now();
+            DB::table('packing_runs')->where('id', $id)->update([
+                'packaging_artwork_id' => $artwork->id, 'packed_quantity' => $quantity,
+                'manufacture_date' => $manufactureDate, 'expiry_date' => $data['expiry_date'],
+                'target_location_id' => $location->id, 'pieces_per_pack' => $piecesPerPack,
+                'target_finished_weight' => $targetWeight, 'average_sample_weight' => $averageWeight,
+                'weight_uom_code' => $weightUom,
+                'actual_weight_samples' => $samples->isEmpty() ? null : json_encode($samples->all(), JSON_THROW_ON_ERROR),
+                'packing_configuration' => json_encode(($data['packing_configuration'] ?? []) + [
+                    'pieces_per_pack' => $piecesPerPack,
+                ], JSON_THROW_ON_ERROR),
+                'coding_value' => $coding, 'notes' => $this->nullable($data['notes'] ?? null),
+                'record_version' => $version, 'updated_at' => $now,
+            ]);
+            $result = ['entity_type' => 'packing_run', 'id' => $id, 'status' => 'DRAFT',
+                'record_version' => $version, 'coding_value' => $coding, 'packed_quantity' => $quantity,
+                'manufacture_date' => $manufactureDate, 'expiry_date' => $data['expiry_date']];
+            $this->record('UPDATE_PACKING_RUN', 'packing.run.updated', 'packing_run', $id, $data, $version, [
+                'record_version' => ['from' => (int) $run->record_version, 'to' => $version],
+                'manufacture_date' => ['from' => (string) $run->manufacture_date, 'to' => $manufactureDate],
+                'expiry_date' => ['from' => (string) $run->expiry_date, 'to' => $data['expiry_date']],
+                'coding_value' => ['from' => (string) $run->coding_value, 'to' => $coding],
+            ], $result);
+            $this->idempotency->complete($namespace, $data['idempotency_key'], $result);
+
+            return $result;
+        }, 3);
+    }
+
     public function completePackingRun(string $id, array $data): array
     {
         return DB::transaction(function () use ($id, $data): array {

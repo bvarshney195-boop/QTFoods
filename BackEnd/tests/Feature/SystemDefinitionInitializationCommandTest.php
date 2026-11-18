@@ -136,7 +136,7 @@ final class SystemDefinitionInitializationCommandTest extends TestCase
         self::assertNotNull($role);
         self::assertNull($role->company_id);
         self::assertTrue((bool) $role->is_system);
-        self::assertSame(347, DB::table('role_permissions')->where('role_id', $role->id)->count());
+        self::assertSame(348, DB::table('role_permissions')->where('role_id', $role->id)->count());
         self::assertTrue(DB::table('role_assignments')
             ->where('user_id', $userId)
             ->where('role_id', $role->id)

@@ -1,7 +1,7 @@
 import { apiMutation, apiRequest } from './client';
 
 export type PageMeta = { current_page: number; last_page: number; per_page: number; total: number };
-export type NamedSku = { id: string; code: string; name: string };
+export type NamedSku = { id: string; code: string; name: string; shelf_life_days?: number | null };
 export type CommandResult = {
   entity_type: string; id: string; status: string; record_version?: number;
   order_record_version?: number; output_event_id?: string; finished_lot_id?: string;
@@ -310,6 +310,7 @@ export const retireArtwork = (row: Pick<Artwork, 'id' | 'record_version'>, reaso
 export const listPackingRuns = (filters: Record<string, unknown> = {}) => apiRequest<PackingWorkspace>(withQuery(packingPath, filters));
 export const getPackingRun = async (id: string) => (await apiRequest<{ data: PackingRun }>(`${packingPath}/${id}`)).data;
 export const createPackingRun = async (body: unknown, key: string) => unwrap(apiMutation<{ data: CommandResult }>(packingPath, body, { idempotencyKey: key }));
+export const updatePackingRun = (row: Pick<PackingRun, 'id' | 'record_version'>, body: unknown, key: string) => command(`${packingPath}/${row.id}`, body, key, row.record_version);
 export const completePackingRun = (row: Pick<PackingRun, 'id' | 'record_version'>, key: string) => command(`${packingPath}/${row.id}/complete`, {}, key, row.record_version);
 export const cancelPackingRun = (row: Pick<PackingRun, 'id' | 'record_version'>, reason: string, key: string) => command(`${packingPath}/${row.id}/cancel`, { reason }, key, row.record_version);
 export const listFinishedGoods = (filters: Record<string, unknown> = {}) => apiRequest<FinishedGoodsWorkspace>(withQuery('/api/v1/manufacturing/finished-goods', filters));

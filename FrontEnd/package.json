@@ -4,6 +4,7 @@
   "version": "1.1.0",
   "type": "module",
   "scripts": {
+    "audit:dependencies": "node ../quality/run-npm-audit-gate.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -17,12 +18,9 @@
     "test:quality:repository": "node ../quality/run-repository-security-gates.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -35,7 +33,10 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^29.1.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
     "vitest": "^5.0.0"
   }
 }

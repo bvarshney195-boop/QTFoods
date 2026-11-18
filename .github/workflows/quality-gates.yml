@@ -97,7 +97,7 @@ jobs:
 
       - name: Audit frontend dependencies
         working-directory: FrontEnd
-        run: npm audit --audit-level=high
+        run: npm run audit:dependencies
 
       - name: Run component suite
         working-directory: FrontEnd

@@ -255,6 +255,7 @@ final class SystemDefinitionCatalogue
             'ACTION:PACK-ART:APPROVE',
             'ACTION:PACK-ART:RETIRE',
             'ACTION:PACK-RUN:CREATE',
+            'ACTION:PACK-RUN:UPDATE',
             'ACTION:PACK-RUN:COMPLETE',
             'ACTION:PACK-RUN:CANCEL',
             'ACTION:TRACE-CASE:CREATE',

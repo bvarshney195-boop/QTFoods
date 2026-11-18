@@ -159,13 +159,30 @@ final class ManufacturingExecutionEndpointTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.status', 'DRAFT')
             ->assertJsonPath('data.coding_value', 'LOT FG-P1-FULL-01 MFG '.now()->toDateString().' EXP '.now()->addMonth()->toDateString().' BATCH BATCH-P1-FULL');
         $packingId = (string) $packing->json('data.id');
-        $packed = $this->withHeaders($this->headers(1))->postJson('/api/v1/packing/runs/'.$packingId.'/complete')
-            ->assertOk()->assertJsonPath('data.status', 'COMPLETED')->assertJsonPath('data.genealogy_edge_count', 1);
+        $correctedExpiry = now()->addDays(3)->toDateString();
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/packing/runs/'.$packingId, [
+            'packaging_artwork_id' => $artworkId, 'packed_quantity' => '96',
+            'manufacture_date' => now()->toDateString(), 'expiry_date' => $correctedExpiry,
+            'target_location_id' => self::FINISHED_LOCATION_ID,
+            'actual_weight_samples' => ['100', '101', '99'], 'weight_uom_code' => 'G',
+            'packing_configuration' => ['cartons' => 8, 'packs_per_carton' => 12],
+            'notes' => 'Corrected expiry before finished-stock receipt.',
+        ])->assertOk()->assertJsonPath('data.status', 'DRAFT')->assertJsonPath('data.record_version', 2)
+            ->assertJsonPath('data.expiry_date', $correctedExpiry)
+            ->assertJsonPath('data.coding_value', 'LOT FG-P1-FULL-01 MFG '.now()->toDateString().' EXP '.$correctedExpiry.' BATCH BATCH-P1-FULL');
+        $this->getJson('/api/v1/packing/runs/'.$packingId)->assertOk()
+            ->assertJsonPath('data.expiry_date', $correctedExpiry)
+            ->assertJsonPath('data.coding_value', 'LOT FG-P1-FULL-01 MFG '.now()->toDateString().' EXP '.$correctedExpiry.' BATCH BATCH-P1-FULL')
+            ->assertJsonPath('data.allowed_actions.0', 'UPDATE');
+        $packed = $this->withHeaders($this->headers(2))->postJson('/api/v1/packing/runs/'.$packingId.'/complete')
+            ->assertOk()->assertJsonPath('data.status', 'COMPLETED')->assertJsonPath('data.record_version', 3)
+            ->assertJsonPath('data.genealogy_edge_count', 1);
         $finishedLotId = (string) $packed->json('data.finished_lot_id');
         $this->assertDatabaseHas('fg_lots', ['lot_id' => $finishedLotId, 'status' => 'ACTIVE', 'packed_quantity' => 96]);
         $this->getJson('/api/v1/manufacturing/finished-goods/'.$finishedLotId)->assertOk()
             ->assertJsonPath('data.lot_code', 'FG-P1-FULL-01')->assertJsonPath('data.inputs.0.lot.code', 'RM-APPLE-2609A')
-            ->assertJsonPath('data.position.quantity', '96.000000');
+            ->assertJsonPath('data.position.quantity', '96.000000')->assertJsonPath('data.expiry_date', $correctedExpiry)
+            ->assertJsonPath('data.coding_value', 'LOT FG-P1-FULL-01 MFG '.now()->toDateString().' EXP '.$correctedExpiry.' BATCH BATCH-P1-FULL');
         $this->getJson('/api/v1/packing/runs/'.$packingId)->assertOk()
             ->assertJsonPath('data.pieces_per_pack', 1)
             ->assertJsonPath('data.target_finished_weight', '100.000000')
