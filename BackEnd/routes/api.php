@@ -641,6 +641,8 @@ Route::middleware('web')->prefix('v1')->group(function () {
                 ->whereUuid('packingRunId')->middleware('erp.screen:PACK-RUN');
             Route::post('/packing/runs', [ManufacturingExecutionController::class, 'packingCreate'])
                 ->middleware(['erp.screen:PACK-RUN', 'erp.permission:ACTION:PACK-RUN:CREATE']);
+            Route::post('/packing/runs/{packingRunId}', [ManufacturingExecutionController::class, 'packingUpdate'])
+                ->whereUuid('packingRunId')->middleware(['erp.screen:PACK-RUN', 'erp.permission:ACTION:PACK-RUN:UPDATE']);
             Route::post('/packing/runs/{packingRunId}/complete', [ManufacturingExecutionController::class, 'packingComplete'])
                 ->whereUuid('packingRunId')->middleware(['erp.screen:PACK-RUN', 'erp.permission:ACTION:PACK-RUN:COMPLETE']);
             Route::post('/packing/runs/{packingRunId}/cancel', [ManufacturingExecutionController::class, 'packingCancel'])

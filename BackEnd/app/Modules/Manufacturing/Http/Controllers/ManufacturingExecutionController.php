@@ -471,17 +471,21 @@ final class ManufacturingExecutionController
         $this->selectedScope($request, true);
         $validated = $request->validate([
             'run_number' => $this->numberRules(), 'production_order_id' => ['required', 'uuid'],
-            'packaging_artwork_id' => ['required', 'uuid'], 'packed_quantity' => ['required', 'numeric', 'gt:0'],
-            'finished_lot_code' => $this->numberRules(), 'manufacture_date' => ['required', 'date_format:Y-m-d'],
-            'expiry_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:manufacture_date'],
-            'target_location_id' => ['required', 'uuid'],
-            'actual_weight_samples' => ['sometimes', 'array', 'max:100'],
-            'actual_weight_samples.*' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
-            'weight_uom_code' => ['nullable', 'required_with:actual_weight_samples', 'string', 'max:16'],
-            'packing_configuration' => ['sometimes', 'array', 'max:50'],
-            'notes' => ['nullable', 'string', 'max:4000'],
-        ]);
+            'finished_lot_code' => $this->numberRules(),
+        ] + $this->packingRules());
         return response()->json(['data' => $this->quality->createPackingRun($validated + $this->commandContext($request, false))], 201);
+    }
+
+    public function packingUpdate(string $packingRunId, Request $request): JsonResponse
+    {
+        $this->normalise($request);
+        $this->selectedScope($request, true);
+        $validated = $request->validate([
+            'run_number' => ['prohibited'], 'production_order_id' => ['prohibited'],
+            'finished_lot_code' => ['prohibited'],
+        ] + $this->packingRules());
+        return response()->json(['data' => $this->quality->updatePackingRun($packingRunId,
+            $validated + $this->commandContext($request, true))]);
     }
 
     public function packingComplete(string $packingRunId, Request $request): JsonResponse
@@ -597,6 +601,20 @@ final class ManufacturingExecutionController
             'barcode' => ['required', 'string', 'min:4', 'max:80'], 'coding_template' => ['required', 'string', 'min:3', 'max:255'],
             'effective_from' => ['required', 'date_format:Y-m-d'],
             'effective_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:effective_from'],
+            'notes' => ['nullable', 'string', 'max:4000']];
+    }
+
+    private function packingRules(): array
+    {
+        return ['packaging_artwork_id' => ['required', 'uuid'],
+            'packed_quantity' => ['required', 'numeric', 'gt:0'],
+            'manufacture_date' => ['required', 'date_format:Y-m-d'],
+            'expiry_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:manufacture_date'],
+            'target_location_id' => ['required', 'uuid'],
+            'actual_weight_samples' => ['sometimes', 'array', 'max:100'],
+            'actual_weight_samples.*' => ['required', 'numeric', 'gt:0', 'max:99999999999999'],
+            'weight_uom_code' => ['nullable', 'required_with:actual_weight_samples', 'string', 'max:16'],
+            'packing_configuration' => ['sometimes', 'array', 'max:50'],
             'notes' => ['nullable', 'string', 'max:4000']];
     }
 
