@@ -319,7 +319,6 @@ final class ProcureToPayEndpointTest extends TestCase
         $this->getJson('/api/v1/procurement/receipts/'.DB::table('receipts')->whereNotNull('receipt_number')->value('id'))->assertNotFound();
     }
 
-<<<<<<< HEAD
     public function test_grn_posting_with_an_application_created_company_owner_is_atomic_and_idempotent(): void
     {
         $ownerId = $this->createApplicationCompanyInventoryOwner();
@@ -390,9 +389,7 @@ final class ProcureToPayEndpointTest extends TestCase
         $this->assertSame('100.000000', $this->decimal(DB::table('stock_positions')
             ->where('id', $position->id)->value('quantity_base')));
     }
-
-=======
->>>>>>> 456d67cabd230c4be8500e089c6131b11fc8184d
+    
     private function createIssuedOrder(
         string $suffix,
         string $supplierId = self::SUPPLIER_ID,
