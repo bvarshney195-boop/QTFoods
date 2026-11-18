@@ -22,6 +22,7 @@ final class ProcureToPayEndpointTest extends TestCase
     private const RAW_ITEM_ID = '00000000-0000-4000-8000-000000000603';
     private const SUPPLIER_ID = '00000000-0000-4000-8000-000000000503';
     private const OTHER_SUPPLIER_ID = '00000000-0000-4000-8000-000000000504';
+    private const OWNER_TEST_PARTY_ID = '00000000-0000-4000-8000-000000000502';
     private const QUALITY_HOLD_LOCATION = '00000000-0000-4000-8000-000000000810';
     private const RAW_STORE_LOCATION = '00000000-0000-4000-8000-000000000809';
 
@@ -318,6 +319,77 @@ final class ProcureToPayEndpointTest extends TestCase
         $this->getJson('/api/v1/procurement/receipts/'.DB::table('receipts')->whereNotNull('receipt_number')->value('id'))->assertNotFound();
     }
 
+    public function test_grn_posting_with_an_application_created_company_owner_is_atomic_and_idempotent(): void
+    {
+        $ownerId = $this->createApplicationCompanyInventoryOwner();
+        [$poId, $poLineId] = $this->createIssuedOrder('GRN-OWNER', self::SUPPLIER_ID, '100');
+        $gateId = (string) $this->command()->postJson('/api/v1/procurement/gate-entries', [
+            'gate_entry_number' => 'GATE-GRN-OWNER', 'purchase_order_id' => $poId,
+            'vehicle_number' => 'MH12GRN100', 'transporter_name' => 'Controlled Logistics',
+            'supplier_document_number' => 'CHALLAN-GRN-OWNER', 'arrived_at' => now()->toISOString(),
+            'notes' => null,
+        ])->assertCreated()->assertJsonPath('data.status', 'ARRIVED')->json('data.id');
+        $receiptId = (string) $this->command()->postJson('/api/v1/procurement/receipts', [
+            'receipt_number' => 'GRN-OWNER-001', 'gate_entry_id' => $gateId,
+            'receipt_date' => now()->toDateString(), 'supplier_document_number' => 'CHALLAN-GRN-OWNER',
+            'notes' => null,
+            'lines' => [[
+                'purchase_order_line_id' => $poLineId, 'received_quantity' => '100',
+                'internal_lot_code' => 'LOT-GRN-OWNER-001', 'supplier_lot_code' => 'SUP-LOT-GRN-OWNER-001',
+                'manufacture_date' => now()->subDay()->toDateString(),
+                'expiry_date' => now()->addMonths(3)->toDateString(),
+                'quality_hold_location_id' => self::QUALITY_HOLD_LOCATION,
+                'released_location_id' => self::RAW_STORE_LOCATION, 'notes' => null,
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT')->json('data.id');
+
+        $idempotencyKey = (string) Str::uuid();
+        $headers = ['Idempotency-Key' => $idempotencyKey, 'If-Match' => '1'];
+        $posted = $this->withHeaders($headers)->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertOk()->assertJsonPath('data.status', 'QC_PENDING')
+            ->assertJsonPath('data.record_version', 2)->assertJsonPath('data.line_count', 1);
+        $taskId = (string) $posted->json('data.quality_task_id');
+
+        $receiptLine = DB::table('receipt_lines')->where('receipt_id', $receiptId)->first();
+        $this->assertNotNull($receiptLine);
+        $position = DB::table('stock_positions')->where('id', $receiptLine->quality_hold_position_id)->first();
+        $this->assertNotNull($position);
+        $this->assertSame($ownerId, (string) $position->inventory_owner_id);
+        $this->assertNull($position->owner_party_id);
+        $this->assertSame('QUALITY_HOLD', $position->quality_status);
+        $this->assertSame('100.000000', $this->decimal($position->quantity_base));
+        $this->assertSame(1, DB::table('lots')->where('internal_lot_code', 'LOT-GRN-OWNER-001')->count());
+        $this->assertSame(1, DB::table('stock_movements')->where('source_type', 'goods_receipt_line')
+            ->where('source_id', $receiptLine->id)->where('movement_type', 'PURCHASE_RECEIPT')->count());
+        $this->assertSame('100.000000', $this->decimal(DB::table('stock_movements')
+            ->where('source_type', 'goods_receipt_line')->where('source_id', $receiptLine->id)
+            ->where('movement_type', 'PURCHASE_RECEIPT')->sum('quantity_base')));
+        $this->assertSame(1, DB::table('quality_tasks')->where('receipt_id', $receiptId)
+            ->where('status', 'PENDING')->count());
+        $this->assertDatabaseHas('incoming_quality_lines', [
+            'quality_task_id' => $taskId, 'receipt_line_id' => $receiptLine->id,
+            'inspected_quantity' => 100, 'result' => 'PENDING',
+        ]);
+
+        $received = $this->decimal(DB::table('receipt_lines as line')
+            ->join('receipts as receipt', 'receipt.id', '=', 'line.receipt_id')
+            ->where('line.purchase_order_line_id', $poLineId)
+            ->whereIn('receipt.status', ['QC_PENDING', 'COMPLETED'])->sum('line.received_quantity'));
+        $this->assertSame('100.000000', $received);
+        $this->assertSame('0.000000', bcsub('100.000000', $received, 6));
+
+        $this->withHeaders($headers)->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertOk()->assertJsonPath('data.quality_task_id', $taskId);
+        $this->withHeaders($this->headers(2))->postJson('/api/v1/procurement/receipts/'.$receiptId.'/post')
+            ->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED')
+            ->assertJsonPath('error.fields.status.0', 'Only a draft GRN can be posted.');
+        $this->assertSame(1, DB::table('quality_tasks')->where('receipt_id', $receiptId)->count());
+        $this->assertSame(1, DB::table('stock_movements')->where('source_type', 'goods_receipt_line')
+            ->where('source_id', $receiptLine->id)->where('movement_type', 'PURCHASE_RECEIPT')->count());
+        $this->assertSame('100.000000', $this->decimal(DB::table('stock_positions')
+            ->where('id', $position->id)->value('quantity_base')));
+    }
+    
     private function createIssuedOrder(
         string $suffix,
         string $supplierId = self::SUPPLIER_ID,
@@ -398,4 +470,28 @@ final class ProcureToPayEndpointTest extends TestCase
     private function command(): static { return $this->withHeader('Idempotency-Key', (string) Str::uuid()); }
     private function headers(int $version): array { return ['Idempotency-Key' => (string) Str::uuid(), 'If-Match' => (string) $version]; }
     private function decimal(mixed $value): string { return bcadd((string) ($value ?? 0), '0', 6); }
+
+    private function createApplicationCompanyInventoryOwner(): string
+    {
+        $legacyOwnerId = (string) DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'COMPANY')->value('id');
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('SET CONSTRAINTS inventory_owners_position_identity_guard, stock_positions_owner_identity_guard DEFERRED');
+        }
+
+        DB::table('inventory_owners')->where('id', $legacyOwnerId)->update([
+            'party_id' => self::OWNER_TEST_PARTY_ID,
+            'owner_type' => 'PARTY',
+            'updated_at' => now(),
+        ]);
+        DB::table('stock_positions')->where('inventory_owner_id', $legacyOwnerId)->update([
+            'owner_party_id' => self::OWNER_TEST_PARTY_ID,
+            'updated_at' => now(),
+        ]);
+
+        return (string) $this->command()->postJson('/api/v1/inventory/owners', [
+            'code' => 'OWN-GRN-APP', 'name' => 'Application-created company owner',
+            'owner_type' => 'COMPANY', 'party_id' => null, 'status' => 'ACTIVE',
+        ])->assertCreated()->assertJsonPath('data.record_version', 1)->json('data.id');
+    }
 }
