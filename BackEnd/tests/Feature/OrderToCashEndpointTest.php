@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Modules\Foundation\Domain\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -86,6 +87,100 @@ final class OrderToCashEndpointTest extends TestCase
             $confirmation->json()['error']['fields']['lines.0.quantity'][0] ?? null,
         );
         $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'DRAFT', 'record_version' => 1]);
+    }
+
+    public function test_sales_allocation_uses_active_company_owner_and_rolls_back_partial_fefo_reservations(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-23 09:00:00', 'Asia/Kolkata'));
+        $fixture = $this->createManualBreadAllocationFixture();
+        $this->assertNotSame(self::COMPANY_ID, $fixture['company_owner_id']);
+
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'MANUAL-SO-BREAD-150G-221126', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Independent company inventory-owner allocation regression.',
+            'lines' => [[
+                'item_id' => $fixture['item_id'], 'uom_code' => 'PCS', 'quantity' => '10', 'discount_percent' => '0',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $orderId = (string) $order->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+
+        $allocation = $this->withHeaders($this->headers(2))
+            ->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
+                'allocation_number' => 'MANUAL-ALLOC-BREAD-150G-221126',
+            ])->assertCreated()->assertJsonPath('data.status', 'RESERVED')
+            ->assertJsonPath('data.allocated_quantity', '10.000000')
+            ->assertJsonPath('data.fefo_lot_count', 1)
+            ->assertJsonPath('data.fefo_break_count', 0);
+
+        $allocationId = (string) $allocation->json('data.id');
+        $this->assertSame(
+            $fixture['saleable_lot_id'],
+            (string) DB::table('sales_allocation_lines')->where('sales_allocation_id', $allocationId)->value('lot_id'),
+        );
+        $this->assertDatabaseHas('stock_reservations', [
+            'stock_position_id' => $fixture['saleable_position_id'],
+            'quantity_base' => 10,
+            'status' => 'ACTIVE',
+        ]);
+        $reserved = $this->decimal(DB::table('stock_positions')->where('id', $fixture['saleable_position_id'])
+            ->value('reserved_quantity_base'));
+        $this->assertSame('10.000000', $reserved);
+        $this->assertSame('997.000000', bcsub('1007.000000', $reserved, 6));
+        foreach ($fixture['excluded_position_ids'] as $positionId) {
+            $this->assertSame(
+                '0.000000',
+                $this->decimal(DB::table('stock_positions')->where('id', $positionId)->value('reserved_quantity_base')),
+            );
+        }
+
+        $reservationCount = DB::table('stock_reservations')->count();
+        $failingOrder = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'MANUAL-SO-BREAD-150G-ROLLBACK', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Atomic insufficient-stock allocation regression.',
+            'lines' => [[
+                'item_id' => $fixture['item_id'], 'uom_code' => 'PCS', 'quantity' => '1000', 'discount_percent' => '0',
+            ]],
+        ])->assertCreated();
+        $failingOrderId = (string) $failingOrder->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$failingOrderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+
+        $this->withHeaders($this->headers(2))
+            ->postJson('/api/v1/dispatch/orders/'.$failingOrderId.'/allocations', [
+                'allocation_number' => 'MANUAL-ALLOC-BREAD-150G-ROLLBACK',
+            ])->assertUnprocessable()->assertJsonPath(
+                'error.fields.stock.0',
+                'Insufficient released FEFO stock for order line 1.',
+            );
+
+        $this->assertDatabaseMissing('sales_allocations', ['allocation_number' => 'MANUAL-ALLOC-BREAD-150G-ROLLBACK']);
+        $this->assertSame($reservationCount, DB::table('stock_reservations')->count());
+        $this->assertSame(0, DB::table('sales_allocation_lines')->where('sales_order_id', $failingOrderId)->count());
+        $this->assertDatabaseHas('sales_orders', [
+            'id' => $failingOrderId, 'status' => 'CONFIRMED', 'record_version' => 2,
+        ]);
+        $this->assertSame(
+            '0.000000',
+            $this->decimal(DB::table('sales_order_lines')->where('sales_order_id', $failingOrderId)
+                ->value('allocated_quantity')),
+        );
+        $this->assertSame(
+            '10.000000',
+            $this->decimal(DB::table('stock_positions')->where('id', $fixture['saleable_position_id'])
+                ->value('reserved_quantity_base')),
+        );
+        foreach ($fixture['excluded_position_ids'] as $positionId) {
+            $this->assertSame(
+                '0.000000',
+                $this->decimal(DB::table('stock_positions')->where('id', $positionId)->value('reserved_quantity_base')),
+            );
+        }
     }
 
     public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
@@ -419,6 +514,149 @@ final class OrderToCashEndpointTest extends TestCase
         ] + $timestamps);
 
         return [$scheduleId, $scheduleLineId];
+    }
+
+    /** @return array{company_owner_id: string, item_id: string, saleable_lot_id: string, saleable_position_id: string, excluded_position_ids: list<string>} */
+    private function createManualBreadAllocationFixture(): array
+    {
+        DB::table('stock_reservations')->delete();
+        DB::table('stock_positions')->delete();
+        DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'COMPANY')->delete();
+
+        $now = now();
+        $companyOwnerId = (string) Str::uuid();
+        DB::table('inventory_owners')->insert([
+            'id' => $companyOwnerId, 'company_id' => self::COMPANY_ID, 'party_id' => null,
+            'code' => 'OWN-MANUAL-COMPANY', 'name' => 'Manual company-owned stock',
+            'owner_type' => 'COMPANY', 'status' => 'ACTIVE', 'record_version' => 1,
+            'status_reason' => 'Independent owner identity regression fixture.', 'status_changed_at' => $now,
+            'status_changed_by' => self::ADMIN_ID, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        $itemId = (string) Str::uuid();
+        $catalogItemId = (string) Str::uuid();
+        DB::table('catalog_items')->insert([
+            'id' => $catalogItemId, 'company_id' => self::COMPANY_ID, 'brand_id' => null,
+            'code' => 'MANUAL-BREAD-150G', 'name' => 'Manual Bread 150g', 'item_type' => 'FINISHED_GOOD',
+            'base_uom' => 'PCS', 'description' => 'Allocation regression catalog item.', 'shelf_life_days' => 3,
+            'lot_controlled' => true, 'status' => 'ACTIVE', 'record_version' => 1,
+            'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+            'status_changed_by' => self::ADMIN_ID, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('items')->insert([
+            'id' => $itemId, 'company_id' => self::COMPANY_ID, 'catalog_item_id' => $catalogItemId,
+            'code' => 'MANUAL-SKU-BREAD-150G', 'name' => 'Manual Bread 150g', 'barcode' => null,
+            'description' => 'Allocation regression SKU.', 'item_type' => 'FINISHED_GOOD', 'base_uom' => 'PCS',
+            'pack_quantity' => 1, 'pack_uom_code' => 'PCS', 'status' => 'ACTIVE', 'record_version' => 1,
+            'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+            'status_changed_by' => self::ADMIN_ID, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('sales_contract_lines')->insert([
+            'id' => (string) Str::uuid(), 'sales_contract_id' => self::CONTRACT_ID,
+            'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID, 'line_number' => 2,
+            'item_id' => $itemId, 'uom_code' => 'PCS', 'committed_quantity' => 5000,
+            'consumed_quantity' => 0, 'unit_price' => 10, 'tax_rate' => 0,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        $saleableLotId = (string) Str::uuid();
+        $expiredLotId = (string) Str::uuid();
+        DB::table('lots')->insert([
+            [
+                'id' => $saleableLotId, 'company_id' => self::COMPANY_ID, 'item_id' => $itemId,
+                'supplier_party_id' => null, 'internal_lot_code' => 'MANUAL-FGLOT-BREAD-150G-221126',
+                'supplier_lot_code' => null, 'origin_type' => 'PRODUCTION', 'manufacture_date' => '2026-11-22',
+                'expiry_date' => '2026-11-25', 'status' => 'ACTIVE', 'notes' => 'Saleable regression lot.',
+                'record_version' => 1, 'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+                'status_changed_by' => self::ADMIN_ID, 'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'id' => $expiredLotId, 'company_id' => self::COMPANY_ID, 'item_id' => $itemId,
+                'supplier_party_id' => null, 'internal_lot_code' => 'MANUAL-FGLOT-BREAD-150G-EXPIRED',
+                'supplier_lot_code' => null, 'origin_type' => 'PRODUCTION', 'manufacture_date' => '2026-11-20',
+                'expiry_date' => '2026-11-22', 'status' => 'ACTIVE', 'notes' => 'Expired exclusion fixture.',
+                'record_version' => 1, 'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+                'status_changed_by' => self::ADMIN_ID, 'created_at' => $now, 'updated_at' => $now,
+            ],
+        ]);
+
+        $finishedGoodsLocationId = (string) DB::table('locations')->where('company_id', self::COMPANY_ID)
+            ->where('plant_id', self::PLANT_ID)->where('location_type', 'FINISHED_GOODS')
+            ->where('status', 'ACTIVE')->value('id');
+        $nonFinishedGoodsLocationId = (string) DB::table('locations')->where('company_id', self::COMPANY_ID)
+            ->where('plant_id', self::PLANT_ID)->where('location_type', '<>', 'FINISHED_GOODS')
+            ->where('status', 'ACTIVE')->orderBy('code')->value('id');
+        $otherPlantFinishedGoodsLocationId = (string) DB::table('locations')->where('company_id', self::COMPANY_ID)
+            ->where('plant_id', self::OTHER_PLANT_ID)->where('location_type', 'FINISHED_GOODS')
+            ->where('status', 'ACTIVE')->value('id');
+        $otherItemLotId = (string) DB::table('lots')->where('company_id', self::COMPANY_ID)
+            ->where('item_id', self::ITEM_ID)->where('status', 'ACTIVE')->orderBy('id')->value('id');
+        $otherOwner = DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'PARTY')->where('status', 'ACTIVE')->first();
+        self::assertNotNull($otherOwner);
+
+        $saleablePositionId = (string) Str::uuid();
+        $expiredPositionId = (string) Str::uuid();
+        $heldPositionId = (string) Str::uuid();
+        $otherOwnerPositionId = (string) Str::uuid();
+        $wrongLocationPositionId = (string) Str::uuid();
+        $wrongPlantPositionId = (string) Str::uuid();
+        $wrongItemPositionId = (string) Str::uuid();
+        $positionDefaults = [
+            'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID, 'item_id' => $itemId,
+            'quantity_base' => 2000, 'reserved_quantity_base' => 0, 'uom_code' => 'PCS',
+            'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,
+            'status_changed_by' => null, 'created_at' => $now, 'updated_at' => $now,
+        ];
+        DB::table('stock_positions')->insert([
+            [
+                ...$positionDefaults, 'id' => $saleablePositionId, 'lot_id' => $saleableLotId,
+                'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $finishedGoodsLocationId, 'quality_status' => 'RELEASED', 'quantity_base' => 1007,
+            ],
+            [
+                ...$positionDefaults, 'id' => $expiredPositionId, 'lot_id' => $expiredLotId,
+                'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $finishedGoodsLocationId, 'quality_status' => 'RELEASED',
+            ],
+            [
+                ...$positionDefaults, 'id' => $heldPositionId, 'lot_id' => $saleableLotId,
+                'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $finishedGoodsLocationId, 'quality_status' => 'QUALITY_HOLD',
+            ],
+            [
+                ...$positionDefaults, 'id' => $otherOwnerPositionId, 'lot_id' => $saleableLotId,
+                'owner_party_id' => $otherOwner->party_id, 'inventory_owner_id' => $otherOwner->id,
+                'location_id' => $finishedGoodsLocationId, 'quality_status' => 'RELEASED',
+            ],
+            [
+                ...$positionDefaults, 'id' => $wrongLocationPositionId, 'lot_id' => $saleableLotId,
+                'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $nonFinishedGoodsLocationId, 'quality_status' => 'RELEASED',
+            ],
+            [
+                ...$positionDefaults, 'id' => $wrongPlantPositionId, 'plant_id' => self::OTHER_PLANT_ID,
+                'lot_id' => $saleableLotId, 'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $otherPlantFinishedGoodsLocationId, 'quality_status' => 'RELEASED',
+            ],
+            [
+                ...$positionDefaults, 'id' => $wrongItemPositionId, 'item_id' => self::ITEM_ID,
+                'lot_id' => $otherItemLotId, 'owner_party_id' => null, 'inventory_owner_id' => $companyOwnerId,
+                'location_id' => $finishedGoodsLocationId, 'quality_status' => 'RELEASED', 'uom_code' => 'PACK',
+            ],
+        ]);
+
+        return [
+            'company_owner_id' => $companyOwnerId,
+            'item_id' => $itemId,
+            'saleable_lot_id' => $saleableLotId,
+            'saleable_position_id' => $saleablePositionId,
+            'excluded_position_ids' => [
+                $expiredPositionId, $heldPositionId, $otherOwnerPositionId, $wrongLocationPositionId,
+                $wrongPlantPositionId, $wrongItemPositionId,
+            ],
+        ];
     }
 
     private function signIn(string $userId, string $plantId = self::PLANT_ID): void

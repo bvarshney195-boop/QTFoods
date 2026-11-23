@@ -562,6 +562,7 @@ final class OrderToCashService
             $this->assertVersion($order, $data, 'sales order');
             $this->assertStatus($order, ['CONFIRMED', 'ALLOCATED'], 'Only a confirmed sales order can be allocated.');
             $this->uniqueNumber('sales_allocations', 'allocation_number', $data['allocation_number'], $data);
+            $owner = $this->companyInventoryOwner($data, true);
             $lines = DB::table('sales_order_lines')->where('sales_order_id', $orderId)->orderBy('line_number')->lockForUpdate()->get();
             $requested = collect($data['lines'] ?? [])->keyBy('sales_order_line_id');
             if ($requested->isNotEmpty()) {
@@ -591,7 +592,7 @@ final class OrderToCashService
                     ->join('locations as location', 'location.id', '=', 'position.location_id')
                     ->where('position.company_id', $data['company_id'])->where('position.plant_id', $data['plant_id'])
                     ->where('position.item_id', $line->item_id)->where('position.uom_code', $line->uom_code)
-                    ->where('position.inventory_owner_id', $data['company_id'])->where('position.quality_status', 'RELEASED')
+                    ->where('position.inventory_owner_id', $owner->id)->where('position.quality_status', 'RELEASED')
                     ->where('lot.status', 'ACTIVE')->where('location.status', 'ACTIVE')->where('location.location_type', 'FINISHED_GOODS')
                     ->where(function ($query) use ($now): void { $query->whereNull('lot.expiry_date')->orWhereDate('lot.expiry_date', '>=', $now->toDateString()); })
                     ->orderByRaw('CASE WHEN lot.expiry_date IS NULL THEN 1 ELSE 0 END')->orderBy('lot.expiry_date')->orderBy('position.id')
@@ -1550,6 +1551,23 @@ final class OrderToCashService
             throw ValidationException::withMessages(['customer_party_id' => ['The selected party is not an active customer.']]);
         }
         return $party;
+    }
+
+    private function companyInventoryOwner(array $scope, bool $lock = false): object
+    {
+        $query = DB::table('inventory_owners')->where('company_id', $scope['company_id'])
+            ->where('owner_type', 'COMPANY')->where('status', 'ACTIVE');
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $owner = $query->first();
+        if (! $owner) {
+            throw ValidationException::withMessages([
+                'inventory_owner_id' => ['Configure an active company inventory owner before processing company stock.'],
+            ]);
+        }
+
+        return $owner;
     }
 
     private function uniqueNumber(string $table, string $column, string $number, array $scope, ?string $extraColumn = null, ?string $extraValue = null): void
