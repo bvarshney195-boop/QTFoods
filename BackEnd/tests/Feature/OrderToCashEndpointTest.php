@@ -183,6 +183,111 @@ final class OrderToCashEndpointTest extends TestCase
         }
     }
 
+    public function test_sales_dispatch_uses_active_company_owner_and_is_atomic_and_idempotent(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-24 10:30:00', 'Asia/Kolkata'));
+        $fixture = $this->createManualBreadAllocationFixture();
+        $this->assertNotSame(self::COMPANY_ID, $fixture['company_owner_id']);
+
+        $order = $this->command()->postJson('/api/v1/sales/orders', [
+            'order_number' => 'AI-UAT-SO-150G-221126-01', 'customer_party_id' => self::CUSTOMER_ID,
+            'sales_lead_id' => null, 'sales_contract_id' => self::CONTRACT_ID, 'sales_price_list_id' => null,
+            'order_date' => now()->toDateString(), 'requested_delivery_date' => now()->addDays(3)->toDateString(),
+            'notes' => 'Independent company inventory-owner dispatch regression.',
+            'lines' => [[
+                'item_id' => $fixture['item_id'], 'uom_code' => 'PCS', 'quantity' => '1', 'discount_percent' => '0',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT')->assertJsonPath('data.total_amount', '20.000000');
+        $orderId = (string) $order->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/sales/orders/'.$orderId.'/confirm')
+            ->assertOk()->assertJsonPath('data.status', 'CONFIRMED');
+
+        $allocation = $this->withHeaders($this->headers(2))
+            ->postJson('/api/v1/dispatch/orders/'.$orderId.'/allocations', [
+                'allocation_number' => 'AI-UAT-ALLOC-150G-241126-01',
+            ])->assertCreated()->assertJsonPath('data.status', 'RESERVED')
+            ->assertJsonPath('data.allocated_quantity', '1.000000');
+        $allocationId = (string) $allocation->json('data.id');
+
+        $this->signIn(self::OPERATIONS_ID);
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/allocations/'.$allocationId.'/pick')
+            ->assertOk()->assertJsonPath('data.status', 'PICKED');
+        $shipment = $this->command()->postJson('/api/v1/dispatch/shipments', [
+            'shipment_number' => 'AI-UAT-SHP-150G-241126-01', 'sales_allocation_id' => $allocationId,
+            'carrier_name' => 'Q&T UAT Logistics', 'vehicle_number' => 'UAT241126',
+            'driver_name' => 'UAT Driver', 'notes' => 'Dispatch owner regression.',
+        ])->assertCreated()->assertJsonPath('data.status', 'DRAFT');
+        $shipmentId = (string) $shipment->json('data.id');
+        $this->withHeaders($this->headers(1))->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/load')
+            ->assertOk()->assertJsonPath('data.status', 'LOADED')->assertJsonPath('data.record_version', 2);
+
+        $otherOwnerId = (string) DB::table('inventory_owners')->where('company_id', self::COMPANY_ID)
+            ->where('owner_type', 'PARTY')->where('status', 'ACTIVE')->value('id');
+        $this->assertNotSame('', $otherOwnerId);
+        DB::table('stock_positions')->where('inventory_owner_id', $otherOwnerId)->delete();
+        DB::table('stock_positions')->where('id', $fixture['saleable_position_id'])
+            ->update(['inventory_owner_id' => $otherOwnerId]);
+
+        $this->withHeaders($this->headers(2))
+            ->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/dispatch', [
+                'invoice_number' => 'AI-UAT-INV-150G-241126-01',
+            ])->assertUnprocessable()->assertJsonPath(
+                'error.fields.source_position_id.0',
+                'The source position must match the command company, plant, item, lot, inventory owner, quality status, and UOM.',
+            );
+
+        $this->assertDatabaseHas('shipments', ['id' => $shipmentId, 'status' => 'LOADED', 'record_version' => 2]);
+        $this->assertDatabaseHas('sales_allocations', ['id' => $allocationId, 'status' => 'PICKED', 'record_version' => 2]);
+        $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'LOADED']);
+        $this->assertDatabaseHas('stock_reservations', [
+            'stock_position_id' => $fixture['saleable_position_id'], 'quantity_base' => 1, 'status' => 'ACTIVE',
+        ]);
+        $this->assertSame('1007.000000', $this->decimal(DB::table('stock_positions')
+            ->where('id', $fixture['saleable_position_id'])->value('quantity_base')));
+        $this->assertSame('1.000000', $this->decimal(DB::table('stock_positions')
+            ->where('id', $fixture['saleable_position_id'])->value('reserved_quantity_base')));
+        $this->assertSame(0, DB::table('stock_movements')->where('source_id', $shipmentId)->count());
+        $this->assertSame(0, DB::table('shipment_lines')->where('shipment_id', $shipmentId)->count());
+        $this->assertDatabaseMissing('sales_invoice_financials', ['invoice_number' => 'AI-UAT-INV-150G-241126-01']);
+
+        DB::table('stock_positions')->where('id', $fixture['saleable_position_id'])
+            ->update(['inventory_owner_id' => $fixture['company_owner_id']]);
+        $dispatchHeaders = ['Idempotency-Key' => (string) Str::uuid(), 'If-Match' => '2'];
+        $dispatchPayload = ['invoice_number' => 'AI-UAT-INV-150G-241126-01'];
+        $dispatched = $this->withHeaders($dispatchHeaders)
+            ->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/dispatch', $dispatchPayload)
+            ->assertOk()->assertJsonPath('data.status', 'DISPATCHED')
+            ->assertJsonPath('data.invoice_total', '20.0000');
+        $invoiceId = (string) $dispatched->json('data.invoice_id');
+        $this->withHeaders($dispatchHeaders)
+            ->postJson('/api/v1/dispatch/shipments/'.$shipmentId.'/dispatch', $dispatchPayload)
+            ->assertOk()->assertExactJson($dispatched->json());
+
+        $this->assertDatabaseHas('shipments', ['id' => $shipmentId, 'status' => 'DISPATCHED', 'record_version' => 3]);
+        $this->assertDatabaseHas('sales_allocations', ['id' => $allocationId, 'status' => 'DISPATCHED', 'record_version' => 3]);
+        $this->assertDatabaseHas('sales_orders', ['id' => $orderId, 'status' => 'DISPATCHED']);
+        $this->assertDatabaseHas('sales_order_lines', [
+            'sales_order_id' => $orderId, 'dispatched_quantity' => 1, 'invoiced_quantity' => 1,
+        ]);
+        $this->assertDatabaseHas('stock_reservations', [
+            'stock_position_id' => $fixture['saleable_position_id'], 'quantity_base' => 1, 'status' => 'RELEASED',
+        ]);
+        $this->assertSame('1006.000000', $this->decimal(DB::table('stock_positions')
+            ->where('id', $fixture['saleable_position_id'])->value('quantity_base')));
+        $reserved = $this->decimal(DB::table('stock_positions')->where('id', $fixture['saleable_position_id'])
+            ->value('reserved_quantity_base'));
+        $this->assertSame('0.000000', $reserved);
+        $this->assertSame('1006.000000', bcsub('1006.000000', $reserved, 6));
+        $this->assertSame(1, DB::table('stock_movements')->where('movement_type', 'SALES_DISPATCH')
+            ->where('source_id', $shipmentId)->where('from_position_id', $fixture['saleable_position_id'])->count());
+        $this->assertSame(1, DB::table('shipment_lines')->where('shipment_id', $shipmentId)->count());
+        $this->assertSame(1, DB::table('sales_invoice_financials')->where('shipment_id', $shipmentId)
+            ->where('invoice_number', 'AI-UAT-INV-150G-241126-01')->count());
+        $this->assertDatabaseHas('invoices', [
+            'id' => $invoiceId, 'status' => 'POSTED', 'subtotal' => 20, 'tax_amount' => 0, 'total_amount' => 20,
+        ]);
+    }
+
     public function test_lead_to_cash_claim_and_profitability_chain_is_governed(): void
     {
         $lead = $this->command()->postJson('/api/v1/sales/leads', [
@@ -556,7 +661,7 @@ final class OrderToCashEndpointTest extends TestCase
             'id' => (string) Str::uuid(), 'sales_contract_id' => self::CONTRACT_ID,
             'company_id' => self::COMPANY_ID, 'plant_id' => self::PLANT_ID, 'line_number' => 2,
             'item_id' => $itemId, 'uom_code' => 'PCS', 'committed_quantity' => 5000,
-            'consumed_quantity' => 0, 'unit_price' => 10, 'tax_rate' => 0,
+            'consumed_quantity' => 0, 'unit_price' => 20, 'tax_rate' => 0,
             'created_at' => $now, 'updated_at' => $now,
         ]);
 

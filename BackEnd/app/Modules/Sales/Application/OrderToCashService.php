@@ -795,6 +795,7 @@ final class OrderToCashService
             $allocation = $this->find('sales_allocations', $shipment->sales_allocation_id, $data, 'Sales allocation', true);
             $this->assertStatus($allocation, ['PICKED'], 'The picked allocation is no longer dispatchable.');
             $order = $this->find('sales_orders', $shipment->sales_order_id, $data, 'Sales order', true);
+            $owner = $this->companyInventoryOwner($data, true);
             $lines = DB::table('sales_allocation_lines as allocation_line')
                 ->join('sales_order_lines as order_line', 'order_line.id', '=', 'allocation_line.sales_order_line_id')
                 ->where('allocation_line.sales_allocation_id', $allocation->id)
@@ -826,7 +827,7 @@ final class OrderToCashService
                     'company_id' => $data['company_id'], 'plant_id' => $data['plant_id'],
                     'source_position_id' => $position->id, 'quantity_base' => $line->allocated_quantity,
                     'uom_code' => $line->uom_code, 'expected_item_id' => $line->item_id,
-                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $data['company_id'],
+                    'expected_lot_id' => $line->lot_id, 'expected_owner_id' => $owner->id,
                     'expected_quality_status' => 'RELEASED', 'movement_type' => 'SALES_DISPATCH',
                     'source_type' => 'sales_shipment', 'source_id' => $shipment->id,
                     'source_version' => (int) $shipment->record_version + 1, 'actor_id' => $data['actor_id'],

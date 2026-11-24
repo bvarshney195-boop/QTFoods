@@ -183,7 +183,7 @@ final class StockPostingService
             ) {
                 throw ValidationException::withMessages([
                     'source_position_id' => [
-                        'The source position must match the command company, plant, item, lot, quality status, and UOM.',
+                        'The source position must match the command company, plant, item, lot, inventory owner, quality status, and UOM.',
                     ],
                 ]);
             }
