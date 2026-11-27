@@ -692,10 +692,10 @@ function MovementTable({ rows, selectedId, loading, onOpen }: { rows: InventoryM
     return <tr key={row.id} className={selectedId === row.id ? 'selected-row' : ''}>
       <td><b>{display(row.movement_type)}</b><small className="mono">{shortId(row.id)}</small></td>
       <td><StatusBadge status={row.direction} /></td>
-      <td><b>{position?.sku.name ?? 'Referenced stock'}</b><small>{position?.sku.code} Â· {position?.lot.code}</small></td>
+      <td><b>{position?.sku.name ?? 'Referenced stock'}</b><small>{position?.sku.code} · {position?.lot.code}</small></td>
       <td>{movementPosition(row.from_position)}</td><td>{movementPosition(row.to_position)}</td>
       <td><b>{quantity(row.quantity_base)} {row.uom_code}</b><small>{display(row.reason_code ?? 'No reason')}</small></td>
-      <td><b>{row.source.operation_number ?? display(row.source.type)}</b><small>v{row.source.version ?? 'â€”'}</small></td>
+      <td><b>{row.source.operation_number ?? display(row.source.type)}</b><small>v{row.source.version ?? '—'}</small></td>
       <td>{dateTime(row.posted_at)}</td>
       <td><button className="secondary compact-button" type="button" onClick={() => void onOpen(row.id)}>Open</button></td>
     </tr>;
@@ -714,14 +714,14 @@ function MovementDetail({ detail, loading, error }: { detail: InventoryMovement 
         <Fact label="Quantity" value={`${quantity(detail.quantity_base)} ${detail.uom_code}`} />
         <Fact label="Direction" value={detail.direction} />
         <Fact label="Reason" value={display(detail.reason_code ?? 'Not supplied')} />
-        <Fact label="Source version" value={`v${detail.source.version ?? 'â€”'}`} />
+        <Fact label="Source version" value={`v${detail.source.version ?? '—'}`} />
       </div>
       <dl className="control-definition">
-        <FactDefinition label="SKU / lot" value={position?.sku.name ?? 'Referenced stock'} note={`${position?.sku.code ?? 'â€”'} Â· ${position?.lot.code ?? 'â€”'}`} />
-        <FactDefinition label="Inventory owner" value={position?.owner.name ?? 'â€”'} note={position?.owner.code ?? 'â€”'} />
+        <FactDefinition label="SKU / lot" value={position?.sku.name ?? 'Referenced stock'} note={`${position?.sku.code ?? '—'} · ${position?.lot.code ?? '—'}`} />
+        <FactDefinition label="Inventory owner" value={position?.owner.name ?? '—'} note={position?.owner.code ?? '—'} />
         <FactDefinition label="From position" value={detail.from_position?.location.name ?? 'External source'} note={movementPosition(detail.from_position)} />
         <FactDefinition label="To position" value={detail.to_position?.location.name ?? 'External destination'} note={movementPosition(detail.to_position)} />
-        <FactDefinition label="Business source" value={detail.source.operation_number ?? display(detail.source.type)} note={`${detail.source.id} Â· ${detail.source.operation_type ?? 'External workflow'}`} />
+        <FactDefinition label="Business source" value={detail.source.operation_number ?? display(detail.source.type)} note={`${detail.source.id} · ${detail.source.operation_type ?? 'External workflow'}`} />
         <FactDefinition label="Posted by" value={detail.actor.name} note={dateTime(detail.posted_at)} />
       </dl>
       <section className="reservation-history"><h4>Immutable timestamps</h4><div className="quality-total-list"><div><span><b>Business event</b><small>{dateTime(detail.event_at)}</small></span><span>{detail.source.operation_status ?? 'Posted source'}</span></div><div><span><b>Ledger posting</b><small>{dateTime(detail.posted_at)}</small></span><span className="mono">{detail.id}</span></div></div></section>

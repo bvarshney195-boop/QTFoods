@@ -192,7 +192,7 @@ function ReportDetail({ run, busy, scope, exportRun, close }: { run: ReportRun; 
   }
   return <div className="requisition-detail reporting-detail">
     <header className="report-detail-header"><div><button type="button" className="text-button" onClick={close}>← Back to report runs</button><h2>{run.report_title}</h2><p>{dateTime(run.as_of_at)} · {scope} · {run.row_count} rows</p></div><div className="report-title-actions"><StatusBadge status={run.status} />{run.allowed_actions?.includes('EXPORT') ? <><button type="button" className="primary" disabled={busy} onClick={() => void exportRun('CSV')}>{busy ? 'Preparing…' : 'Download CSV'}</button><button type="button" className="secondary" disabled={busy} onClick={() => void exportRun('JSON')}>Download JSON</button></> : null}</div></header>
-    <section className="report-totals"><h4>Stored totals</h4><div>{Object.entries(run.totals).map(([key, value]) => <span key={key}>{label(key)}<b>{formatTotal(key, value)}</b></span>)}</div></section>
+    <section className="report-totals"><h4>Stored totals</h4><div>{totalEntries(run.totals).map((entry) => <span key={entry.key}>{entry.text}<b>{formatTotal(entry.formatKey, entry.value)}</b></span>)}</div></section>
     <section className="report-rows"><div className="section-heading"><h4>Snapshot rows</h4><details className="column-selector"><summary>Choose columns ({visibleColumns.length}/{columns.length})</summary><div>{columns.map((column) => <label key={column.key}><input type="checkbox" checked={visibleKeys.includes(column.key)} onChange={() => toggleColumn(column.key)} />{column.label}</label>)}</div></details></div>{rows.length ? <div className="table-wrap"><table><thead><tr>{visibleColumns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{visibleColumns.map((column) => <td key={column.key}>{formatCell(row.data[column.key], column)}</td>)}</tr>)}</tbody></table></div> : <Empty text="The controlled source contained no rows at this cutoff." />}</section>
     <details className="report-export-details"><summary>Export details and integrity</summary><dl className="control-definition"><Datum label="Run" value={run.run_number} /><Datum label="Cutoff" value={dateTime(run.as_of_at)} /><Datum label="Source freshness" value={dateTime(run.source_freshness_at)} /><Datum label="Generated" value={`${dateTime(run.generated_at)} by ${run.created_by.name}`} /><Datum label="Snapshot SHA-256" value={run.sha256} wide mono /><Datum label="Parameters" value={Object.entries(run.parameters).map(([key, value]) => `${label(key)}: ${value ? 'Yes' : 'No'}`).join(' · ') || 'None'} wide /></dl>{run.exports?.length ? <section className="report-exports"><h4>Export evidence</h4>{run.exports.map((item) => <div key={item.id}><StatusBadge status={item.format} /><span><b>{item.file_name}</b><small>{formatBytes(item.size_bytes)} · {item.created_by.name} · {dateTime(item.created_at)}</small><code>{item.sha256}</code></span></div>)}</section> : <p>No exports have been created from this snapshot.</p>}</details>
   </div>;
@@ -211,6 +211,27 @@ function label(value: string) { return value.toLowerCase().replace(/_/g, ' ').re
 function number(value: unknown, digits = 2) { const parsed = Number(value); return Number.isFinite(parsed) ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(parsed) : String(value ?? '—'); }
 function formatCell(value: unknown, column: ReportColumn) { if (value === null || value === undefined || value === '') return '—'; if (column.type === 'DATE') return date(value); if (column.type === 'MONEY') return number(value, 2); if (column.type === 'QUANTITY') return number(value, 3); if (column.type === 'PERCENT') return `${number(value, 2)}%`; return String(value); }
 function formatTotal(key: string, value: unknown) { if (key.includes('count')) return String(value); return number(value, key.includes('amount') || key === 'debit' || key === 'credit' || key === 'balance' || key === 'order_value' ? 2 : 3); }
+function totalEntries(totals: Record<string, unknown>) {
+  const grouped = Array.isArray(totals.quantities_by_uom)
+    ? totals.quantities_by_uom.filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value))
+    : [];
+  if (grouped.length) {
+    const entries: Array<{ key: string; text: string; formatKey: string; value: unknown }> = [];
+    if (totals.position_count !== null && totals.position_count !== undefined) entries.push({
+      key: 'position_count', text: label('position_count'), formatKey: 'position_count', value: totals.position_count,
+    });
+    for (const group of grouped) {
+      const uom = String(group.uom_code ?? 'UOM');
+      for (const key of ['on_hand', 'reserved', 'available', 'blocked']) {
+        entries.push({ key: `${key}-${uom}`, text: `${label(key)} (${uom})`, formatKey: key, value: group[key] });
+      }
+    }
+    return entries;
+  }
+  return Object.entries(totals)
+    .filter(([key, value]) => !['quantity_summary_status', 'quantities_by_uom', 'uom_code'].includes(key) && value !== null && value !== undefined)
+    .map(([key, value]) => ({ key, text: label(key), formatKey: key, value }));
+}
 function formatBytes(value: number) { if (value < 1024) return `${value} B`; if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`; return `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function message(error: unknown, fallback: string) { return isApiError(error) ? error.message : error instanceof Error ? error.message : fallback; }
 function capture(error: unknown, setError: (value: string) => void, setFields: (value: Record<string, string>) => void, fallback: string) { setError(message(error, fallback)); setFields(isApiError(error) && error.fields ? Object.fromEntries(Object.entries(error.fields).map(([key, values]) => [key, values[0]])) : {}); }

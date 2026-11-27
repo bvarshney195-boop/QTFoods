@@ -118,6 +118,11 @@ final class InventoryOperationsEndpointTest extends TestCase
             ->assertJsonPath('summary.outbound', 1)
             ->assertJsonPath('summary.inbound', 1)
             ->assertJsonPath('summary.transfer', 0);
+        $lotCode = (string) DB::table('stock_positions as position')->join('lots as lot', 'lot.id', '=', 'position.lot_id')
+            ->where('position.id', self::AVAILABLE)->value('lot.internal_lot_code');
+        $issueMovementId = (string) DB::table('stock_movements')->where('source_id', $issueId)->value('id');
+        $filtered = $this->getJson('/api/v1/inventory/movements?q='.urlencode($lotCode))->assertOk();
+        $this->assertContains($issueMovementId, collect($filtered->json('data'))->pluck('id')->all());
         $movementId = $history->json('data.0.id');
         $this->getJson('/api/v1/inventory/movements/'.$movementId)
             ->assertOk()->assertJsonPath('data.source.type', 'INVENTORY_OPERATION');

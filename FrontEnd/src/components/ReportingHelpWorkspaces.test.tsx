@@ -75,6 +75,30 @@ describe('Controlled reporting workspace', () => {
     expect(reportingApi.downloadReportExport).toHaveBeenCalledWith('export-1');
     expect(await screen.findByText(/CSV export created from stored snapshot rows/i)).toBeInTheDocument();
   });
+
+  it('renders mixed inventory totals per UOM without adding unlike quantities', async () => {
+    const user = userEvent.setup();
+    const run = reportRun();
+    run.report_code = 'INVENTORY_AVAILABILITY';
+    run.report_title = 'Inventory availability';
+    run.totals = {
+      position_count: 2,
+      quantity_summary_status: 'MIXED_UOM',
+      quantities_by_uom: [
+        { uom_code: 'KG', on_hand: '1.000000', reserved: '0.000000', available: '1.000000', blocked: '0.000000' },
+        { uom_code: 'PCS', on_hand: '2852.000000', reserved: '0.000000', available: '1006.000000', blocked: '1846.000000' },
+      ],
+      on_hand: null,
+    };
+    reportingApi.listReportRuns.mockResolvedValue(reportWorkspace([run]));
+    reportingApi.getReportRun.mockResolvedValue(run);
+    renderReporting();
+
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(screen.getByText('On Hand (KG)')).toBeInTheDocument();
+    expect(screen.getByText('On Hand (PCS)')).toBeInTheDocument();
+    expect(screen.queryByText('2,853.000')).not.toBeInTheDocument();
+  });
 });
 
 describe('Help and support workspace', () => {

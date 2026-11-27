@@ -2,7 +2,7 @@ import { apiMutation, apiRequest } from './client';
 
 export type Actor = { id: string; name: string };
 export type Supplier = { id: string; code: string; name: string };
-export type Item = { id: string; code: string; name: string };
+export type Item = { id: string; code: string; name: string; item_type?: string };
 export type PageMeta = { current_page: number; last_page: number; per_page: number; total: number };
 export type CommandResult = { id: string; status: string; record_version: number; [key: string]: unknown };
 

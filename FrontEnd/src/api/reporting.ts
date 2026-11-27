@@ -53,7 +53,7 @@ export type ReportRun = {
   parameters: Record<string, boolean>;
   columns: ReportColumn[];
   row_count: number;
-  totals: Record<string, string | number>;
+  totals: Record<string, unknown>;
   sha256: string;
   record_version: number;
   generated_at: string;

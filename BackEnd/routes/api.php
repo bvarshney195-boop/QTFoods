@@ -121,6 +121,7 @@ Route::middleware('web')->prefix('v1')->group(function () {
                     ->whereUuid('batchId')->middleware('erp.permission:ACTION:WRK-HOME:IMPORT');
                 Route::get('/experience/imports/{batchId}/errors', [ExperienceController::class, 'importErrors'])
                     ->whereUuid('batchId');
+                Route::get('/experience/exports/parties', [ExperienceController::class, 'exportParties']);
             });
             Route::get('/work/tasks', [WorkQueueController::class, 'index'])
                 ->middleware('erp.screen:WRK-HOME');

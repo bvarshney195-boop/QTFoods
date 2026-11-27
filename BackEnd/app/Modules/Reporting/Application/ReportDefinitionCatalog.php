@@ -78,6 +78,7 @@ final class ReportDefinitionCatalog
                     ['key' => 'on_hand', 'label' => 'On hand', 'type' => 'QUANTITY'],
                     ['key' => 'reserved', 'label' => 'Reserved', 'type' => 'QUANTITY'],
                     ['key' => 'available', 'label' => 'Available', 'type' => 'QUANTITY'],
+                    ['key' => 'blocked', 'label' => 'Blocked', 'type' => 'QUANTITY'],
                 ],
             ],
             'ORDER_FULFILMENT' => [

@@ -2,8 +2,9 @@ FROM php:8.5-fpm-bookworm@sha256:81b9c405b013ebda0c9b8cd7a1a61424cf3627ca96348d9
 
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends $PHPIZE_DEPS libpq-dev libsqlite3-dev unzip \
-    && docker-php-ext-install -j"$(nproc)" bcmath pdo_pgsql pdo_sqlite \
+    && apt-get install -y --no-install-recommends $PHPIZE_DEPS libfreetype6-dev libjpeg62-turbo-dev libpng-dev libpq-dev libsqlite3-dev libzip-dev unzip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" bcmath gd pdo_pgsql pdo_sqlite zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && rm -rf /var/lib/apt/lists/*

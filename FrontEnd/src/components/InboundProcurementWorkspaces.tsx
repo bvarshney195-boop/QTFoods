@@ -47,7 +47,7 @@ export function GoodsReceiptWorkspace() {
   const refresh = useCallback(async () => { setLoading(true); try { setWorkspace(await listReceipts({ q: search || undefined, status: status || undefined })); } catch (error) { fail(setFeedback, error, 'Unable to load GRNs.'); } finally { setLoading(false); } }, [contextKey, search, status]);
   useEffect(() => { void refresh(); }, [refresh]); useEffect(() => { setSelected(null); setEditing(false); setSearch(''); setStatus(''); setFeedback(emptyFeedback()); }, [contextKey]); useEffect(() => { key.current = null; }, [form, selected?.record_version]);
   async function choose(id: string) { setFeedback(emptyFeedback()); setEditing(false); try { const record = await getReceipt(id); setSelected(record); setForm(receiptForm(record)); } catch (error) { fail(setFeedback, error, 'Unable to load GRN detail.'); } }
-  function selectGate(gateId: string) { const gate = workspace?.lookups.arrived_gate_entries.find((entry) => entry.id === gateId); setForm(fromGate(gate, workspace)); }
+  function selectGate(gateId: string) { const gate = workspace?.lookups.arrived_gate_entries.find((entry) => entry.id === gateId); setForm((current) => fromGate(gate, workspace, current)); }
   function startNew() { setSelected(null); setForm(blankReceipt()); setEditing(true); setFeedback(emptyFeedback()); }
   function startEdit() { if (!selected?.lines) return; setForm(receiptForm(selected)); setEditing(true); setFeedback(emptyFeedback()); }
   async function save(event: FormEvent) { event.preventDefault(); const fields: Record<string, string> = {}; if (!form.receipt_number.trim()) fields.receipt_number = 'GRN number is required.'; if (!form.gate_entry_id) fields.gate_entry_id = 'Choose an arrived gate entry.'; if (!form.lines.length) fields.lines = 'At least one open PO line is required.'; form.lines.forEach((line, index) => { if (number(line.received_quantity) <= 0) fields[`lines.${index}.received_quantity`] = 'Enter a positive receipt quantity.'; if (!line.internal_lot_code.trim()) fields[`lines.${index}.internal_lot_code`] = 'Internal lot is required.'; if (!line.quality_hold_location_id) fields[`lines.${index}.quality_hold_location_id`] = 'Choose a Quality Hold location.'; if (!line.released_location_id) fields[`lines.${index}.released_location_id`] = 'Choose a released store location.'; }); if (Object.keys(fields).length) { setFeedback({ error: firstFieldSummary(fields, 'Unable to save GRN'), success: null, fields }); focusInboundField(fields); return; } setBusy(true); try { key.current ??= crypto.randomUUID(); const lines = form.lines.map(({ label: _label, remaining_quantity: _remaining, uom_code: _uom, ...line }) => ({ ...line, supplier_lot_code: nullable(line.supplier_lot_code), manufacture_date: nullable(line.manufacture_date), expiry_date: nullable(line.expiry_date), notes: nullable(line.notes) })); const body = { receipt_date: form.receipt_date, supplier_document_number: nullable(form.supplier_document_number), notes: nullable(form.notes), lines }; const result = selected ? await updateReceipt(selected, body, key.current) : await createReceipt({ ...body, receipt_number: form.receipt_number.trim().toUpperCase(), gate_entry_id: form.gate_entry_id }, key.current); key.current = null; await refresh(); setSelected(await getReceipt(result.id)); setEditing(false); setFeedback({ error: null, success: selected ? 'Draft GRN updated.' : 'Draft GRN created.', fields: {} }); } catch (error) { fail(setFeedback, error, 'Unable to save the GRN.'); } finally { setBusy(false); } }
@@ -114,7 +114,36 @@ function gateForm(record: GateEntry): ReturnType<typeof blankGate> { return { pu
 type ReceiptForm = ReturnType<typeof blankReceipt>;
 function blankReceipt() { return { receipt_number: '', gate_entry_id: '', receipt_date: today(), supplier_document_number: '', notes: '', lines: [] as { purchase_order_line_id: string; label: string; remaining_quantity: string; uom_code: string; received_quantity: string; internal_lot_code: string; supplier_lot_code: string; manufacture_date: string; expiry_date: string; quality_hold_location_id: string; released_location_id: string; notes: string }[] }; }
 function receiptForm(record: GoodsReceipt): ReceiptForm { return { receipt_number: record.receipt_number, gate_entry_id: record.gate_entry.id, receipt_date: record.receipt_date, supplier_document_number: record.supplier_document_number ?? '', notes: record.notes ?? '', lines: record.lines?.map((line) => ({ purchase_order_line_id: line.purchase_order_line_id, label: `${line.item.code} · ${line.description}`, remaining_quantity: line.ordered_quantity, uom_code: line.uom_code, received_quantity: line.received_quantity, internal_lot_code: line.internal_lot_code, supplier_lot_code: line.supplier_lot_code ?? '', manufacture_date: line.manufacture_date ?? '', expiry_date: line.expiry_date ?? '', quality_hold_location_id: line.quality_hold_location.id, released_location_id: line.released_location.id, notes: line.notes ?? '' })) ?? [] }; }
-function fromGate(gate: ArrivedGateLookup | undefined, workspace: ReceiptWorkspace | null): ReceiptForm { const base = blankReceipt(); if (!gate) return base; return { ...base, gate_entry_id: gate.id, supplier_document_number: gate.supplier_document_number ?? '', lines: gate.lines.map((line) => ({ purchase_order_line_id: line.id, label: `${line.item.code} · ${line.description}`, remaining_quantity: line.remaining_quantity, uom_code: line.uom_code, received_quantity: line.remaining_quantity, internal_lot_code: '', supplier_lot_code: '', manufacture_date: '', expiry_date: '', quality_hold_location_id: workspace?.lookups.quality_hold_locations[0]?.id ?? '', released_location_id: workspace?.lookups.released_locations[0]?.id ?? '', notes: '' })) }; }
+function fromGate(gate: ArrivedGateLookup | undefined, workspace: ReceiptWorkspace | null, current: ReceiptForm = blankReceipt()): ReceiptForm {
+  if (!gate) return { ...current, gate_entry_id: '', lines: [] };
+  const releasedLocations = workspace?.lookups.released_locations ?? [];
+  return {
+    ...current,
+    gate_entry_id: gate.id,
+    supplier_document_number: gate.supplier_document_number ?? current.supplier_document_number,
+    lines: gate.lines.map((line) => ({
+      purchase_order_line_id: line.id,
+      label: `${line.item.code} · ${line.description}`,
+      remaining_quantity: line.remaining_quantity,
+      uom_code: line.uom_code,
+      received_quantity: line.remaining_quantity,
+      internal_lot_code: '',
+      supplier_lot_code: '',
+      manufacture_date: '',
+      expiry_date: '',
+      quality_hold_location_id: workspace?.lookups.quality_hold_locations[0]?.id ?? '',
+      released_location_id: preferredReleasedLocation(line.item.item_type, releasedLocations)?.id ?? '',
+      notes: '',
+    })),
+  };
+}
+function preferredReleasedLocation(itemType: string | undefined, locations: ReceiptWorkspace['lookups']['released_locations']) {
+  const locationType = itemType === 'FINISHED_GOOD' ? 'FINISHED_GOODS'
+    : ['RAW_MATERIAL', 'PACKAGING'].includes(itemType ?? '') ? 'RAW_MATERIAL'
+      : itemType === 'INTERMEDIATE' ? 'WAREHOUSE' : null;
+  return (locationType ? locations.find((location) => location.location_type === locationType) : undefined)
+    ?? (locations.length === 1 ? locations[0] : undefined);
+}
 function patchLine(setForm: React.Dispatch<React.SetStateAction<ReceiptForm>>, index: number, patch: Partial<ReceiptForm['lines'][number]>) { setForm((value) => ({ ...value, lines: value.lines.map((line, position) => position === index ? { ...line, ...patch } : line) })); }
 function patchDecision(set: React.Dispatch<React.SetStateAction<{ quality_line_id: string; accepted_quantity: string; rejected_quantity: string; rejection_reason: string }[]>>, index: number, patch: Record<string, string>) { set((values) => values.map((line, position) => position === index ? { ...line, ...patch } : line)); }
 function blankReturn() { return { return_number: '', return_date: today(), reason: '', quality_line_id: '', return_quantity: '', line_reason: '' }; }

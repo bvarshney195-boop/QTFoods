@@ -236,6 +236,25 @@ final class InventoryOperationQuery
                 ] as $column) {
                     $query->orWhereRaw("LOWER(COALESCE({$column}, '')) LIKE ?", [$needle]);
                 }
+                foreach (['source' => 'from_position_id', 'target' => 'to_position_id'] as $alias => $positionColumn) {
+                    $query->orWhereExists(function (Builder $position) use ($alias, $positionColumn, $needle): void {
+                        $position->selectRaw('1')
+                            ->from("stock_positions as searched_{$alias}_position")
+                            ->join("lots as searched_{$alias}_lot", "searched_{$alias}_lot.id", '=', "searched_{$alias}_position.lot_id")
+                            ->join("items as searched_{$alias}_item", "searched_{$alias}_item.id", '=', "searched_{$alias}_position.item_id")
+                            ->whereColumn("searched_{$alias}_position.id", "movement.{$positionColumn}")
+                            ->where(function (Builder $match) use ($alias, $needle): void {
+                                foreach ([
+                                    "searched_{$alias}_lot.internal_lot_code",
+                                    "searched_{$alias}_lot.supplier_lot_code",
+                                    "searched_{$alias}_item.code",
+                                    "searched_{$alias}_item.name",
+                                ] as $column) {
+                                    $match->orWhereRaw("LOWER(COALESCE({$column}, '')) LIKE ?", [$needle]);
+                                }
+                            });
+                    });
+                }
             });
         }
         if (! empty($filters['movement_type'])) {

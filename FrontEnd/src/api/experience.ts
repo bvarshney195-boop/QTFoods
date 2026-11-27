@@ -30,3 +30,4 @@ export const previewImport = async (entityType: 'PARTIES' | 'ITEMS', file: File)
 export const commitImport = (id: string) => apiMutation(`/api/v1/experience/imports/${id}/commit`, {});
 export const rollbackImport = (id: string) => apiMutation(`/api/v1/experience/imports/${id}/rollback`, {});
 export const downloadImportErrors = (id: string) => apiDownload(`/api/v1/experience/imports/${id}/errors`);
+export const downloadPartyExport = () => apiDownload('/api/v1/experience/exports/parties');

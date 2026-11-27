@@ -376,14 +376,15 @@ final class InboundProcurementQuery
                 $lines = DB::table('purchase_order_lines as po_line')->join('items as item', 'item.id', '=', 'po_line.item_id')
                     ->where('po_line.purchase_order_id', $row->purchase_order_id)->orderBy('po_line.line_number')
                     ->get(['po_line.id', 'po_line.line_number', 'po_line.item_id', 'po_line.description', 'po_line.ordered_quantity',
-                        'po_line.uom_code', 'item.code as item_code', 'item.name as item_name'])
+                        'po_line.uom_code', 'item.code as item_code', 'item.name as item_name', 'item.item_type'])
                     ->map(function (object $line): array {
                         $received = $this->decimal(DB::table('receipt_lines as receipt_line')
                             ->join('receipts as receipt', 'receipt.id', '=', 'receipt_line.receipt_id')
                             ->where('receipt_line.purchase_order_line_id', $line->id)
                             ->whereIn('receipt.status', ['QC_PENDING', 'COMPLETED'])->sum('receipt_line.received_quantity'));
                         return ['id' => (string) $line->id, 'line_number' => (int) $line->line_number,
-                            'item' => ['id' => (string) $line->item_id, 'code' => $line->item_code, 'name' => $line->item_name],
+                            'item' => ['id' => (string) $line->item_id, 'code' => $line->item_code,
+                                'name' => $line->item_name, 'item_type' => $line->item_type],
                             'description' => $line->description, 'ordered_quantity' => $this->decimal($line->ordered_quantity),
                             'received_quantity' => $received, 'remaining_quantity' => bcsub($this->decimal($line->ordered_quantity), $received, 6),
                             'uom_code' => $line->uom_code];

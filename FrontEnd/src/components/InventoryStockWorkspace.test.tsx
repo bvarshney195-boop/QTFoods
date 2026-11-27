@@ -182,6 +182,8 @@ describe('inventory stock workspace', () => {
     await screen.findByText('Raw Material Store');
     await user.click(screen.getByRole('button', { name: 'Movement history' }));
     expect((await screen.findAllByText('Inventory issue')).length).toBeGreaterThan(0);
+    expect(screen.getByText('SKU-APPLE-BASE · RM-APPLE-2609A')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Â');
     await user.click(screen.getByRole('button', { name: 'Open' }));
     expect((await screen.findAllByText('Production issue')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('ISS-UI-001').length).toBeGreaterThan(0);

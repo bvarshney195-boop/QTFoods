@@ -324,16 +324,18 @@ final class ReportingService
         }
         $rows = $query->orderBy('item.code')->orderBy('lot.expiry_date')->orderBy('location.code')->get([
             'item.code as item_code', 'item.name as item_name', 'lot.internal_lot_code as lot_code',
-            'lot.expiry_date', 'owner.code as owner_code', 'location.code as location_code',
+            'lot.status as lot_status', 'lot.expiry_date', 'owner.code as owner_code', 'location.code as location_code',
             'position.quality_status', 'position.uom_code', 'position.quantity_base',
-            'position.reserved_quantity_base', 'quality.is_reservable',
+            'position.reserved_quantity_base', 'quality.availability_bucket', 'quality.is_reservable',
         ])->map(function (object $position) use ($cutoff): array {
             $onHand = $this->decimal($position->quantity_base);
             $reserved = $this->decimal($position->reserved_quantity_base);
             $difference = bcsub($onHand, $reserved, 6);
-            $available = $position->is_reservable && bccomp($difference, '0', 6) > 0
-                ? $difference
-                : '0.000000';
+            $eligible = $position->availability_bucket === 'AVAILABLE'
+                && $position->lot_status === 'ACTIVE'
+                && $this->expiryRisk($position->expiry_date, $cutoff) !== 'EXPIRED';
+            $available = $eligible ? $difference : '0.000000';
+            $blocked = $eligible ? '0.000000' : $difference;
 
             return [
                 'item_code' => $position->item_code,
@@ -348,43 +350,102 @@ final class ReportingService
                 'on_hand' => $onHand,
                 'reserved' => $reserved,
                 'available' => $this->decimal($available),
+                'blocked' => $this->decimal($blocked),
             ];
         })->all();
         $freshness = (clone $query)->max('position.updated_at');
 
+        $byUom = [];
+        foreach ($rows as $row) {
+            $uom = $row['uom_code'];
+            $byUom[$uom] ??= [
+                'uom_code' => $uom,
+                'on_hand' => '0.000000',
+                'reserved' => '0.000000',
+                'available' => '0.000000',
+                'blocked' => '0.000000',
+            ];
+            foreach (['on_hand', 'reserved', 'available', 'blocked'] as $quantity) {
+                $byUom[$uom][$quantity] = bcadd($byUom[$uom][$quantity], $row[$quantity], 6);
+            }
+        }
+        ksort($byUom);
+        $single = count($byUom) === 1 ? array_values($byUom)[0] : null;
+
         return [$rows, [
-            'on_hand' => $this->sum($rows, 'on_hand'), 'reserved' => $this->sum($rows, 'reserved'),
-            'available' => $this->sum($rows, 'available'), 'position_count' => count($rows),
+            'position_count' => count($rows),
+            'quantity_summary_status' => $single ? 'SINGLE_UOM' : (count($byUom) > 1 ? 'MIXED_UOM' : 'EMPTY'),
+            'quantities_by_uom' => array_values($byUom),
+            'on_hand' => $single['on_hand'] ?? null,
+            'reserved' => $single['reserved'] ?? null,
+            'available' => $single['available'] ?? null,
+            'blocked' => $single['blocked'] ?? null,
+            'uom_code' => $single['uom_code'] ?? null,
         ], $freshness];
     }
 
     private function orderFulfilment(CarbonImmutable $cutoff, array $parameters, array $data): array
     {
-        $lineTotals = DB::table('sales_order_lines')->where($this->scope($data))->groupBy('sales_order_id')->get([
+        $cutoffUtc = $cutoff->utc();
+        $lineTotals = DB::table('sales_order_lines')->where($this->scope($data))
+            ->where('created_at', '<=', $cutoffUtc)->groupBy('sales_order_id')->get([
             'sales_order_id', DB::raw('SUM(ordered_quantity) as ordered_quantity'),
-            DB::raw('SUM(allocated_quantity) as allocated_quantity'),
-            DB::raw('SUM(dispatched_quantity) as dispatched_quantity'),
-            DB::raw('SUM(invoiced_quantity) as invoiced_quantity'),
         ])->keyBy('sales_order_id');
+        $allocationTotals = DB::table('sales_allocation_lines as allocation_line')
+            ->join('sales_allocations as allocation', 'allocation.id', '=', 'allocation_line.sales_allocation_id')
+            ->where('allocation.company_id', $data['company_id'])->where('allocation.plant_id', $data['plant_id'])
+            ->where('allocation.created_at', '<=', $cutoffUtc)
+            ->where(fn ($query) => $query->whereNull('allocation.cancelled_at')->orWhere('allocation.cancelled_at', '>', $cutoffUtc))
+            ->groupBy('allocation.sales_order_id')->get([
+                'allocation.sales_order_id', DB::raw('SUM(allocation_line.allocated_quantity) as allocated_quantity'),
+                DB::raw('MAX(allocation.created_at) as allocated_at'), DB::raw('MAX(allocation.picked_at) as picked_at'),
+            ])->keyBy('sales_order_id');
+        $shipmentStages = DB::table('shipments as shipment')
+            ->where('shipment.company_id', $data['company_id'])->where('shipment.plant_id', $data['plant_id'])
+            ->where('shipment.shipment_type', 'SALES')->whereNotNull('shipment.sales_order_id')
+            ->where('shipment.created_at', '<=', $cutoffUtc)
+            ->where(fn ($query) => $query->whereNull('shipment.cancelled_at')->orWhere('shipment.cancelled_at', '>', $cutoffUtc))
+            ->groupBy('shipment.sales_order_id')->get([
+                'shipment.sales_order_id', DB::raw('MAX(shipment.loaded_at) as loaded_at'),
+                DB::raw('MAX(shipment.dispatched_at) as dispatched_at'), DB::raw('MAX(shipment.delivered_at) as delivered_at'),
+            ])->keyBy('sales_order_id');
+        $dispatchedTotals = DB::table('shipment_lines as shipment_line')
+            ->join('shipments as shipment', 'shipment.id', '=', 'shipment_line.shipment_id')
+            ->where('shipment.company_id', $data['company_id'])->where('shipment.plant_id', $data['plant_id'])
+            ->where('shipment.shipment_type', 'SALES')->whereNotNull('shipment.sales_order_id')
+            ->where('shipment.dispatched_at', '<=', $cutoffUtc)
+            ->groupBy('shipment.sales_order_id')->get([
+                'shipment.sales_order_id', DB::raw('SUM(shipment_line.shipped_quantity) as dispatched_quantity'),
+            ])->keyBy('sales_order_id');
+        $invoicedTotals = DB::table('shipment_lines as shipment_line')
+            ->join('shipments as shipment', 'shipment.id', '=', 'shipment_line.shipment_id')
+            ->where('shipment.company_id', $data['company_id'])->where('shipment.plant_id', $data['plant_id'])
+            ->where('shipment.shipment_type', 'SALES')->whereNotNull('shipment.sales_order_id')
+            ->whereExists(fn ($invoice) => $invoice->selectRaw('1')->from('sales_invoice_financials as invoice')
+                ->whereColumn('invoice.shipment_id', 'shipment.id')->where('invoice.issued_at', '<=', $cutoffUtc))
+            ->groupBy('shipment.sales_order_id')->get([
+                'shipment.sales_order_id', DB::raw('SUM(shipment_line.shipped_quantity) as invoiced_quantity'),
+            ])->keyBy('sales_order_id');
         $query = DB::table('sales_orders as sales_order')
             ->join('parties as customer', function ($join): void {
                 $join->on('customer.id', '=', 'sales_order.customer_party_id')
                     ->on('customer.company_id', '=', 'sales_order.company_id');
             })
             ->where('sales_order.company_id', $data['company_id'])->where('sales_order.plant_id', $data['plant_id'])
-            ->where('sales_order.order_type', 'SALES')->whereDate('sales_order.order_date', '<=', $cutoff->toDateString());
+            ->where('sales_order.order_type', 'SALES')->whereDate('sales_order.order_date', '<=', $cutoff->toDateString())
+            ->where('sales_order.created_at', '<=', $cutoffUtc);
         $this->visibility->apply($query, 'SALES_ORDER', 'sales_order.id', $data['permissions'], null, 'report_order_visibility', false);
-        if (! $parameters['include_closed']) {
-            $query->whereNotIn('sales_order.status', ['COMPLETED', 'CANCELLED']);
-        }
         $rows = $query->orderBy('sales_order.requested_delivery_date')->orderBy('sales_order.order_number')->get([
             'sales_order.id', 'sales_order.order_number', 'sales_order.order_date', 'sales_order.requested_delivery_date',
-            'sales_order.status', 'sales_order.currency', 'sales_order.total_amount',
+            'sales_order.status', 'sales_order.currency', 'sales_order.total_amount', 'sales_order.confirmed_at',
+            'sales_order.cancelled_at',
             'customer.code as customer_code', 'customer.display_name as customer_name',
-        ])->map(function (object $order) use ($lineTotals): array {
+        ])->map(function (object $order) use ($lineTotals, $allocationTotals, $shipmentStages, $dispatchedTotals, $invoicedTotals, $cutoff): array {
             $totals = $lineTotals->get($order->id);
+            $allocation = $allocationTotals->get($order->id);
+            $shipment = $shipmentStages->get($order->id);
             $ordered = $this->decimal($totals?->ordered_quantity);
-            $dispatched = $this->decimal($totals?->dispatched_quantity);
+            $dispatched = $this->decimal($dispatchedTotals->get($order->id)?->dispatched_quantity);
             $percent = bccomp($ordered, '0', 6) > 0
                 ? bcdiv(bcmul($dispatched, '100', 10), $ordered, 2)
                 : '0.00';
@@ -395,16 +456,18 @@ final class ReportingService
                 'customer_name' => $order->customer_name,
                 'order_date' => $order->order_date,
                 'required_by' => $order->requested_delivery_date,
-                'status' => $order->status,
+                'status' => $this->orderStatusAt($order, $allocation, $shipment, $cutoff),
                 'currency' => $order->currency,
                 'order_value' => $this->decimal($order->total_amount),
                 'ordered_quantity' => $ordered,
-                'allocated_quantity' => $this->decimal($totals?->allocated_quantity),
+                'allocated_quantity' => $this->decimal($allocation?->allocated_quantity),
                 'dispatched_quantity' => $dispatched,
-                'invoiced_quantity' => $this->decimal($totals?->invoiced_quantity),
+                'invoiced_quantity' => $this->decimal($invoicedTotals->get($order->id)?->invoiced_quantity),
                 'fulfilment_percent' => $percent,
             ];
-        })->all();
+        })->when(! $parameters['include_closed'], fn ($rows) => $rows->reject(
+            fn (array $row): bool => in_array($row['status'], ['COMPLETED', 'CANCELLED'], true),
+        ))->values()->all();
         $freshness = (clone $query)->max('sales_order.updated_at');
 
         return [$rows, [
@@ -413,6 +476,26 @@ final class ReportingService
             'dispatched_quantity' => $this->sum($rows, 'dispatched_quantity'),
             'invoiced_quantity' => $this->sum($rows, 'invoiced_quantity'),
         ], $freshness];
+    }
+
+    private function orderStatusAt(
+        object $order,
+        ?object $allocation,
+        ?object $shipment,
+        CarbonImmutable $cutoff,
+    ): string {
+        $occurred = static fn (mixed $value): bool => $value !== null
+            && CarbonImmutable::parse($value)->lessThanOrEqualTo($cutoff->utc());
+
+        if ($occurred($order->cancelled_at)) return 'CANCELLED';
+        if ($occurred($shipment?->delivered_at)) return 'COMPLETED';
+        if ($occurred($shipment?->dispatched_at)) return 'DISPATCHED';
+        if ($occurred($shipment?->loaded_at)) return 'LOADED';
+        if ($occurred($allocation?->picked_at)) return 'PICKED';
+        if ($occurred($allocation?->allocated_at)) return 'ALLOCATED';
+        if ($occurred($order->confirmed_at)) return 'CONFIRMED';
+
+        return 'DRAFT';
     }
 
     private function parameters(array $definition, array $supplied): array

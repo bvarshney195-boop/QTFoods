@@ -63,8 +63,10 @@ describe('inbound procure-to-pay workspaces', () => {
     renderPage(<GoodsReceiptWorkspace />);
 
     await user.click(await screen.findByRole('button', { name: '+ New' }));
-    await user.selectOptions(screen.getByLabelText('Arrived gate entry'), 'gate-1');
     await user.type(screen.getByLabelText('GRN number'), 'grn-ui-001');
+    await user.selectOptions(screen.getByLabelText('Arrived gate entry'), 'gate-1');
+    expect(screen.getByLabelText('GRN number')).toHaveValue('grn-ui-001');
+    expect(screen.getByLabelText('Released store')).toHaveValue('raw-store');
     fireEvent.change(screen.getByLabelText('Line 1 received quantity'), { target: { value: '4' } });
     await user.type(screen.getByLabelText('Line 1 internal lot'), 'LOT-UI-001');
     await user.click(screen.getByRole('button', { name: 'Create draft GRN' }));
@@ -189,7 +191,7 @@ function renderPage(component: React.ReactNode) {
 function pageMeta(total = 0) { return { current_page: 1, last_page: 1, per_page: 25, total }; }
 function actor() { return { id: 'operations-1', name: 'Operations Manager' }; }
 function supplier() { return { id: 'supplier-1', code: 'SUP-WEST', name: 'Western Ingredients' }; }
-function item() { return { id: 'item-1', code: 'RAW-APPLE', name: 'Apple concentrate' }; }
+function item() { return { id: 'item-1', code: 'RAW-APPLE', name: 'Apple concentrate', item_type: 'RAW_MATERIAL' }; }
 function command(id: string, status: string, recordVersion = 1) { return { id, status, record_version: recordVersion }; }
 
 function gateWorkspace(data: GateEntry[] = []): GateWorkspace {
@@ -201,7 +203,7 @@ function gate(overrides: Partial<GateEntry> = {}): GateEntry {
 }
 
 function receiptWorkspace(data: GoodsReceipt[] = []): ReceiptWorkspace {
-  return { data, meta: pageMeta(data.length), summary: {}, lookups: { statuses: ['DRAFT', 'QC_PENDING', 'COMPLETED', 'CANCELLED'], arrived_gate_entries: [{ id: 'gate-1', number: 'GATE-UI-001', purchase_order: { id: 'po-1', number: 'PO-UI-001' }, supplier: supplier(), supplier_document_number: 'CHALLAN-001', lines: [{ id: 'po-line-1', line_number: 1, item: item(), description: 'Apple concentrate', ordered_quantity: '10.000000', received_quantity: '0.000000', remaining_quantity: '10.000000', uom_code: 'KG' }] }], quality_hold_locations: [{ id: 'qc-hold', code: 'QC-HOLD', name: 'Quality Hold', location_type: 'QUALITY_HOLD' }], released_locations: [{ id: 'raw-store', code: 'RAW-STORE', name: 'Raw Store', location_type: 'RAW_MATERIAL' }] }, allowed_actions: ['CREATE'] };
+  return { data, meta: pageMeta(data.length), summary: {}, lookups: { statuses: ['DRAFT', 'QC_PENDING', 'COMPLETED', 'CANCELLED'], arrived_gate_entries: [{ id: 'gate-1', number: 'GATE-UI-001', purchase_order: { id: 'po-1', number: 'PO-UI-001' }, supplier: supplier(), supplier_document_number: 'CHALLAN-001', lines: [{ id: 'po-line-1', line_number: 1, item: item(), description: 'Apple concentrate', ordered_quantity: '10.000000', received_quantity: '0.000000', remaining_quantity: '10.000000', uom_code: 'KG' }] }], quality_hold_locations: [{ id: 'qc-hold', code: 'QC-HOLD', name: 'Quality Hold', location_type: 'QUALITY_HOLD' }], released_locations: [{ id: 'fg-store', code: 'FG-STORE', name: 'Finished Goods Store', location_type: 'FINISHED_GOODS' }, { id: 'raw-store', code: 'RAW-STORE', name: 'Raw Store', location_type: 'RAW_MATERIAL' }] }, allowed_actions: ['CREATE'] };
 }
 
 function receipt(overrides: Partial<GoodsReceipt> = {}): GoodsReceipt {

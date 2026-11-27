@@ -1,8 +1,9 @@
 FROM php:8.5-cli@sha256:9ebdf4c28ab12c02085e171c31e22ac5f7bbb6a9f6927e3bc3dfe7ee23df51e0
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends $PHPIZE_DEPS libpq-dev libsqlite3-dev unzip \
-    && docker-php-ext-install -j"$(nproc)" bcmath pdo_pgsql pdo_sqlite \
+    && apt-get install -y --no-install-recommends $PHPIZE_DEPS libfreetype6-dev libjpeg62-turbo-dev libpng-dev libpq-dev libsqlite3-dev libzip-dev unzip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" bcmath gd pdo_pgsql pdo_sqlite zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && rm -rf /var/lib/apt/lists/*

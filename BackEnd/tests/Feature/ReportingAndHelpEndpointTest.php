@@ -23,6 +23,9 @@ final class ReportingAndHelpEndpointTest extends TestCase
     private const PERIOD = '00000000-0000-4000-8000-000000002101';
     private const EXPENSE = '00000000-0000-4000-8000-000000002013';
     private const OVERHEAD = '00000000-0000-4000-8000-000000002014';
+    private const CUSTOMER = '00000000-0000-4000-8000-000000000501';
+    private const PACK_ITEM = '00000000-0000-4000-8000-000000000601';
+    private const KG_ITEM = '00000000-0000-4000-8000-000000000603';
 
     protected function setUp(): void
     {
@@ -121,6 +124,163 @@ final class ReportingAndHelpEndpointTest extends TestCase
 
         $this->signIn(self::ADMIN, self::OTHER_PLANT);
         $this->getJson('/api/v1/reports/runs/'.$runId)->assertNotFound();
+    }
+
+    public function test_inventory_report_blocks_expired_stock_and_keeps_totals_separate_by_uom(): void
+    {
+        $this->signIn(self::FINANCE);
+        DB::table('stock_positions')->where('company_id', self::COMPANY)->where('plant_id', self::PLANT)
+            ->update(['quantity_base' => 0, 'reserved_quantity_base' => 0, 'updated_at' => now()]);
+        $ownerId = (string) DB::table('inventory_owners')->where('company_id', self::COMPANY)
+            ->where('owner_type', 'COMPANY')->where('status', 'ACTIVE')->value('id');
+        $locationId = (string) DB::table('locations')->where('company_id', self::COMPANY)
+            ->where('plant_id', self::PLANT)->where('status', 'ACTIVE')->value('id');
+        $catalogItemId = (string) Str::uuid();
+        $pieceItemId = (string) Str::uuid();
+        $now = now();
+        DB::table('catalog_items')->insert([
+            'id' => $catalogItemId, 'company_id' => self::COMPANY, 'brand_id' => null,
+            'code' => 'REPORT-BREAD-PCS', 'name' => 'Report bread pieces', 'item_type' => 'FINISHED_GOOD',
+            'base_uom' => 'PCS', 'description' => 'Mixed-UOM reporting regression fixture.', 'shelf_life_days' => 3,
+            'lot_controlled' => true, 'status' => 'ACTIVE', 'record_version' => 1,
+            'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+            'status_changed_by' => self::ADMIN, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('items')->insert([
+            'id' => $pieceItemId, 'company_id' => self::COMPANY, 'catalog_item_id' => $catalogItemId,
+            'code' => 'REPORT-BREAD-PCS', 'name' => 'Report bread pieces', 'barcode' => null,
+            'description' => 'Mixed-UOM reporting regression fixture.', 'item_type' => 'FINISHED_GOOD',
+            'base_uom' => 'PCS', 'pack_quantity' => 1, 'pack_uom_code' => 'PCS', 'status' => 'ACTIVE',
+            'record_version' => 1, 'status_reason' => 'Regression fixture.', 'status_changed_at' => $now,
+            'status_changed_by' => self::ADMIN, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        $kgLotId = (string) Str::uuid();
+        $expiredLotId = (string) Str::uuid();
+        DB::table('lots')->insert([
+            [
+                'id' => $kgLotId, 'company_id' => self::COMPANY, 'item_id' => self::KG_ITEM,
+                'supplier_party_id' => null, 'internal_lot_code' => 'REPORT-FLOUR-KG', 'supplier_lot_code' => null,
+                'origin_type' => 'OPENING', 'manufacture_date' => now()->subDays(2)->toDateString(),
+                'expiry_date' => now()->addMonth()->toDateString(), 'status' => 'ACTIVE', 'notes' => null,
+                'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,
+                'status_changed_by' => null, 'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'id' => $expiredLotId, 'company_id' => self::COMPANY, 'item_id' => $pieceItemId,
+                'supplier_party_id' => null, 'internal_lot_code' => 'REPORT-BREAD-EXPIRED', 'supplier_lot_code' => null,
+                'origin_type' => 'PRODUCTION', 'manufacture_date' => now()->subDays(4)->toDateString(),
+                'expiry_date' => now()->subDay()->toDateString(), 'status' => 'ACTIVE', 'notes' => null,
+                'record_version' => 1, 'status_reason' => null, 'status_changed_at' => null,
+                'status_changed_by' => null, 'created_at' => $now, 'updated_at' => $now,
+            ],
+        ]);
+        DB::table('stock_positions')->insert([
+            [
+                'id' => (string) Str::uuid(), 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+                'item_id' => self::KG_ITEM, 'lot_id' => $kgLotId, 'owner_party_id' => null,
+                'inventory_owner_id' => $ownerId, 'location_id' => $locationId, 'quality_status' => 'RELEASED',
+                'quantity_base' => 1, 'reserved_quantity_base' => 0, 'uom_code' => 'KG', 'record_version' => 1,
+                'status_reason' => null, 'status_changed_at' => null, 'status_changed_by' => null,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'id' => (string) Str::uuid(), 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+                'item_id' => $pieceItemId, 'lot_id' => $expiredLotId, 'owner_party_id' => null,
+                'inventory_owner_id' => $ownerId, 'location_id' => $locationId, 'quality_status' => 'RELEASED',
+                'quantity_base' => 1846, 'reserved_quantity_base' => 0, 'uom_code' => 'PCS', 'record_version' => 1,
+                'status_reason' => null, 'status_changed_at' => null, 'status_changed_by' => null,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+        ]);
+
+        $run = $this->command()->postJson('/api/v1/reports/runs', [
+            'run_number' => 'REP-STOCK-UOM-001', 'report_code' => 'INVENTORY_AVAILABILITY',
+            'as_of_date' => now('Asia/Kolkata')->toDateString(), 'parameters' => ['include_zero' => false],
+        ])->assertCreated();
+        $detail = $this->getJson('/api/v1/reports/runs/'.$run->json('data.id'))->assertOk()
+            ->assertJsonPath('data.totals.quantity_summary_status', 'MIXED_UOM')
+            ->assertJsonPath('data.totals.on_hand', null)
+            ->assertJsonPath('data.totals.quantities_by_uom.0.uom_code', 'KG')
+            ->assertJsonPath('data.totals.quantities_by_uom.0.on_hand', '1.000000')
+            ->assertJsonPath('data.totals.quantities_by_uom.0.available', '1.000000')
+            ->assertJsonPath('data.totals.quantities_by_uom.1.uom_code', 'PCS')
+            ->assertJsonPath('data.totals.quantities_by_uom.1.on_hand', '1846.000000')
+            ->assertJsonPath('data.totals.quantities_by_uom.1.available', '0.000000')
+            ->assertJsonPath('data.totals.quantities_by_uom.1.blocked', '1846.000000');
+        $expired = collect($detail->json('data.rows'))->firstWhere('data.lot_code', 'REPORT-BREAD-EXPIRED');
+        $this->assertSame('EXPIRED', $expired['data']['expiry_risk']);
+        $this->assertSame('0.000000', $expired['data']['available']);
+        $this->assertSame('1846.000000', $expired['data']['blocked']);
+    }
+
+    public function test_order_fulfilment_uses_dispatch_and_invoice_events_at_the_cutoff(): void
+    {
+        $this->signIn(self::FINANCE);
+        $cutoff = now('Asia/Kolkata')->startOfDay()->subDays(2);
+        $createdAt = $cutoff->copy()->subDay()->utc();
+        $loadedAt = $cutoff->copy()->setTime(12, 0)->utc();
+        $dispatchedAt = $cutoff->copy()->addDay()->setTime(9, 0)->utc();
+        $orderId = (string) Str::uuid();
+        $lineId = (string) Str::uuid();
+        $allocationId = (string) Str::uuid();
+        $shipmentId = (string) Str::uuid();
+        DB::table('sales_orders')->insert([
+            'id' => $orderId, 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+            'status' => 'DISPATCHED', 'record_version' => 5, 'created_by' => self::FINANCE,
+            'order_type' => 'SALES', 'order_number' => 'SO-CUTOFF-DISPATCH', 'customer_party_id' => self::CUSTOMER,
+            'sales_lead_id' => null, 'sales_contract_id' => null, 'sales_price_list_id' => null,
+            'order_date' => $cutoff->copy()->subDay()->toDateString(), 'requested_delivery_date' => $cutoff->copy()->addDays(2)->toDateString(),
+            'currency' => 'INR', 'subtotal' => 100, 'discount_amount' => 0, 'tax_amount' => 0, 'total_amount' => 100,
+            'credit_limit_snapshot' => 1000, 'credit_exposure_snapshot' => 0, 'notes' => null,
+            'confirmed_at' => $createdAt, 'confirmed_by' => self::FINANCE, 'cancelled_at' => null,
+            'cancelled_by' => null, 'cancellation_reason' => null, 'created_at' => $createdAt, 'updated_at' => $dispatchedAt,
+        ]);
+        DB::table('sales_order_lines')->insert([
+            'id' => $lineId, 'sales_order_id' => $orderId, 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+            'line_number' => 1, 'item_id' => self::PACK_ITEM, 'description' => 'Cutoff test item', 'uom_code' => 'PACK',
+            'ordered_quantity' => 10, 'allocated_quantity' => 10, 'dispatched_quantity' => 10, 'invoiced_quantity' => 10,
+            'unit_price' => 10, 'discount_percent' => 0, 'tax_rate' => 0, 'net_amount' => 100,
+            'tax_amount' => 0, 'gross_amount' => 100, 'unit_cost_snapshot' => 0,
+            'sales_contract_id' => null, 'sales_contract_line_id' => null, 'created_at' => $createdAt, 'updated_at' => $dispatchedAt,
+        ]);
+        DB::table('sales_allocations')->insert([
+            'id' => $allocationId, 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+            'allocation_number' => 'ALLOC-CUTOFF-DISPATCH', 'sales_order_id' => $orderId, 'status' => 'DISPATCHED',
+            'record_version' => 3, 'created_by' => self::FINANCE, 'picked_at' => $createdAt,
+            'picked_by' => self::FINANCE, 'cancelled_at' => null, 'cancelled_by' => null,
+            'cancellation_reason' => null, 'created_at' => $createdAt, 'updated_at' => $dispatchedAt,
+        ]);
+        DB::table('shipments')->insert([
+            'id' => $shipmentId, 'company_id' => self::COMPANY, 'plant_id' => self::PLANT,
+            'status' => 'DISPATCHED', 'record_version' => 3, 'created_by' => self::FINANCE,
+            'shipment_number' => 'SHP-CUTOFF-DISPATCH', 'party_id' => self::CUSTOMER,
+            'shipment_type' => 'SALES', 'sales_order_id' => $orderId, 'sales_allocation_id' => $allocationId,
+            'carrier_name' => null, 'vehicle_number' => null, 'driver_name' => null, 'notes' => null,
+            'loaded_at' => $loadedAt, 'loaded_by' => self::FINANCE, 'dispatched_at' => $dispatchedAt,
+            'dispatched_by' => self::FINANCE, 'delivered_at' => null, 'delivered_by' => null,
+            'cancelled_at' => null, 'cancelled_by' => null, 'cancellation_reason' => null,
+            'created_at' => $createdAt, 'updated_at' => $dispatchedAt,
+        ]);
+        DB::table('shipment_lines')->insert([
+            'id' => (string) Str::uuid(), 'shipment_id' => $shipmentId, 'sales_order_id' => $orderId,
+            'sales_order_line_id' => $lineId, 'sales_allocation_line_id' => null,
+            'company_id' => self::COMPANY, 'plant_id' => self::PLANT, 'item_id' => self::PACK_ITEM,
+            'fg_lot_id' => null, 'stock_position_id' => null, 'stock_movement_id' => null,
+            'shipped_quantity' => 10, 'returned_quantity' => 0, 'uom_code' => 'PACK',
+            'unit_price' => 10, 'tax_rate' => 0, 'record_version' => 1,
+            'created_at' => $createdAt, 'updated_at' => $dispatchedAt,
+        ]);
+
+        $run = $this->command()->postJson('/api/v1/reports/runs', [
+            'run_number' => 'REP-ORDER-CUTOFF-001', 'report_code' => 'ORDER_FULFILMENT',
+            'as_of_date' => $cutoff->toDateString(), 'parameters' => ['include_closed' => true],
+        ])->assertCreated();
+        $detail = $this->getJson('/api/v1/reports/runs/'.$run->json('data.id'))->assertOk();
+        $row = collect($detail->json('data.rows'))->firstWhere('data.order_number', 'SO-CUTOFF-DISPATCH');
+        $this->assertSame('LOADED', $row['data']['status']);
+        $this->assertSame('0.000000', $row['data']['dispatched_quantity']);
+        $this->assertSame('0.000000', $row['data']['invoiced_quantity']);
+        $this->assertSame('0.00', $row['data']['fulfilment_percent']);
     }
 
     public function test_bi_analyst_role_is_read_only_and_can_run_export_and_profitability_reports(): void

@@ -4,16 +4,24 @@ namespace App\Modules\Experience\Http\Controllers;
 
 use App\Modules\Foundation\Application\SessionService;
 use App\Modules\Foundation\Domain\User;
+use App\Modules\MasterData\Application\PartyService;
 use App\Shared\Visibility\OperationalVisibilityScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class ExperienceController
@@ -150,13 +158,56 @@ final class ExperienceController
 
     public function previewImport(Request $request): JsonResponse
     {
-        $data = $request->validate(['entity_type' => ['required', Rule::in(['PARTIES', 'ITEMS'])], 'file' => ['required', 'file', 'mimes:csv,txt', 'max:5120']]); [$user, $context] = $this->actor($request);
+        $data = $request->validate([
+            'entity_type' => ['required', Rule::in(['PARTIES', 'ITEMS'])],
+            'file' => ['required', 'file', 'mimes:csv,txt,xls,xlsx', 'max:10240'],
+        ]);
+        [$user, $context] = $this->actor($request);
         $this->authoriseImport($user, $request, $data['entity_type'], false);
-        $handle = fopen($data['file']->getRealPath(), 'rb'); $headers = array_map(fn ($v) => Str::snake(trim((string) $v)), fgetcsv($handle) ?: []); $rows = []; $errors = []; $line = 1;
-        while (($values = fgetcsv($handle)) !== false && count($rows) < 5000) { $line++; $row = array_combine($headers, array_pad($values, count($headers), '')) ?: []; $rowErrors = $this->validateImportRow($data['entity_type'], $row, $context); $rows[] = $row; foreach ($rowErrors as $error) $errors[] = ['row' => $line, 'field' => $error[0], 'message' => $error[1], 'value' => $row[$error[0]] ?? null]; }
-        fclose($handle); $id = (string) Str::uuid();
-        DB::table('bulk_import_batches')->insert($this->scope($user, $context) + ['id' => $id, 'entity_type' => $data['entity_type'], 'file_name' => $data['file']->getClientOriginalName(), 'status' => count($errors) ? 'INVALID' : 'VALID', 'row_count' => count($rows), 'error_count' => count($errors), 'rows_json' => json_encode($rows, JSON_THROW_ON_ERROR), 'errors_json' => json_encode($errors, JSON_THROW_ON_ERROR), 'created_entities_json' => null, 'record_version' => 1, 'created_at' => now(), 'updated_at' => now()]);
-        return response()->json(['data' => ['id' => $id, 'status' => count($errors) ? 'INVALID' : 'VALID', 'row_count' => count($rows), 'error_count' => count($errors), 'preview' => array_slice($rows, 0, 20), 'errors' => array_slice($errors, 0, 100)]], 201);
+        [$rows, $lineNumbers] = $this->readImportRows($data['file']);
+        $errors = [];
+        $seenCodes = [];
+        foreach ($rows as $index => $row) {
+            $rowErrors = $this->validateImportRow($data['entity_type'], $row, $context);
+            $code = mb_strtoupper(trim((string) ($row['code'] ?? '')));
+            if ($code !== '' && isset($seenCodes[$code])) {
+                $rowErrors[] = ['code', 'Code is duplicated within this import file.'];
+            }
+            if ($code !== '') $seenCodes[$code] = true;
+            foreach ($rowErrors as $error) {
+                $errors[] = [
+                    'row' => $lineNumbers[$index],
+                    'field' => $error[0],
+                    'message' => $error[1],
+                    'value' => $row[$error[0]] ?? null,
+                ];
+            }
+        }
+
+        $id = (string) Str::uuid();
+        DB::table('bulk_import_batches')->insert($this->scope($user, $context) + [
+            'id' => $id,
+            'entity_type' => $data['entity_type'],
+            'file_name' => $data['file']->getClientOriginalName(),
+            'status' => count($errors) ? 'INVALID' : 'VALID',
+            'row_count' => count($rows),
+            'error_count' => count($errors),
+            'rows_json' => json_encode($rows, JSON_THROW_ON_ERROR),
+            'errors_json' => json_encode($errors, JSON_THROW_ON_ERROR),
+            'created_entities_json' => null,
+            'record_version' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json(['data' => [
+            'id' => $id,
+            'status' => count($errors) ? 'INVALID' : 'VALID',
+            'row_count' => count($rows),
+            'error_count' => count($errors),
+            'preview' => array_slice($rows, 0, 20),
+            'errors' => array_slice($errors, 0, 100),
+        ]], 201);
     }
 
     public function commitImport(string $batchId, Request $request): JsonResponse
@@ -166,9 +217,69 @@ final class ExperienceController
         if ($batch->status !== 'VALID') throw ValidationException::withMessages(['batch' => ['Only a validated import batch can be committed.']]);
         $rows = json_decode($batch->rows_json, true); $created = [];
         DB::transaction(function () use ($batch, $rows, $user, $context, &$created): void {
-            foreach ($rows as $row) { $id = (string) Str::uuid();
-                if ($batch->entity_type === 'PARTIES') { DB::table('parties')->insert(['id' => $id, 'company_id' => $context['company_id'], 'code' => trim($row['code']), 'display_name' => trim($row['display_name']), 'legal_name' => trim($row['legal_name'] ?: $row['display_name']), 'party_kind' => strtoupper(trim($row['party_kind'] ?: 'ORGANISATION')), 'notes' => $row['notes'] ?: null, 'status' => 'DRAFT', 'record_version' => 1, 'created_at' => now(), 'updated_at' => now()]); $table = 'parties'; }
-                else { DB::table('items')->insert(['id' => $id, 'company_id' => $context['company_id'], 'code' => trim($row['code']), 'name' => trim($row['name']), 'item_type' => strtoupper(trim($row['item_type'])), 'base_uom' => strtoupper(trim($row['base_uom'])), 'status' => 'DRAFT', 'record_version' => 1, 'created_at' => now(), 'updated_at' => now()]); $table = 'items'; }
+            foreach ($rows as $row) {
+                $id = (string) Str::uuid();
+                $now = now();
+                if ($batch->entity_type === 'PARTIES') {
+                    $displayName = trim((string) $row['display_name']);
+                    DB::table('parties')->insert([
+                        'id' => $id,
+                        'company_id' => $context['company_id'],
+                        'code' => mb_strtoupper(trim((string) $row['code'])),
+                        'display_name' => $displayName,
+                        'legal_name' => trim((string) ($row['legal_name'] ?? '')) ?: $displayName,
+                        'party_kind' => mb_strtoupper(trim((string) ($row['party_kind'] ?? ''))) ?: 'ORGANISATION',
+                        'notes' => $this->nullable($row['notes'] ?? null),
+                        'status' => 'DRAFT',
+                        'record_version' => 1,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                    foreach ($this->partyRoles($row) as $roleCode) {
+                        DB::table('party_roles')->insert([
+                            'id' => (string) Str::uuid(),
+                            'company_id' => $context['company_id'],
+                            'party_id' => $id,
+                            'role_code' => $roleCode,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    }
+                    $contactName = trim((string) ($row['contact_name'] ?? ''));
+                    $contactEmail = $this->nullable($row['contact_email'] ?? $row['email'] ?? null);
+                    $contactPhone = $this->nullable($row['contact_phone'] ?? $row['phone'] ?? null);
+                    if ($contactName !== '' || $contactEmail !== null || $contactPhone !== null) {
+                        DB::table('party_contacts')->insert([
+                            'id' => (string) Str::uuid(),
+                            'company_id' => $context['company_id'],
+                            'party_id' => $id,
+                            'name' => $contactName,
+                            'job_title' => null,
+                            'department' => null,
+                            'email' => $contactEmail,
+                            'phone' => $contactPhone,
+                            'mobile' => null,
+                            'is_primary' => true,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    }
+                    $table = 'parties';
+                } else {
+                    DB::table('items')->insert([
+                        'id' => $id,
+                        'company_id' => $context['company_id'],
+                        'code' => mb_strtoupper(trim((string) $row['code'])),
+                        'name' => trim((string) $row['name']),
+                        'item_type' => mb_strtoupper(trim((string) $row['item_type'])),
+                        'base_uom' => mb_strtoupper(trim((string) $row['base_uom'])),
+                        'status' => 'DRAFT',
+                        'record_version' => 1,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                    $table = 'items';
+                }
                 $created[] = ['table' => $table, 'id' => $id];
             }
             DB::table('bulk_import_batches')->where('id', $batch->id)->update(['status' => 'COMMITTED', 'created_entities_json' => json_encode($created, JSON_THROW_ON_ERROR), 'committed_at' => now(), 'record_version' => ((int) $batch->record_version) + 1, 'updated_at' => now()]);
@@ -190,6 +301,145 @@ final class ExperienceController
     {
         [$user, $context] = $this->actor($request); $batch = $this->batch($batchId, $user, $context); $errors = json_decode($batch->errors_json, true);
         return response()->streamDownload(function () use ($errors): void { $out = fopen('php://output', 'wb'); fputcsv($out, ['row', 'field', 'message', 'value']); foreach ($errors as $error) fputcsv($out, [$error['row'], $error['field'], $error['message'], $error['value']]); fclose($out); }, 'import-errors-'.$batchId.'.csv', ['Content-Type' => 'text/csv']);
+    }
+
+    public function exportParties(Request $request): StreamedResponse
+    {
+        $data = $request->validate([
+            'role_code' => ['sometimes', 'string', Rule::in(PartyService::ROLE_CODES)],
+        ]);
+        [$user, $context] = $this->actor($request);
+        abort_unless($this->sessions->canViewScreen($user, $request, 'MD-PARTY'), 403);
+
+        $query = DB::table('parties')->where('company_id', $context['company_id']);
+        if (isset($data['role_code'])) {
+            $query->whereExists(fn (Builder $role) => $role->selectRaw('1')->from('party_roles')
+                ->whereColumn('party_roles.party_id', 'parties.id')->where('party_roles.role_code', $data['role_code']));
+        }
+        $parties = $query->orderBy('code')->get([
+            'id', 'code', 'display_name', 'legal_name', 'party_kind', 'notes',
+        ]);
+        $partyIds = $parties->pluck('id')->all();
+        $roles = $partyIds === [] ? collect() : DB::table('party_roles')
+            ->where('company_id', $context['company_id'])->whereIn('party_id', $partyIds)
+            ->orderBy('role_code')->get(['party_id', 'role_code'])->groupBy('party_id');
+        $contacts = $partyIds === [] ? collect() : DB::table('party_contacts')
+            ->where('company_id', $context['company_id'])->whereIn('party_id', $partyIds)
+            ->orderByDesc('is_primary')->orderBy('name')->get(['party_id', 'name', 'email', 'phone'])->groupBy('party_id');
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('CRM Parties');
+        $headings = ['Code', 'Display Name', 'Legal Name', 'Party Kind', 'Role Codes', 'Contact Name', 'Contact Email', 'Contact Phone', 'Notes'];
+        $this->writeSpreadsheetRow($sheet, 1, $headings);
+        foreach ($parties as $index => $party) {
+            $contact = $contacts->get($party->id)?->first();
+            $this->writeSpreadsheetRow($sheet, $index + 2, [
+                $party->code,
+                $party->display_name,
+                $party->legal_name,
+                $party->party_kind,
+                $roles->get($party->id)?->pluck('role_code')->implode('|') ?? '',
+                $contact?->name ?? '',
+                $contact?->email ?? '',
+                $contact?->phone ?? '',
+                $party->notes ?? '',
+            ]);
+        }
+        $sheet->getStyle('A1:I1')->getFont()->setBold(true);
+        $sheet->freezePane('A2');
+        $sheet->setAutoFilter('A1:I'.max(1, $parties->count() + 1));
+        foreach (range('A', 'I') as $column) $sheet->getColumnDimension($column)->setAutoSize(true);
+        $writer = new Xlsx($spreadsheet);
+        $fileName = 'qtfoods-crm-parties-'.now()->format('Ymd').'.xlsx';
+
+        return response()->streamDownload(function () use ($writer, $spreadsheet): void {
+            $writer->save('php://output');
+            $spreadsheet->disconnectWorksheets();
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'no-store, private',
+        ]);
+    }
+
+    private function readImportRows(UploadedFile $file): array
+    {
+        $extension = mb_strtolower($file->getClientOriginalExtension());
+        if (in_array($extension, ['csv', 'txt'], true)) {
+            $handle = fopen($file->getRealPath(), 'rb');
+            if ($handle === false) {
+                throw ValidationException::withMessages(['file' => ['The import file could not be read.']]);
+            }
+            try {
+                $matrix = [];
+                while (($values = fgetcsv($handle, null, ',', '"', '')) !== false) $matrix[] = $values;
+            } finally {
+                fclose($handle);
+            }
+        } else {
+            try {
+                $reader = IOFactory::createReaderForFile($file->getRealPath());
+                $reader->setReadDataOnly(true);
+                $spreadsheet = $reader->load($file->getRealPath());
+                $matrix = $spreadsheet->getActiveSheet()->toArray('', false, true, false);
+                $spreadsheet->disconnectWorksheets();
+            } catch (\Throwable) {
+                throw ValidationException::withMessages([
+                    'file' => ['The Excel workbook could not be read. Upload a valid .xls or .xlsx file.'],
+                ]);
+            }
+        }
+
+        if ($matrix === []) {
+            throw ValidationException::withMessages(['file' => ['The import file is empty.']]);
+        }
+        $headingValues = array_shift($matrix);
+        $headers = array_map(
+            fn (mixed $value): string => Str::snake(trim(ltrim((string) $value, "\xEF\xBB\xBF"))),
+            $headingValues,
+        );
+        if ($headers === [] || in_array('', $headers, true)) {
+            throw ValidationException::withMessages(['file' => ['Every import column must have a heading.']]);
+        }
+        if (count($headers) !== count(array_unique($headers))) {
+            throw ValidationException::withMessages(['file' => ['Import column headings must be unique.']]);
+        }
+
+        $rows = [];
+        $lineNumbers = [];
+        foreach ($matrix as $offset => $values) {
+            $values = array_slice(array_pad($values, count($headers), ''), 0, count($headers));
+            if (collect($values)->every(fn (mixed $value): bool => trim((string) $value) === '')) continue;
+            if (count($rows) >= 5000) break;
+            $rows[] = array_combine($headers, array_map(fn (mixed $value): string => trim((string) $value), $values));
+            $lineNumbers[] = $offset + 2;
+        }
+        if ($rows === []) {
+            throw ValidationException::withMessages(['file' => ['The import file contains no data rows.']]);
+        }
+
+        return [$rows, $lineNumbers];
+    }
+
+    private function partyRoles(array $row): array
+    {
+        $value = trim((string) ($row['role_codes'] ?? $row['roles'] ?? $row['role_code'] ?? ''));
+        if ($value === '') return ['CUSTOMER'];
+        $aliases = ['CLIENT' => 'CUSTOMER', 'BUYER' => 'CUSTOMER', 'SELLER' => 'SUPPLIER', 'VENDOR' => 'SUPPLIER'];
+        $roles = array_map(function (string $role) use ($aliases): string {
+            $role = mb_strtoupper(trim($role));
+            return $aliases[$role] ?? $role;
+        }, preg_split('/[|,;]+/', $value) ?: []);
+
+        return array_values(array_unique(array_filter($roles)));
+    }
+
+    private function writeSpreadsheetRow(Worksheet $sheet, int $row, array $values): void
+    {
+        foreach (array_values($values) as $index => $value) {
+            $coordinate = Coordinate::stringFromColumnIndex($index + 1).$row;
+            $sheet->setCellValueExplicit($coordinate, (string) $value, DataType::TYPE_STRING);
+        }
     }
 
     private function searchTransactions(array &$results, User $user, Request $request, array $context, string $like): void
@@ -240,7 +490,45 @@ final class ExperienceController
     private function notificationPreferences(User $user, array $context): array { $row = DB::table('user_workspace_settings')->where($this->scope($user, $context))->where('setting_key', 'notification_preferences')->first(); return array_merge(['urgent' => true, 'high' => true, 'overdue' => true, 'include_completed' => true], $row ? json_decode($row->setting_value, true) : []); }
     private function notificationState(string $id, Request $request, bool $dismiss): JsonResponse { [$user, $context] = $this->actor($request); abort_unless(DB::table('work_items')->where('id', $id)->where('company_id', $context['company_id'])->exists(), 404); DB::table('user_notification_states')->updateOrInsert(['user_id' => $user->id, 'work_item_id' => $id], ['id' => (string) Str::uuid(), 'read_at' => now(), 'dismissed_at' => $dismiss ? now() : null, 'created_at' => now(), 'updated_at' => now()]); return response()->json(['data' => ['id' => $id, 'read' => true, 'dismissed' => $dismiss]]); }
     private function change(float|int $current, float|int $previous): ?float { return $previous == 0 ? ($current == 0 ? 0.0 : null) : round((($current - $previous) / abs($previous)) * 100, 1); }
-    private function validateImportRow(string $type, array $row, array $context): array { $errors = []; foreach ($type === 'PARTIES' ? ['code', 'display_name'] : ['code', 'name', 'item_type', 'base_uom'] as $field) if (trim((string) ($row[$field] ?? '')) === '') $errors[] = [$field, 'Required value is missing.']; $table = $type === 'PARTIES' ? 'parties' : 'items'; if (($row['code'] ?? '') !== '' && DB::table($table)->where('company_id', $context['company_id'])->where('code', trim($row['code']))->exists()) $errors[] = ['code', 'Code already exists in this company.']; if ($type === 'ITEMS' && ($row['base_uom'] ?? '') !== '' && ! DB::table('uoms')->where('code', strtoupper(trim($row['base_uom'])))->exists()) $errors[] = ['base_uom', 'Unit of measure does not exist.']; return $errors; }
+    private function validateImportRow(string $type, array $row, array $context): array
+    {
+        $errors = [];
+        foreach ($type === 'PARTIES' ? ['code', 'display_name'] : ['code', 'name', 'item_type', 'base_uom'] as $field) {
+            if (trim((string) ($row[$field] ?? '')) === '') $errors[] = [$field, 'Required value is missing.'];
+        }
+        $table = $type === 'PARTIES' ? 'parties' : 'items';
+        $code = trim((string) ($row['code'] ?? ''));
+        if ($code !== '' && DB::table($table)->where('company_id', $context['company_id'])
+            ->whereRaw('LOWER(code) = ?', [mb_strtolower($code)])->exists()) {
+            $errors[] = ['code', 'Code already exists in this company.'];
+        }
+        if ($type === 'PARTIES') {
+            $kind = mb_strtoupper(trim((string) ($row['party_kind'] ?? '')));
+            if ($kind !== '' && ! in_array($kind, PartyService::PARTY_KINDS, true)) {
+                $errors[] = ['party_kind', 'Party kind must be ORGANISATION or INDIVIDUAL.'];
+            }
+            $invalidRoles = array_values(array_diff($this->partyRoles($row), PartyService::ROLE_CODES));
+            if ($invalidRoles !== []) {
+                $errors[] = ['role_codes', 'Unknown role code(s): '.implode(', ', $invalidRoles).'.'];
+            }
+            $contactName = trim((string) ($row['contact_name'] ?? ''));
+            $contactEmail = trim((string) ($row['contact_email'] ?? $row['email'] ?? ''));
+            $contactPhone = trim((string) ($row['contact_phone'] ?? $row['phone'] ?? ''));
+            if (($contactEmail !== '' || $contactPhone !== '') && $contactName === '') {
+                $errors[] = ['contact_name', 'Contact name is required when contact email or phone is supplied.'];
+            }
+            if ($contactEmail !== '' && filter_var($contactEmail, FILTER_VALIDATE_EMAIL) === false) {
+                $errors[] = ['contact_email', 'Contact email must be a valid email address.'];
+            }
+        }
+        if ($type === 'ITEMS' && ($row['base_uom'] ?? '') !== ''
+            && ! DB::table('uoms')->where('code', mb_strtoupper(trim((string) $row['base_uom'])))->exists()) {
+            $errors[] = ['base_uom', 'Unit of measure does not exist.'];
+        }
+
+        return $errors;
+    }
+    private function nullable(mixed $value): ?string { $value = trim((string) ($value ?? '')); return $value === '' ? null : $value; }
     private function batch(string $id, User $user, array $context): object { $row = DB::table('bulk_import_batches')->where($this->scope($user, $context))->where('id', $id)->first(); abort_unless($row, 404); return $row; }
     private function authoriseImport(User $user, Request $request, string $type, bool $write): void { $screen = $type === 'PARTIES' ? 'MD-PARTY' : 'MD-ITEM'; $allowed = $write ? $this->sessions->can($user, $request, 'ACTION:'.$screen.':CREATE') : $this->sessions->canViewScreen($user, $request, $screen); abort_unless($allowed, 403); }
 }
